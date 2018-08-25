@@ -134,12 +134,12 @@ Markdown
 
     ！[pic](https://github.com/linux-downey/bloc_test/blob/master/picture/Makedown/Makedown.png)  
 
-所对应的显示内容为：
-    ！[pic](https://github.com/linux-downey/bloc_test/blob/master/picture/Makedown/Makedown.png)  
+所对应的显示内容为：  
+！[pic](https://github.com/linux-downey/bloc_test/blob/master/picture/Makedown/Makedown.png)  
 
 ***值得注意的是，目前还并没有一种兼容性比较好的方法将图片内嵌到文本中，一般的做法是在文本内引用图片的链接，但是在这种做法下，如果图片资源一旦迁移，将会额外增加修改成本***  
 #### 修改图片大小  
 
-    ！[pic](https://github.com/linux-downey/bloc_test/blob/master/picture/Makedown/Makedown.png) =100x100
+    ！[pic](https://github.com/linux-downey/bloc_test/blob/master/picture/Makedown/Makedown.png) =100*100
 所对应的显示内容为：  
 ！[pic](https://github.com/linux-downey/bloc_test/blob/master/picture/Makedown/Makedown.png) =100*100
