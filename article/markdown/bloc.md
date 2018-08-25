@@ -1,13 +1,12 @@
 # 历史
-
-    Markdown是一种轻量级标记语言，创始人为约翰·格鲁伯（英语：John Gruber）。它允许人们“使用易读易写的纯文本格式编写文档，然后转换成有效的XHTML（或者HTML）文档”
-    自从GitHub流行以来，Markdown作为一种轻量级标记语言就深受程序员的喜爱，上手也是非常简单，接下来我们就来分析一下为什么markdown为什么能被一向挑剔的程序员们爱不释手呢？
+Markdown是一种轻量级标记语言，创始人为约翰·格鲁伯（英语：John Gruber）。它允许人们“使用易读易写的纯文本格式编写文档，然后转换成有效的XHTML（或者HTML）文档”,
+自从GitHub流行以来，Markdown作为一种轻量级标记语言就深受程序员的喜爱，上手也是非常简单，接下来我们就来分析一下为什么markdown为什么能被一向挑剔的程序员们爱不释手呢？
 
 
 # 语法
 ***(注：Markdown发展至今衍生出一些细节上有些许差异的版本，这里以GitHub 的Flavored Markdown（同样在标准Markdown语法上有一些修改） 语法为标准讨论，谁叫咱是程序员呢..)***
 ***
-## 1、head
+### head
 ***
 ###Markdown支持多级标题对应不同的字体大小，例如：
 
@@ -24,11 +23,12 @@
 #### Markdown
 ##### Markdown
 ###### Markdown
-最多可以支持6个，而且需要注意的是，这里的#开头的文字或标题必须另起一行，#和文字中间必须有空格，不然GitHub的README无法识别。同时有些爱思考的同学就会说，要是我用七个#，会不会将前六个#作为字体符号，最后一个在文本中显示呢。例如：
+最多可以支持6个，而且需要注意的是，这里的#开头的文字或标题必须另起一行，#和文字中间必须有空格，不然GitHub的README无法识别。  
+同时，有些爱思考的同学就会说，要是我用七个#，会不会将前六个#作为字体符号，最后一个在文本中显示呢。例如：
 
     ####### Markdown
 而结果是：
-####### Markdown
+####### Markdown  
 显然，Markdown并没有对其进行转化。
 
 ***
@@ -64,13 +64,14 @@ Markdown
 
     第二行
     第三行
-所对应的显示内容为：  
-第一行
+所对应的显示内容为：
 
-第二行
-第三行
+    
+    第一行
+    第二行第三行
 
 很明显，第二行和第三行连到了一起，那如果我就是不喜欢隔一个空行，非要以回车来换行呢呢，考虑到部分强迫症晚期患者，Markdown有另一种换行的方法:  
+***
 ***在上一行的行尾添加两个空格，然后以回车来换行，建议用空行换行***  
 ***
 ### 插入文本引用
@@ -97,7 +98,9 @@ Markdown
 所对应的显示内容为：  
 * Markdown1
 + Markdown2
-- Markdown3
+- Markdown3  
+
+
 结果显示，这三种符号是可以交叉使用的  
 ***
 #### 有序列表
@@ -126,8 +129,11 @@ Markdown
 添加链接的方法为：
     
     [博客](https://www.cnblogs.com/downey-blog/)  
-所对应的显示内容为：  
-[博客](https://www.cnblogs.com/downey-blog/)，点击高亮字体即可进入相应链接  
+所对应的显示内容为：   
+
+[博客](https://www.cnblogs.com/downey-blog/)  
+
+，点击高亮字体即可进入相应链接  
 
 ### 插入图片
 插入图片的方法与插入链接相比仅仅在前面多了一个 "!",即：  
@@ -142,7 +148,8 @@ Markdown
 ***  
 #### 修改图片大小  
 如果要修改图片大小，可以使用HTML的处理方式来插入图片，并设置固定大小  
-    <img src="https://github.com/linux-downey/bloc_test/blob/master/picture/Makedown/Makedown.png" width=256 height=256 />
+
+    <img src="https://github.com/linux-downey/bloc_test/blob/master/picture/Makedown/Makedown.png" width=100 height=60 />
 
 所对应的显示内容为：  
 <img src="https://github.com/linux-downey/bloc_test/blob/master/picture/Makedown/Makedown.png" width=100 height=60 />
