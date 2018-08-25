@@ -64,11 +64,82 @@ Markdown
 
     第二行
     第三行
-所对应的显示内容为：
+所对应的显示内容为：  
 第一行
 
 第二行
 第三行
 
+很明显，第二行和第三行连到了一起，那如果我就是不喜欢隔一个空行，非要以回车来换行呢呢，考虑到部分强迫症晚期患者，Markdown有另一种换行的方法:  
+***在上一行的行尾添加两个空格，然后以回车来换行，建议用空行换行***  
 ***
 ### 插入文本引用
+如果我需要将一段文本与正文文本相区分，比如示例，引用文章之类的，怎么做呢？  
+答案是先换行(隔一个或者多个空行)，然后新行以tab键开头，键入文本，示例：
+
+    正文
+
+        引用文本示例
+***
+所对应的显示内容为：  
+正文
+
+    引用文本示例。
+***
+
+### 列表
+#### 无序列表
+无序列表k而已使用* + -来标识，注意在字符之后要添加一个空格，示例：  
+
+    * Markdown1
+    + Markdown2
+    - Markdown3
+所对应的显示内容为：  
+* Markdown1
++ Markdown2
+- Markdown3
+结果显示，这三种符号是可以交叉使用的  
+***
+#### 有序列表
+有序列表需要添加一个相应的'数字'+'.'+'空格'来标识，示例：  
+
+    1. Markdown1   
+    2. Markdown2  
+    3. Markdown3  
+所对应的显示内容为：  
+1. Markdown1
+2. Markdown2
+3. Markdown3
+****
+
+### 代码
+如何把代码贴上去呢？很简单，将代码用两个`包含起来，这个符号不是单引号，而是反引号，键盘左上角那个
+
+    `print "hello world" `  
+所对应的显示内容为  
+`print "hello world"`
+
+同时也可以用上面提到的引用文本的方法来贴代码
+
+***
+### 链接  
+添加链接的方法为：
+    
+    [博客](https://www.cnblogs.com/downey-blog/)  
+所对应的显示内容为：  
+[博客](https://www.cnblogs.com/downey-blog/)，点击高亮字体即可进入相应链接  
+
+### 插入图片
+插入图片的方法与插入链接相比仅仅在前面多了一个 "!",即：  
+
+    ！[pic](https://github.com/linux-downey/bloc_test/blob/master/picture/Makedown/Makedown.png)  
+
+所对应的显示内容为：
+    ！[pic](https://github.com/linux-downey/bloc_test/blob/master/picture/Makedown/Makedown.png)  
+
+***值得注意的是，目前还并没有一种兼容性比较好的方法将图片内嵌到文本中，一般的做法是在文本内引用图片的链接，但是在这种做法下，如果图片资源一旦迁移，将会额外增加修改成本***  
+#### 修改图片大小  
+
+    ！[pic](https://github.com/linux-downey/bloc_test/blob/master/picture/Makedown/Makedown.png) =100x100
+所对应的显示内容为：  
+！[pic](https://github.com/linux-downey/bloc_test/blob/master/picture/Makedown/Makedown.png) =100*100
