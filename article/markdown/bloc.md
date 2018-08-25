@@ -143,4 +143,4 @@ Markdown
 
     ![pic](https://github.com/linux-downey/bloc_test/blob/master/picture/Makedown/Makedown.png) =100*100
 所对应的显示内容为：  
-![pic](https://github.com/linux-downey/bloc_test/blob/master/picture/Makedown/Makedown.png) =100*100
+![pic](https://github.com/linux-downey/bloc_test/blob/master/picture/Makedown/Makedown.png) =100x100
