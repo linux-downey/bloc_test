@@ -10,25 +10,26 @@
 ***
 ###Markdown支持多级标题对应不同的字体大小，例如：
 
-    #Markdown
-    ##Markdown
-    ###Markdown
-    ####Markdown
-    #####Markdown
-    ######Markdown
+    # Markdown
+    ## Markdown
+    ### Markdown
+    #### Markdown
+    ##### Markdown
+    ###### Markdown
 所对应的显示内容为：
-#Markdown  
-##Markdown
-###Markdown
-####Markdown
-#####Markdown
-######Markdown
+# Markdown  
+## Markdown
+### Markdown
+#### Markdown
+##### Markdown
+###### Markdown
 最多可以支持6个，而且需要注意的是，这里的#开头的文字或标题必须另起一行。同时有些爱思考的同学就会说，要是我用七个#，会不会将前六个#作为字体符号，最后一个在文本中显示呢。例如：
 
     #######Markdown
 而结果是：
 #######Markdown
 显然，Markdown并没有对其进行转化。
+***同时，非常遗憾的是，github中并不支持这种语法，而只能用下面的方法：***
 ***
 ###除了用#标识字体(标题)大小，还有一种方法：
 
