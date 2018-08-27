@@ -84,5 +84,11 @@ std::basic_string类继承std::_String_base基类，为了理解方便，在这�
     ney
     ne
 #### string(int __n, char __c) //用__n个__c初始化类
+***
 
-#### 操作符重载
+### 操作符重载
+#### string& operator=(const string& __s) //将string类__s赋值给左值
+#### string& operator=(const char* __s)   //将字符串__s赋值给左值
+
+***
+
