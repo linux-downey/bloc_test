@@ -91,4 +91,32 @@ std::basic_string类继承std::_String_base基类，为了理解方便，在这�
 #### string& operator=(const char* __s)   //将字符串__s赋值给左值
 
 ***
+### 迭代器方法
+#### iterator begin()   //{ return _M_start; } 返回初始位置迭代器
+#### iterator end()     //{ return _M_finish; } ,返回结束迭代器，注意返回的end迭代器事实上是指向类内最后一个元素的下一个位置，这个迭代器并不指向具体元素，示例：
 
+    string str("downey");
+	string::iterator it;
+	it=str.end();
+	cout<<*it<<endl;
+	it=str.begin();
+	cout<<*it<<endl;
+	for(;it!=str.end();it++)
+		cout<<*it;
+	cout<<endl;
+    结果：
+
+    d
+    downey
+可以看出，end()方法返回的迭代器指向内容其实是不确定的，至于为什么c++给迭代器的实现标准为左开右闭区间而不是左开右开，个人的看法是如果设计成左开右开区间，就不能使用for(;it!=str.end();it++)这种形式，中间的迭代器需要+1，但是由于迭代器指向的对象时抽象化的，所以会给编程带来一些不必要的麻烦。
+#### const_iterator begin() const //  {return _M_start;}
+#### const_iterator end()   const //  { return _M_finish; }
+const_iterator迭代器指向的类内元素是只读的，不可修改。示例：
+
+    string str("downey");
+	string::const_iterator it;
+	it=str.begin();
+	*it='s';
+    结果：
+    编译错误： error: assignment of read-only location ‘it.__gnu_cxx::__normal_iterator<_Iterator, _Container>::operator*<const char*, std::basic_string<char> >()’
+#### reverse_iterator rbegin() //  { return reverse_iterator(_M_finish); }
