@@ -70,6 +70,8 @@ std::basic_string类继承std::_String_base基类，为了理解方便，在这�
 ## string内置方法
 ***注1：全局替换：typedef basic_string string;***
 ***注2：所有的类型表示，例如size_type,value_type等全部替代为简化类型，平台不同会有细微差异***
+***
+
 ### 构造函数
 #### string()   //初始化一个空字符串
 #### string(const string& __s) //copy自一个string类
@@ -91,9 +93,17 @@ std::basic_string类继承std::_String_base基类，为了理解方便，在这�
 #### string& operator=(const char* __s)   //将字符串__s赋值给左值
 
 ***
+
 ### 迭代器方法
-#### iterator begin()   //{ return _M_start; } 返回初始位置迭代器
-#### iterator end()     //{ return _M_finish; } ,返回结束迭代器，注意返回的end迭代器事实上是指向类内最后一个元素的下一个位置，这个迭代器并不指向具体元素，示例：
+#### iterator begin()   
+
+    { return _M_start; } 
+返回初始位置迭代器
+***
+#### iterator end()     
+
+    { return _M_finish; } 
+返回结束迭代器，注意返回的end迭代器事实上是指向类内最后一个元素的下一个位置，这个迭代器并不指向具体元素，示例：
 
     string str("downey");
 	string::iterator it;
@@ -119,4 +129,25 @@ const_iterator迭代器指向的类内元素是只读的，不可修改。示例
 	*it='s';
     结果：
     编译错误： error: assignment of read-only location ‘it.__gnu_cxx::__normal_iterator<_Iterator, _Container>::operator*<const char*, std::basic_string<char> >()’
-#### reverse_iterator rbegin() //  { return reverse_iterator(_M_finish); }
+***
+#### reverse_iterator rbegin() 
+
+    { return reverse_iterator(_M_finish); }
+#### reverse_iterator rend()
+
+    { return reverse_iterator(_M_start); }
+
+#### const_reverse_iterator rbegin() const
+#### const_reverse_iterator rend()   const 
+
+这里的四个迭代器指的是反向地遍历整个类，从函数源码可以看出，原理与基本迭代器类似，就不一一列举了。
+
+
+### 其他方法
+#### size_type size() const ;
+
+    return _M_finish - _M_start;
+#### size_type length() const ;
+与size方法其实是完全一样的，length()调用了size()
+#### size_t max_size() const;
+这个方法指定了string类的最大值。
