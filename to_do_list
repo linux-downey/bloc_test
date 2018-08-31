@@ -3,3 +3,13 @@ GCC compile
 C param
 math
 vertion control
+当前主流CPU架构
+GCC优化可能带来的风险
+C++模板实现的原理
+预编译，条件编译和宏的使用
+制作交叉编译工具链
+linux的裁剪
+静态动态库、封库。
+链接过程。
+main函数执行之前
+linux的bootloader
