@@ -97,12 +97,12 @@ copy __s从__pos开始的__npos个字符，示例：
 将string类__s赋值给左值
 #### string& operator=(const char* __s)   
 将字符串__s赋值给左值
-#### reference operator[](size_type __n) const
-#### reference operator[](size_type __n)
+#### reference operator[](int __n) const
+#### reference operator[](int __n)
 提供下标访问
 #### string& operator+=(const string& __s)
-#### string& operator+=(const _CharT* __s)
-#### string& operator+=(_CharT __c)
+#### string& operator+=(const char* __s)
+#### string& operator+=(char __c)
 扩展字符串
 
 ***
@@ -141,7 +141,7 @@ const_iterator迭代器指向的类内元素是只读的，不可修改。示例
 	it=str.begin();
 	*it='s';
     结果：
-    编译错误： error: assignment of read-only location ‘it.__gnu_cxx::__normal_iterator<_Iterator, _Container>::operator*<const char*, std::basic_string<char> >()’
+    编译错误： error: assignment of read-only location ‘it.__gnu_cxx::__normal_iterator<_Iterator, _Container>::operator*<const char*, std::string<char> >()’
 ***
 #### reverse_iterator rbegin() 
 
@@ -161,10 +161,10 @@ const_iterator迭代器指向的类内元素是只读的，不可修改。示例
 在字符串最后连接一个字符串__s
 #### string& append(const string& __s,int __pos, int __n)
 
-#### string& append(const cahr* __s, size_type __n)
+#### string& append(const cahr* __s, int __n)
 #### string& append(int __n, char __c);
 
-#### void push_back(_CharT __c)
+#### void push_back(char __c)
 在最后插入字符
 #### void pop_back()
 删除最后一个字符，这个方法直接使用g++编译会报错，需要加上-std=c++11编译选项
@@ -187,66 +187,142 @@ const_iterator迭代器指向的类内元素是只读的，不可修改。示例
     结果：
     d1234567ney
 从结果不难看出，在str[1]的位置将两个字符替换成了str1.
-#### string& replace(size_type __pos1, size_type __n1,const string& __s,size_type __pos2, size_type __n2)
-#### basic_string& replace(size_type __pos, size_type __n1,const _CharT* __s, size_type __n2)
-#### basic_string& replace(size_type __pos, size_type __n1,const _CharT* __s)
-#### basic_string& replace(size_type __pos, size_type __n1,size_type __n2, _CharT __c)
-#### basic_string& replace(iterator __first, iterator __last, const basic_string __s)
-#### basic_string& replace(iterator __first, iterator __last,const _CharT* __s, size_type __n)
-#### basic_string& replace(iterator __first, iterator __last,const _CharT* __s)
-#### basic_string& replace(iterator __first, iterator __last, size_type __n, _CharT __c)
+#### string& replace(int __pos1, int __n1,const string& __s,int __pos2, int __n2)
+将被替换string类从_pos1开始的__n1个字符替换成为__s类的从__pos2开始的__n2个字符
+#### string& replace(int __pos, int __n1,const char* __s, int __n2)
+将被替换string类从_pos1开始的__n1个字符替换成为字符串__s的前__n2个字符
+#### string& replace(int __pos, int __n1,const char* __s)
+将被替换string类从_pos1开始的__n1个字符替换成为字符串__s
+#### string& replace(int __pos, int __n1,int __n2, char __c)
+将被替换string类从_pos1开始的__n1个字符替换成为__n2个字符__c
+#### string& replace(iterator __first, iterator __last, const string __s)
+使用迭代器的实现，将__first迭代器和__last迭代器包含的的数据替换成string __s，示例：
+
+    string str("downey");
+	string str1="123456";
+	string::iterator it_f=str.begin();
+	string::iterator it_l=str.end();
+	it_f+=2;	
+	it_l-=2;
+	str.replace(it_f,it_l,str1);
+	cout<<str<<endl;
+    结果:
+    do123456ey
+从结果可以看出，传入的迭代器参数为it_f指向第二个字符，it_l指向倒数第二个字符，输出的结果为将it_f~it_l中间的字符替换成str1.
+#### string& replace(iterator __first, iterator __last,const char* __s, int __n)
+使用迭代器的实现，将__first迭代器和__last迭代器包含的的数据替换成string __s的前__n个字符
+#### string& replace(iterator __first, iterator __last,const char* __s)
+使用迭代器的实现，将__first迭代器和__last迭代器包含的的数据替换成字符串 __s
+#### string& replace(iterator __first, iterator __last, int __n, char __c)
+使用迭代器的实现，将__first迭代器和__last迭代器包含的的数据替换成__n个__c
+
+    
+
+
 
 ***
-#### void swap(basic_string& __s)
+#### void swap(string& __s)
 交换两个类的元素内容
 ***
 
 ### 只读方法
-#### const _CharT* c_str() const;
+#### const char* c_str() const;
 转换成C形式的字符串
-#### const _CharT* data()  const;
+#### const char* data()  const;
 获取字符串内容
-#### size_type find(const basic_string& __s, size_type __pos = 0) const
-#### size_type find(const _CharT* __s, size_type __pos = 0) const
-#### size_type find(const _CharT* __s, size_type __pos, size_type __n) const;
-#### size_type find(_CharT __c, size_type __pos = 0) const;
-#### size_type rfind(const basic_string& __s, size_type __pos = npos) const 
-#### size_type rfind(const _CharT* __s, size_type __pos = npos) const 
-#### size_type rfind(const _CharT* __s, size_type __pos, size_type __n) const;
-#### size_type rfind(_CharT __c, size_type __pos = npos) const;
-#### size_type find_first_of(const basic_string& __s, size_type __pos = 0) const
-#### size_type find_first_of(const _CharT* __s, size_type __pos = 0) const
-#### size_type find_first_of(const _CharT* __s, size_type __pos, size_type __n) const;
-#### size_type find_first_of(_CharT __c, size_type __pos = 0) const
-#### size_type find_last_of(const basic_string& __s,size_type __pos = npos) const
-#### size_type find_last_of(const basic_string& __s,size_type __pos = npos) const
-#### size_type find_last_of(const _CharT* __s, size_type __pos = npos) const
-#### size_type find_last_of(const _CharT* __s, size_type __pos, size_type __n) const;
-#### size_type find_last_of(_CharT __c, size_type __pos = npos) const
-#### size_type find_first_not_of(const basic_string& __s, size_type __pos = 0) const
-#### size_type find_first_not_of(const _CharT* __s, size_type __pos = 0) const
-#### size_type find_first_not_of(const _CharT* __s, size_type __pos,size_type __n) const;
-#### size_type find_first_not_of(_CharT __c, size_type __pos = 0) const;
-#### size_type find_last_not_of(const basic_string& __s, size_type __pos = npos) const
-#### size_type find_last_not_of(const _CharT* __s, size_type __pos = npos) const
-#### size_type find_last_not_of(const _CharT* __s, size_type __pos,size_type __n) const;
-#### size_type find_last_not_of(_CharT __c, size_type __pos = npos) const;
+#### int find(const string& __s, int __pos = 0) const
+在以__pos开头的string类中寻找string类__s，找到目标便返回__s的首地址，如果没有找到就返回string::npos，string::npos其实也是一个特定的值，但是建议直接使用string::npos而不是使用string::npos对应的额值，因为在不同平台上可能值不一样
+#### int find(const char* __s, int __pos = 0) const
+在以__pos开头的string类中寻找字符串__s，找到目标便返回__s的首地址，如果没有找到就返回string::npos
+#### int find(const char* __s, int __pos, int __n) const;
+在以__pos开头的string类中寻找字符串__s，找到目标便返回__s的首地址，__n指的是从头截取__s的长度，字面上可能难以理解，这里给出一个示例：
+
+    string str("downey");
+	size_t num=str.find("wney",2,4);
+	cout<<num<<endl;
+	num=str.find("wney",3,4);
+	cout<<num<<endl;
+	num=str.find("wney",2,5);
+	cout<<num<<endl;
+    结果：
+    2
+    4294967295
+    4294967295
+从结果来看，第一个find方法是从"downey"中的第二个字符开始找"wney"字符串，结果为存在，且返回索引。  
+第二个find方法是从"downey"中的第三个字符开始找"wney"字符串，结果为不存在，4294967295即为string::npos的值。
+第三个find方法是从"downey"中的第二个字符开始找"wney"字符串，但是指定"wney"字符串长度为5，而"wney"长度不足5，则返回string::npos.
+#### int find(char __c, int __pos = 0) const;
+在以__pos开头的string类中寻找字符__c
+#### int rfind(const string& __s, int __pos = npos) const 
+#### int rfind(const char* __s, int __pos = npos) const 
+#### int rfind(const char* __s, int __pos, int __n) const;
+#### int rfind(char __c, int __pos = npos) const;
+上述四个函数为find()的反向查找方法.
+#### int find_first_of(const string& __s, int __pos = 0) const
+在以__pos开头的string类中寻找string类__s中任意字符第一次出现的位置，给出一个示例：
+
+    string str("downey downey");
+	string str1("123456o");
+	size_t num=str.find_first_of(str1);
+	cout<<num<<endl;
+    结果：
+    1
+从结果可以看出，str1中的字母o出现在str中的索引1位置
+#### int find_first_of(const char* __s, int __pos = 0) const
+在以__pos开头的string类中寻找字符串__s中任意字符第一次出现的位置
+#### int find_first_of(const char* __s, int __pos, int __n) const;
+在以__pos开头的string类中寻找从字符串__s中截取前n个字符中任意字符第一次出现的位置
+#### int find_first_of(char __c, int __pos = 0) const
+在以__pos开头的string类中寻找__c第一次出现的位置
+#### int find_last_of(const string& __s,int __pos = npos) const
+为方便理解，给出一个示例：
+
+    string str("downey downey");
+	string str1("123e56o");
+	size_t num=str.find_last_of(str1);
+	cout<<num<<endl;
+    结果：
+    11
+从结果可以看出，尽管str1中e和o都是属于str中元素，但是返回值取最后一个
+#### int find_last_of(const string& __s,int __pos = npos) const
+#### int find_last_of(const char* __s, int __pos = npos) const
+#### int find_last_of(const char* __s, int __pos, int __n) const;
+#### int find_last_of(char __c, int __pos = npos) const
+上述四个方法与find_first_of类似，只是去查找最后出现的位置.
+#### int find_first_not_of(const string& __s, int __pos = 0) const
+为方便理解，这里给出一个示例：
+
+    string str("downey downey");
+	string str1("1d3e56o");
+	size_t num=str.find_first_not_of(str1);
+	cout<<num<<endl;
+    结果：
+    2
+从结果可以看出，在str中,第一个字符'd'和第二个字符'o'存在于str1中，而字符'w'不存在，所以返回'w'的索引2
+#### int find_first_not_of(const char* __s, int __pos = 0) const
+#### int find_first_not_of(const char* __s, int __pos,int __n) const;
+#### int find_first_not_of(char __c, int __pos = 0) const;
+#### int find_last_not_of(const string& __s, int __pos = npos) const
+#### int find_last_not_of(const char* __s, int __pos = npos) const
+#### int find_last_not_of(const char* __s, int __pos,int __n) const;
+#### int find_last_not_of(char __c, int __pos = npos) const;
+上述方法与find_first_of类似，只是查找字符不匹配的的位置
 #### 
 
-#### basic_string substr(size_type __pos = 0, size_type __n = npos) const
+#### string substr(int __pos = 0, int __n = npos) const
 获取子字符串，从__pos开始，__n个字符的字符串，_npos为0则截取到字符串结尾。
-#### int compare(const basic_string& __s) const 
-#### int compare(size_type __pos1, size_type __n1,const basic_string& __s) const
-#### int compare(size_type __pos1, size_type __n1,const basic_string& __s,size_type __pos2, size_type __n2) const
-#### int compare(const _CharT* __s) const
-#### int compare(size_type __pos1, size_type __n1, const _CharT* __s) const
-#### int compare(size_type __pos1, size_type __n1, const _CharT* __s,size_type __n2) const
-#### static int _M_compare(const _CharT* __f1, const _CharT* __l1,const _CharT* __f2, const _CharT* __l2)
+#### int compare(const string& __s) const 
+#### int compare(int __pos1, int __n1,const string& __s) const
+#### int compare(int __pos1, int __n1,const string& __s,int __pos2, int __n2) const
+#### int compare(const char* __s) const
+#### int compare(int __pos1, int __n1, const char* __s) const
+#### int compare(int __pos1, int __n1, const char* __s,int __n2) const
+#### static int _M_compare(const char* __f1, const char* __l1,const char* __f2, const char* __l2)
 ***
 ### 流操作
-#### getline(istream& __is, basic_string<_CharT,_Traits,_Alloc>& __s)
+#### getline(istream& __is, string<char,_Traits,_Alloc>& __s)
 从输入流中读取一行字符，默认遇到'\n'字符结束
-#### istream& getline(istream& __is,basic_string<_CharT,_Traits,_Alloc>& __s,_CharT __delim)
+#### istream& getline(istream& __is,string<char,_Traits,_Alloc>& __s,char __delim)
 从输入流中读取一行字符，遇到_delim字符结束读取，结果字符串中不包含__delim，示例：
     string str("downey");
 	string str1;
@@ -268,6 +344,6 @@ const_iterator迭代器指向的类内元素是只读的，不可修改。示例
 #### bool empty() const
 判断是否为空类，为空返回true.
 
-好了，到这里，大部分常用的string方法已经罗列完成，有个这个就可以开发大部分的应用程序了，如果你以为STL的string类就讲完了，STL的设计者会毫不犹豫地对你竖起中指以表达关爱。  
-事实上，效率永远应该是程序员追逐的目标，而STL的底层实现才是一个合格程序员应该掌握的东西，下一章节我们将会讨论STL 的string底层实现为效率的提升做了哪一些工作。
+好了，到这里，大部分常用的string方法已经罗列完成，有了这个就可以开发大部分的应用程序了，看到这里如果你以为你已经精通了STL string类，STL的设计者会毫不犹豫地对你竖起中指以表达关爱。  
+事实上，效率永远应该是程序员追逐的目标，而STL为提升效率而使用的一些策略和算法才是STL的精髓，才是一个合格程序员应该掌握的东西，下一章节我们将会讨论STL 的string底层实现为效率的提升做了哪一些工作。
 （完）
