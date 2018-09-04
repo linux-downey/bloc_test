@@ -1,0 +1,41 @@
+#include <iostream>
+#include <vector>
+
+
+int factorial(int n)
+{
+	if(1==n)
+		return 1;
+	return n*factorial(n-1);
+}
+
+
+void permutation(vector<int> &a,int *p,int n)
+{
+	if(0==n)
+		return;
+	
+	for(int i=0;i<len(a);i++)
+	{
+		vector<int> tmp=a;
+		vector<int>::iterator it=tmp.begin();
+		tmp.erase(*(it+i));
+		p[]=;
+		permutation(tmp,p,n-1);
+	}
+}
+
+void permutation(vector<int> &a,int n)
+{
+	int m=len(a);
+	int *p=new int(factorial(m)/factorial(m-n));
+	
+	
+}
+
+
+int main()
+{
+	return 1;
+}
+
