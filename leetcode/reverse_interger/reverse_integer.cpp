@@ -1,11 +1,10 @@
 #include <iostream>
 
 using namespace std;
-int reverse_num(int x,int &res)
+int reverse_num(int x,int res)
 {
 	if(!x) return res;
-	res=res*10+x%10;
-	return reverse_num(x/10,res);
+	return reverse_num(x/10,(res*10+x%10));
 }
 
 
@@ -13,6 +12,6 @@ int reverse_num(int x,int &res)
 int main()
 {
 	int val=0;
-	val=reverse_num(-3245454,val);
+	val=reverse_num(-9870,val);
 	cout<<val<<endl;
 }

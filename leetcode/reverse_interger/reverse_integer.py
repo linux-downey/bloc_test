@@ -1,16 +1,14 @@
-def reverse(x):
-	val=0
-	while(x!=0):
-		val=val*10+x%10
-		x=x/10
-	return val
+def reverse(x,res):
+	if x==0:
+		return res
+	return reverse(x/10,(res*10+x%10))
 
 
 def main():
 	num=-987
-	val=reverse(num)
+	res=0
+	val=reverse(num,res)
 	print val
-
 
 
 
