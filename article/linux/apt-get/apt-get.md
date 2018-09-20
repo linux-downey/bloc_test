@@ -45,7 +45,7 @@
 
     autoremove is used to remove packages that were automatically installed to satisfy dependencies for other packages and are now no longer needed
 在卸载软件的时候同时卸载那些当初作为依赖但是现在并不需要的包。  
-看起来非常完美的指令，但是博主建议慎用！！这条指令很可能将你要用的依赖包同时卸载，有时候你的安装包并没有通过apt-get指令来管理，apt-get管理工具不会加入这些包的信息，所以在检索包的依赖关系时可能出问题，甚至导致宕机。
+看起来非常完美的指令，但是博主建议慎用！！这条指令很可能将你要用的依赖包同时卸载，有时候你的安装包并没有通过apt-get指令来管理，apt-get管理工具不会加入这些包的信息，所以在检索包的依赖关系时可能出问题，又或者是另一种情况：举个例子：在安装某个包时，这个包依赖git，但是git并非你主动下载的，而是作为依赖下载的，包安装完之后系统可能就会提示git作为依赖不再需要使用，它并不知道你是不是正在使用这个软件包。
 
 #### apt-get update
 将所有包的来源更新，也就是提取最新的包信息，这一条我们经常使用到。
@@ -55,3 +55,69 @@
 因为在linux下，由于大部分为非商业软件，所以稳定性并没有得到很好的验证，升级到最新版本需要十分慎重！
 
 ##apt-get执行原理
+如果仅仅知道怎么用而不知道为什么这么用，那就违背了学习使用linux的初衷，所以我们还是需要从原理触发来看apt-get指令时怎么运行的。
+### 提出问题
+首先需要知道的问题是：  
+* 我们用apt-get下载的软件包是从哪里来的？
+* 下载之前要做哪些准备工作？
+
+### 问题的答案
+#### 软件从哪里来？
+所有的deb包由官方统一管理，那为什么我们能定位到这些软件包呢？这里就涉及到一个软件源的概念，在/etc/apt/目录下有一个sources.list文件，我们来看一下这个文件的内容：
+
+    cat /etc/apt/sources.list
+    deb http://security.ubuntu.com/ubuntu trusty-security main restricted
+    deb-src http://security.ubuntu.com/ubuntu trusty-security main restricted
+    deb http://security.ubuntu.com/ubuntu trusty-security universe
+    deb-src http://security.ubuntu.com/ubuntu trusty-security universe
+    deb http://security.ubuntu.com/ubuntu trusty-security multiverse
+    deb-src http://security.ubuntu.com/ubuntu trusty-security multiverse
+    deb http://extras.ubuntu.com/ubuntu trusty main
+    deb-src http://extras.ubuntu.com/ubuntu trusty main
+    deb http://us.archive.ubuntu.com/ubuntu/ trusty-proposed main restricted multiverse universe
+由于条目太多，这里只贴出一部分。可以看出来的是，这里都是一些资源网站。
+
+#### 下载之前要做哪些工作
+实践出真知，我们来下载一个软件看看：
+
+    Reading package lists... Done
+    Building dependency tree       
+    Reading state information... Done
+    The following packages were automatically installed and are no longer required:
+    account-plugin-windows-live libblas3 libbonobo2-0 libbonobo2-common
+    libbonoboui2-common libglade2-0 libgnomecanvas2-0 libgnomecanvas2-common
+    libgnomeui-common libidl-common libidl0 libisl10 liblinear-tools liblinear1
+    libllvm3.5 libntdb1 liborbit-2-0 liborbit2 libupstart1
+    linux-headers-3.16.0-30 linux-headers-3.16.0-30-generic
+    linux-image-3.16.0-30-generic linux-image-extra-3.16.0-30-generic
+    Use 'apt-get autoremove' to remove them.
+    The following extra packages will be installed:
+    libdiodon0 libunique-3.0-0
+    Suggested packages:
+    diodon-plugins
+    The following NEW packages will be installed:
+    diodon libdiodon0 libunique-3.0-0
+    0 upgraded, 3 newly installed, 0 to remove and 221 not upgraded.
+    Need to get 272 kB of archives.
+    After this operation, 1,348 kB of additional disk space will be used.
+    Do you want to continue? [Y/n] 
+这是前期准备工作的log信息，我们可以看到  
+第一步是Reading package lists，这就是从/etc/apt/sources.list中检索可用的源中是否有这个软件包。
+然后从下面的log可以看出，下面的步骤就是生成软件依赖树，将需要的依赖包提前列出来，在安装所需软件之前进行安装。  
+经常我们在下载软件的时候需要先添加源，很多盆友都不知道这是在干什么，看到这里大家应该是能看出个原因了：  
+因为你需要下载的软件并不在官方源网站中，所以需要先行添加资源网站，apt-get才能根据相应的源检索到相应的资源，添加源有很多操作方式，归根结底就是一个操作结果：在/etc/apt/sources.list添加相应的资源网站，知道了这个，就可以直接在文件中添加源，但是要记住linux下最基本的一个习惯：**操作系统文件时先备份**。
+
+#### 使用apt-get可能遇到的问题
+在使用apt-get install的时候，我们可能会遇到下面的问题：
+
+    E: Could not get lock /var/lib/dpkg/lock - open (11: Resource temporarily unavailable)
+    E: Unable to lock the administration directory (/var/lib/dpkg/), is another process using it?
+，碰到这种问题怎么解决呢？
+#### 解决方法
+这种问题的原因是apt-get被占用，无法再次使用apt-get命令操作。解决办法分为两种：
+1、在终端输入，ps -ef | grep "apt-get",这个指令找出占用apt-get应用的进程，然后用sudo kill -9 PID强制结束进程
+2、但是也有可能找不到这个占用的进程，很可能你在上一次安装操作的时候意外断电，没有正常退出导致的，这个时候需要做的操作就是强制删除以下文件就可以：
+    sudo rm /var/cache/apt/archives/lock
+    sudo rm /var/lib/dpkg/lock
+从这里可以看出，其实就是删除两个锁文件，
+目前apt-get install服务只支持同时操作一个软件包，如果你在操作一个软件包的时候同时去下载另一个软件包，它就会报错，那这个机制是怎么实现的呢？  
