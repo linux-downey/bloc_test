@@ -19,7 +19,7 @@
 * make install 报错，这个指令报错的形式一般仅仅是没有权限，加上sudo就行。但是同时因为源码包多由个人维护，也经常可能出现造成系统垃圾的情况，又或者你需要卸载的时候 make uninstall指令仅仅卸载可执行文件，其他配置文件和依赖文件不作处理。
 
 ### apt-get指令管理安装包
-在上面说了那么多源码安装的缺点，聪明的盆友就要猜我我将要引出今天的主角：apt-get，由apt-get管理的软件包可以轻松做到一键安装卸载。废话不多说，我们先看看它的常用用法：
+在上面说了那么多源码安装的缺点，聪明的盆友就要猜我我将要引出今天的主角：apt-get包管理应用软件，由apt-get管理的软件包可以轻松做到一键安装卸载。废话不多说，我们先看看它的常用用法：
 
     sudo apt-get install XXX
     sudo apt-get install -y XXX
@@ -55,13 +55,12 @@
 因为在linux下，由于大部分为非商业软件，所以稳定性并没有得到很好的验证，升级到最新版本需要十分慎重！
 
 ##apt-get执行原理
-如果仅仅知道怎么用而不知道为什么这么用，那就违背了学习使用linux的初衷，所以我们还是需要从原理触发来看apt-get指令时怎么运行的。
+如果仅仅知道怎么用而不知道为什么这么用，那就违背了学习使用linux的初衷，所以我们还是需要从原理出发来看apt-get指令时怎么运行的。
 ### 提出问题
 首先需要知道的问题是：  
 * 我们用apt-get下载的软件包是从哪里来的？
 * 下载之前要做哪些准备工作？
 
-### 问题的答案
 #### 软件从哪里来？
 所有的deb包由官方统一管理，那为什么我们能定位到这些软件包呢？这里就涉及到一个软件源的概念，在/etc/apt/目录下有一个sources.list文件，我们来看一下这个文件的内容：
 
@@ -75,7 +74,7 @@
     deb http://extras.ubuntu.com/ubuntu trusty main
     deb-src http://extras.ubuntu.com/ubuntu trusty main
     deb http://us.archive.ubuntu.com/ubuntu/ trusty-proposed main restricted multiverse universe
-由于条目太多，这里只贴出一部分。可以看出来的是，这里都是一些资源网站。
+由于条目太多，这里只贴出一部分。可以看出来的是，这里都是一些资源网站，软件包资源当然就是出自这里。
 
 #### 下载之前要做哪些工作
 实践出真知，我们来下载一个软件看看：
@@ -119,5 +118,93 @@
 2、但是也有可能找不到这个占用的进程，很可能你在上一次安装操作的时候意外断电，没有正常退出导致的，这个时候需要做的操作就是强制删除以下文件就可以：
     sudo rm /var/cache/apt/archives/lock
     sudo rm /var/lib/dpkg/lock
-从这里可以看出，其实就是删除两个锁文件，
-目前apt-get install服务只支持同时操作一个软件包，如果你在操作一个软件包的时候同时去下载另一个软件包，它就会报错，那这个机制是怎么实现的呢？  
+从这里可以看出，其实就是删除两个锁文件，我们大可以猜想一下，系统在执行apt-get指令安装时，会在/var/lib/dpkg/和/var/cache/apt/archives/下生成lock文件，当指令正常退出时，系统会删除这个lock文件。这样就可以解释为什么删除这两个文件就可以恢复apt-get的自由。
+那我们就来验证一下，以安装diodon为例：
+
+    sudo apt-get install diodon
+在系统询问是否继续时，我们先不操作，打开另一个终端。键入：
+
+    ls /var/lib/dpkg/lock
+结果显示
+    /var/lib/dpkg/lock
+表示是有这个文件的，然后我们关掉apt-get执行的进程，再检查没有操作apt-get文件时是否有这个文件：
+
+    ls /var/lib/dpkg/lock
+结果显示
+
+    /var/lib/dpkg/lock
+居然还能查到这个文件，证明我们的猜想是错误的！那就再猜测：既然是lock文件，那么就涉及到文件锁，文件是一直存在的，但是在执行apt-get时被锁住了，在正常退出的时候被解锁，立马行动，同样的，先键入：
+
+    sudo apt-get install diodon
+并让其停在用户确认界面，在查看系统中被锁住的文件，在终端键入：
+
+    cat /proc/locks  #查看系统中被锁定的文件
+结果显示：
+    1: POSIX  ADVISORY  WRITE 13604 08:01:792131 0 EOF
+    2: POSIX  ADVISORY  WRITE 13604 08:01:792927 0 EOF
+    3: OFDLCK ADVISORY  WRITE -1 08:01:393386 0 0
+    4: POSIX  ADVISORY  READ  2957 08:01:393504 128 128
+    5: POSIX  ADVISORY  READ  2957 08:01:393381 1073741826 1073742335
+    6: POSIX  ADVISORY  READ  2926 08:01:393504 128 128
+    7: POSIX  ADVISORY  READ  2926 08:01:393381 1073741826 1073742335
+    8: POSIX  ADVISORY  READ  2949 08:01:393504 128 128
+    9: POSIX  ADVISORY  READ  2949 08:01:393381 1073741826 1073742335
+    10: POSIX  ADVISORY  WRITE 2836 08:01:524297 0 EOF
+    ...仅显示用户级别
+然后关掉apt-get的进程，再次键入：
+
+    cat /proc/locks  #查看系统中被锁定的文件
+
+结果显示
+    1: OFDLCK ADVISORY  WRITE -1 08:01:393386 0 0
+    2: POSIX  ADVISORY  READ  2957 08:01:393504 128 128
+    3: POSIX  ADVISORY  READ  2957 08:01:393381 1073741826 1073742335
+    4: POSIX  ADVISORY  READ  2926 08:01:393504 128 128
+    5: POSIX  ADVISORY  READ  2926 08:01:393381 1073741826 1073742335
+    6: POSIX  ADVISORY  READ  2949 08:01:393504 128 128
+    7: POSIX  ADVISORY  READ  2949 08:01:393381 1073741826 1073742335
+    8: POSIX  ADVISORY  WRITE 2836 08:01:524297 0 EOF
+    ...#仅显示用户级别的
+对比发现很明显，在使用apt-get的时候，系统中被锁定的文件明显多出两个，但是那一行数字是什么意思呢？下列是对照关系，
+
+    number, type, mode,     type,   pid,    maj:min:inode     start    end
+    1：     POSIX ADVISORY  WRITE   13604   08:01:792131      0        EOF
+我们可以通过inode的对比来确认在apt-get操作时多出来的两个被锁住的文件到底是不是上述提到的那两个锁文件。
+
+    ls -i /var/lib/dpkg/lock /var/cache/apt/archives/lock
+输出结果：
+
+    792131 /var/cache/apt/archives/lock  792927 /var/lib/dpkg/lock
+很显然，inode为792131,792927的两个文件恰好是上述进行apt-get操作和不操作时被加锁的两个文件，这个猜想是正确的。  
+但是问题又来了：当apt-get无法获取这两个锁文件的操作权限时，为什么删除这两个文件就可以了呢？这不会导致系统问题吗？  
+带着这个疑问，我们继续来操作：
+
+    sudo rm /var/cache/apt/archives/lock  /var/lib/dpkg/lock
+然后再查询文件：
+
+    ls /var/cache/apt/archives/lock  /var/lib/dpkg/lock
+输出结果：
+
+    ls: cannot access '/var/cache/apt/archives/lock': No such file or directory
+    ls: cannot access '/var/lib/dpkg/lock': No such file or directory
+这下这两个文件是删除干净了，那我们得赶紧看看apt-get命令是否还能操作：
+
+    sudo apt-get install diodon
+结果发现还是可以操作，这时候我再来看这两个文件：
+
+    ls /var/cache/apt/archives/lock  /var/lib/dpkg/lock
+输出结果：
+
+    /var/cache/apt/archives/lock  /var/lib/dpkg/lock
+居然又有了，这下是明白了，原来当我们遇到apt-get的无法获取锁的问题，直接删除这两个文件的同时这两个文件的锁自然也不存在了，在下一次重新使用apt-get指令时，系统检测到没有锁文件时就会创建这两个文件，同时进行apt-get操作。
+其实这是一种覆盖式的偷懒操作，我们大可以用修改文件的锁属性的方式来解决这个问题，在文件inode结构体中有一个
+
+    struct file_lock *i_flock;
+直接操作这个结构体就可以，但是这需要涉及到C和linux系统编程方面，在这里就不赘述了。
+
+好了，关于ubuntu中apt-get包管理软件的讨论就到此为止啦，如果朋友们对于这个有什么疑问或者发现有文章中有什么错误，欢迎留言
+
+***原创博客，转载请注明出处！***
+
+祝各位早日实现项目丛中过，bug不沾身.
+
