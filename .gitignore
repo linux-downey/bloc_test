@@ -1,3 +1,5 @@
 *.[ao]
 a.out
 *~
+*.gch
+.vscode
