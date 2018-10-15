@@ -6,7 +6,8 @@
 windows下驱动的描述文件，例如：如果你想要安装USB转TTL工具的驱动，就需要先配置一份驱动程序相对应的.inf描述文件(配置方法需要查看网络教程，Google即可)。
 Inf2Cat.exe工具，这个工具作用为通过inf文件生成cat文件，然后对cat文件进行数字签名。cat文件其实是个文本文件，是微软公司发布的对于驱动程序的数字签名文件， 其作用是对通过了微软运行测试的、合格的驱动程序进行标识。
 ### 安装数字签名工具
-首先，我们需要在windows下安装数字签名工具，网站上即可搜到，安装完成之后选择在桌面生成快捷方式即可看到这么一个软件图标：
+首先，我们需要在windows下安装数字签名工具，网站上即可搜到，安装完成之后选择在桌面生成快捷方式即可看到这么一个软件图标：  
+
 ![sign_tool](https://raw.githubusercontent.com/linux-downey/bloc_test/master/article/generate_sign/Sign_tool.png)  
 ### 使用数字签名工具
 #### 打开工具
@@ -19,7 +20,7 @@ Inf2Cat.exe工具，这个工具作用为通过inf文件生成cat文件，然后
 证书的格式有两种：
 * PFX格式：PFX格式对应证书的PFX后缀文件，直接添加然后输入证书密码就可以
 * PVK_SPC格式：这个格式需要两个文件，一个PVK文件，一个SPC文件，后缀为SPC的文件为证书，需要输入相应密码，然后私钥那一栏填入以PVK为后缀名的文件
-***(注：这几个文件为证书文件，是像证书机构购买证书时获取的文件)***
+***(注：这几个文件为证书文件，是向证书机构购买证书时获取的文件)***
 
 证书导入成功之后出现这个界面:![import success](https://raw.githubusercontent.com/linux-downey/bloc_test/master/article/generate_sign/import_success.png)
 
