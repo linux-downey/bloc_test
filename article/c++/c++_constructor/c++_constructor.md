@@ -177,14 +177,95 @@
     class Test
     {
         public:
-            Test(){}
-            Test(Test &&ob){
+            Test(){p = new int(10);}
+            ~Test(){delete p;}
+            Test(Test &&ob) noexcept{
                 p = ob.p;
+                ob.p = nullptr;
             }
             int *p;
     };
+可能朋友们看了上面的实现会有两个疑问：
+* 为什么函数要加上noexcept声明?
+* 为什么要加上 ob.p=nullptr 这个操作?
+刚刚我们提到了拷贝赋值构造函数的浅拷贝问题(即指针部分仅仅是复制)，很显然，那样是不行的。但是在移动构造函数中，我们依然是浅拷贝，为什么这样又可以？  
+从上面的示例可以看出移动构造函数的参数是一个右值引用，我们上面有提到，移动构造函数的特点是"窃取"而不是生成。就相当于将目标对象的内容"偷过来",既然目标对象的内存本来就是存在的，所以不会因为失败问题而抛出异常。当我们编写一个不抛出异常的移动操作时，有必要通知标准库，这样它就不会为了可能的异常处理而做一些额外工作，这样可以提升效率。  
+再者，我们将右值对象的内容偷过来，但是右值对象依然是存在的，它依旧会调用析构函数，如果我们不将右值的动态内存指针赋值为null，右值对象调用析构函数时将释放掉这部分我们好不容易偷过来的内存。就像上面的例子所示，我们不得不将ob.p指针置为空。  
+口说无凭，我们来看下面的示例：
 
+    class Test
+    {
+        public:
+            Test(void){p=new int(50);
+			}
+            Test(Test &&ob) noexcept{
+                p = ob.p;
+				//ob.p = nullptr;
+            }
+			~Test(){delete p;}
+            int *p;
+    };
+    Test ob1;
+    int main()
+    {
+        Test ob2 (std::move(ob1));
+    }
+在示例中，我们将ob.p = nullptr;这条语句注释，然后使用无参构造函数构造ob1，然后将ob1转为右值来构造ob2.我们来看运行结果：
 
+    *** Error in `./a.out': double free or corruption (fasttop): 0x09f12a10 ***
+    Aborted (core dumped)
+果然如我所料，出现了double free的错误，这是因为在移动构造函数中传入的右值对象ob在使用完后调用了析构函数释放了p，而对象ob2偷到的仅仅是一个指针的值，指针指向的内容已经被释放了，所以在程序执行完成之后再调用析构函数时就会出现double free的错误。   
+为了再验证一个问题，我们将上面的例子中加上ob.p = nullptr;，并将main()函数改成这样：
+
+    class Test
+    {
+        public:
+            Test(void){p=new int(50);
+			}
+            Test(Test &&ob) noexcept{
+                p = ob.p;
+				ob.p = nullptr;
+            }
+			~Test(){delete p;}
+            int *p;
+    };
+    Test ob1;
+    int main()
+    {
+        Test ob2 (std::move(ob1));
+        cout<<*ob1.p<<endl;
+    }
+我们来看看已经被转换成右值的ob1个什么情况，运行结果是这样的：
+
+    Segmentation fault (core dumped)
+好吧，其实这是显而易见的，ob1.p已经在移动构造函数中被置为nullptr了。  
+可能有些朋友还有疑问，移动构造函数只偷动态内存部分吗？还是整个成员全部一锅端？  
+好吧，我们再来做个试验，即将上面的例子中程序改成这样，添加一个普通成员变量x：
+
+    class Test
+    {
+        public:
+            Test(void){p=new int(50);
+			}
+            Test(Test &&ob) noexcept{
+                p = ob.p;
+				ob.p = nullptr;
+            }
+			~Test(){delete p;}
+            int *p;
+    };
+    Test ob1;
+    int main()
+    {
+        Test ob2 (std::move(ob1));
+        cout<<&ob1.x<<endl;
+        cout<<&ob2.x<<endl;
+    }
+输出结果为：
+
+    0x804a0f4
+    0xbfa7909c
+很显然，移动构造函数的"偷窃"并不针对普通成员变量。从编译器角度来看，不能，为什么效率高  
 
 右值引用，右值引用没有其他引用
 
