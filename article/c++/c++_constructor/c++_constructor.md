@@ -200,7 +200,7 @@
 			}
             Test(Test &&ob) noexcept{
                 p = ob.p;
-				//ob.p = nullptr;
+				//ob.p = nullptr;     
             }
 			~Test(){delete p;}
             int *p;
@@ -239,42 +239,82 @@
 
     Segmentation fault (core dumped)
 好吧，其实这是显而易见的，ob1.p已经在移动构造函数中被置为nullptr了。  
-可能有些朋友还有疑问，移动构造函数只偷动态内存部分吗？还是整个成员全部一锅端？  
-好吧，我们再来做个试验，即将上面的例子中程序改成这样，添加一个普通成员变量x：
+为什么C++11要添加这个新的特性呢？从效率上出发，在程序运行的时候，由于中间过程会出现各种各样的临时变量，每创建一个临时变量，就会多一次对资源的构造和析构的消耗，如果我们能将临时变量的资源接管过来，就可以省下相应的构造和析构所带来的消耗。  
 
-    class Test
-    {
-        public:
-            Test(void){p=new int(50);
-			}
-            Test(Test &&ob) noexcept{
-                p = ob.p;
-				ob.p = nullptr;
-            }
-			~Test(){delete p;}
-            int *p;
+
+### 隐式转换构造函数
+C++中，当类有一个构造函数接收一个实参，它实际上定义了转换为此类类型的隐式转换机制，又是我们把这种构造函数称为转换构造函数。  
+官方解释总是像数学公式一样难以理解，通俗地说，当一个类A有其中一个构造函数接受一个实参(类型B)时，在使用时我们可以直接使用那个构造函数参数类型B来临时构造一个类A的对象，好像我也没解释清楚？好吧，直接上代码看：
+
+    class Test{
+    public:
+        Test(string s,int para = 1){
+            str = s;
+        }
+        void add(Test ob){
+            str += ob.str;
+        }
+        string str;
     };
-    Test ob1;
+    Test ob1("downey");
     int main()
     {
-        Test ob2 (std::move(ob1));
-        cout<<&ob1.x<<endl;
-        cout<<&ob2.x<<endl;
+        ob1.add(string("downey!"));
+        cout<<ob1.str<<endl;
     }
-输出结果为：
+运行结果：
 
-    0x804a0f4
-    0xbfa7909c
-很显然，移动构造函数的"偷窃"并不针对普通成员变量。从编译器角度来看，不能，为什么效率高  
+    downeydowney!
+如码所示，Test类有一个构造函数,可以接收一个string类的实参(可以由一个实参构造并不代表只能有一个形参)，而add()方法接受一个Test类类型参数，在调用add()方法时，我们直接传入一个string类型，触发隐式转换功能，编译器将自动以string作为实参构造一个Test的临时类对象来传入add()方法，程序结束之后将释放临时变量。  
+***需要注意的是，隐式转换只支持一次转换，如果我们将main()函数改成这样：***
 
-右值引用，右值引用没有其他引用
+    int main()
+    {
+        ob1.add("downey!");   
+        cout<<ob1.str<<endl;
+    }
+编译器需要将"downey"转换成string类型，然后再进行一次转换，这样是不支持的。在编译阶段就会报错：
 
-构造函数的隐式转换以及拒绝隐式转换的问题
+    error: no matching function for call to XXX
 
- 类外部定义无法带初始化列表
+同时，如果我们在声明add()函数时习惯性地使用了左值引用：
 
- 错误地定义类：test dst();这是申明函数，而不是定义类。
- 
- 深拷贝浅拷贝
- 
- 为什么拷贝构造访问私有问题、
+    void add(Test &ob){      //使用引用，&
+            str += ob.str;
+        }
+这样又是什么结果呢？  
+答案是，编译出错。这又是为什么？如果你有仔细看上面的隐式转换过程就可以知道，在使用隐式转换时生成了一个临时变量(类型同函数形参)，而临时变量是右值，是不能使用左值引用的。报错信息如下：
+
+    error: no matching function for call to XXX  //左值引用不匹配，所以这里找不到匹配的方法。
+
+#### 阻止隐式转换
+使用explicit关键字修饰函数可以阻止构造函数的隐式转换，而且explicit只支持直接初始化时使用，也就是在类内使用，同时，只对一个实参的构造函数有效。在STL中我们随时可以看到explicit的影子。  
+下面是示例：
+
+    class Test{
+    public:
+        explicit Test(string s,int para = 1){
+            str = s;
+        }
+        void add(Test ob){
+            str += ob.str;
+        }
+        string str;
+    };
+    Test ob1("downey");
+    int main()
+    {
+        ob1.add(string("downey!"));    //报错，no matching function for call to XXX，因为这里不支持隐式转换
+        cout<<ob1.str<<endl;
+    }
+
+同时，如果用户试图在类外声明时使用explicit关键字，将会报错：
+
+    error: only declarations of constructors can be ‘explicit’  
+
+
+好了，关于C++构造函数的讨论就到此为止啦，如果朋友们对于这个有什么疑问或者发现有文章中有什么错误，欢迎留言
+
+***原创博客，转载请注明出处！***
+
+祝各位早日实现项目丛中过，bug不沾身.
