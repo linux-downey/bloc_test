@@ -312,6 +312,8 @@ C++中，当类有一个构造函数接收一个实参，它实际上定义了�
 
     error: only declarations of constructors can be ‘explicit’  
 
+# 结语
+C++真是魔鬼！！！
 
 好了，关于C++构造函数的讨论就到此为止啦，如果朋友们对于这个有什么疑问或者发现有文章中有什么错误，欢迎留言
 
