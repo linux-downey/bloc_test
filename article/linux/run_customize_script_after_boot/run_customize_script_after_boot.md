@@ -97,9 +97,72 @@ ubuntu在开机过程之后，会执行/etc/rc.local(注意/etc/init.d中也有�
 
 
 ## systemd的开机自启动
-上面提到的两种方式适用于经典的system V控制系统启动和关闭的情况，但是目前在大多数发行版上都开始使用了systemd的系统软件控制方式，systemd系统管理着linux下的进程运行，属于应用程序，不属于linux内核的范畴。  
-linux内核加载启动之后，用户空间的第一个进程就是初始化进程，不同发行版采用了不同的启动程序，但是发展到目前，几乎大多数发行版已经开始使用systemd来管理软件的启动运行和结束。
+上面提到的两种方式适用于经典的system V控制系统启动和关闭的情况，但是目前(2018年10月)在大多数发行版上都开始使用了systemd的系统软件控制方式，包括Ubuntu16，centos.systemd系统管理着linux下的进程运行，属于应用程序，不属于linux内核的范畴。  
+在systemd系统上设置开机自启动的方式也是非常简单的(尽管systemd这套软件管理工具并不简单)。  
+## 确定系统是否应用了systemd工具来管理
+这里要注意的是，systemd是linux发行版上的预装工具，用来管理系统软件的启动运行和结束，所以通常来说，这套东西是依赖于发行版的，如果系统使用了这一套工具，那么就可以使用它来管理进程，如果不是，即使你安装了它，它也不会被默认配置为系统管理工具。  
+查看系统是否使用systemd工具我们可以使用如下的指令：
 
+    systemd --version
+如果系统返回如下类似的信息，表明该系统是由systemd工具来管理软件：
+
+    systemd 232
+    +PAM +AUDIT +SELINUX +IMA +APPARMOR +SMACK +SYSVINIT +UTMP +LIBCRYPTSETUP +GCRYPT +GNUTLS +ACL +XZ +LZ4 +SECCOMP +BLKID +ELFUTILS +KMOD +IDN
+
+## systemctl的使用
+对软件的管理主要是同通过systemd工具中的systemctl命令，相比于之前的system V的控制方式，systemd显得更加简洁明了，对用户更加友好，拿httpd来举例：
+
+    开启httpd服务：
+    sudo systemctl start httpd
+    设置httpd服务自启动：
+    sudo systemctl enable httpd
+至于关闭和取消自启动，大家心里应该有数了吧。  
+
+## 设置开机自启动
+我们再回到重点，设置开机自启动。  
+我们要为目标设置一个配置文件，其实这是可以预想到的，linux作为一个复杂的系统，开机自启动涉及到的依赖、运行级别、运行环境等等问题肯定需要用户去指定，在启动的时候系统才知道怎么正确地去运行软件。这个配置文件固定以.service作为后缀，比如我们如果要运行/home/downey目录下的test.sh脚本，我们可以添加一个配置文件***test.service***:
+
+    [Unit]
+    Description=
+    Documentation=
+    After=network.target
+    Wants=
+    Requires=
+
+    [Service]
+    ExecStart=/home/downey/test.sh
+    ExecStop=
+    ExecReload=/home/downey/test.sh
+    Type=simple
+
+    [Install]
+    WantedBy=multi-user.target
+将文件放在/usr/lib/systemd/system 或者 /etc/systemd/system目录下，然后可以测试一下：
+
+    sudo systemctl start test.service
+然后你可以查看你的/home/downey/test.sh脚本是否已经运行，如果已经运行表示配置文件没有问题。然后可以键入：
+
+    sudo systemctl enable test.service
+设置test脚本开机启动。如果上一步没有出问题，这一步基本上也不会有什么问题，系统会打印出如下信息：
+
+    Created symlink /etc/systemd/system/multi-user.target.wants/test.service → /usr/lib/systemd/system/test.service.
+可以看到，这里在/etc/systemd/system/multi-user.target.wants/目录下创建了一个/usr/lib/systemd/system/test.service文件的软链接，到这里设置开机自启动就完成了。  
+## 配置文件的简单解析
+在上面的配置文件中，为了演示起见，我将一些本测试脚本不需要但是比较重要的配置项也写了出来，其实如果不需要可以删除，但是[Unit]/[Service]/[Install]这三个标签需要保留。  
+我们来一个个简单介绍一下配置项：
+
+    Description：运行软件描述
+    Documentation：软件的文档
+    After：因为软件的启动通常依赖于其他软件，这里是指定在哪个服务被启动之后再启动，设置优先级
+    Wants：弱依赖于某个服务，目标服务的运行状态可以影响到本软件但不会决定本软件运行状态
+    Requires：强依赖某个服务，目标服务的状态可以决定本软件运行。
+    ExecStart：执行命令
+    ExecStop：停止执行命令
+    ExecReload：重启时的命令
+    Type：软件运行方式，默认为simple
+    WantedBy：这里相当于设置软件，选择运行在linux的哪个运行级别，只是在systemd中不在有运行级别概念，但是这里权当这么理解。
+如果有多项，用逗号作为分隔。  
+关于systemd的更多详细解析可以参考我的另一篇博文。
 
 好了，关于linux开机自启动脚本就到此为止啦，如果朋友们对于这个有什么疑问或者发现有文章中有什么错误，欢迎留言
 
