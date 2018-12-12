@@ -72,7 +72,7 @@ python的内建类型中可没有C语言那么多花里胡哨的类型，在pyth
 针对上面的问题，python定义了一系列兼容C语言的类型
 
 如图所示，这个图算是很清晰地将python与C类型对应关系展现了出来。我们将要使用的就是最左边一列的ctypes type，以替代C库中的各种类型。
-
+![](https://raw.githubusercontent.com/linux-downey/bloc_test/master/article/python/python_call_c_func/ctypes_define.png)
 
 ## 函数带参示例
 对于程序员而言，看图片看文档永远没有看代码来得直接，所以在这里先上一段演示代码，看看在C库中的类型是怎么被替换的,但是凡事讲究个循序渐进，我们先来一个简单的，普通变量版的,代码如下：
