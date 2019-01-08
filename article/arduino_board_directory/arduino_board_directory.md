@@ -64,12 +64,13 @@
 通过这些映射，用户可以通过arduino API直接操作模拟口A0、A1...，或者数字口1,2,3...,对应操作MCU的IO口，这样做的好处就是保持兼容性。
 
 #### board.txt配置文件
-这是一个非常重要的开发板配置文件，这里面主要是关于开发板的定义，上面我们有提到，arduino可以兼容很多的平台，但是各平台之间在硬件和配套软件上有很多区别，那么arduino IDE在编译时怎样去识别以及选择哪一种配置方式呢？答案是通过读取这个配置文件，下面我们来介绍这个配置文件的内容。  
+这是一个非常重要的开发板配置文件，这里面主要是关于开发板的定义，上面我们有提到，arduino可以兼容很多的平台，但是各平台之间在硬件和配套软件上有很多区别，那么arduino IDE在编译时怎样去识别以及选择哪一种配置方式呢？答案是通过读取这个配置文件，下面我们来介绍这个配置文件的内容(以arduino UNO为例)：
+![](https://raw.githubusercontent.com/linux-downey/bloc_test/master/article/arduino_board_directory/uno_config.png)  
 首先，这个配置文件都是键值对的方式，key = value。
 每一个开发板对应一个board ID，例如arduino UNO的ID为uno，有了这个board ID，arduino IDE就可以识别相应的开发板。
 我们先来看看最常用arduino UNO的board.txt的配置内容(board ID为uno)：
 * uno.name=:uno.name=Arduino/Genuino Uno ：这是开发板的名称，对应显示在arduino IDE的board选项栏中
-* uno.vid.X=YYYY,uno.pid.X=YYYY：有些朋友对VID(vender ID)和PID(product ID)并不熟悉，其实这两个东西是在windows下安装驱动程序时需要的描述ID，表示出自某个厂商的某个产品。需要像官方机构注册和购买。
+* uno.vid.X=YYYY,uno.pid.X=YYYY：有些朋友对VID(vender ID)和PID(product ID)并不熟悉，其实这两个东西是在windows下安装驱动程序时需要的描述ID，表示出自某个厂商的某个产品。需要向官方机构注册和购买。
 * uno.upload.tool=avrdude :在前面提到，arduino实现串口烧录程序需要内置一段bootloader，这个bootloader的作用就是通过某种协议或基于某种协议的软件，通过串口来烧写固件。这种烧写软件的实现有多种，例如avrdude，bossac，stm32flash等等，这一项配置就是选择烧录软件(又叫做上传工具)
 * uno.upload.maximum_size=32256：上传的可执行文件中代码部分(对应可执行文件中的代码段)最大size限制，一般对应arduino开发板的flash大小。
 * uno.upload.maximum_data_size=2048 ：上传的可执行文件中数据段(对应可执行文件中数据段部分)的最大size，一般对应arduino开发板的ram大小。
