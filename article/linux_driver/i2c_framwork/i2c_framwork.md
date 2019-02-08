@@ -72,6 +72,7 @@
 3. 具体设备的操作函数，对于sht31而言，通过传入sht31的参数，调用上层接口来读写sht31中的数据，需要传入的参数主要是i2c地址，设置精度等sht3x系列之间的差异化部分。  
 这样，对于sht3x而言，用户在使用这一类设备的时候就只需要简单地调用诸如sht3x_init(u8 i2c_addr),sht3x_set_resolution(u8 resolution)这一类的函数即可完成设备的操作，通过传入不同的参数执行不同的操作。  
 这里贴上一个图来加深理解：
+![](https://raw.githubusercontent.com/linux-downey/bloc_test/master/article/linux_driver/i2c_framwork/mcu_framwork.png)   
 
 到这里，对于一个单片机上的i2c设备而言，基本上已经有了比较好的层次结构：
 1. i2c硬件读写层
@@ -103,7 +104,10 @@
     将驱动部分(即driver)先加载到系统中，当添加一个设备部分(device，单一设备)时，对相应的driver根据某些条件进行匹配操作，只有当匹配上时，驱动(driver)部分获取设备部分提供的资源，对目标设备进行配置，生成用户操作接口。  
 
 事实上，在非常经典的linux2.6及之前版本中，i2c设备驱动程序就是这样实现的。  
-它的具体分层实现是这样的：
+它的具体分层实现是这样的：  
+
+![](https://raw.githubusercontent.com/linux-downey/bloc_test/master/article/linux_driver/i2c_framwork/linux_framwork.png)  
+
 ### i2c硬件读写层
 linux i2c设备驱动程序中的硬件读写层由struct i2c_adapter来描述，它的内容是这样的：
     struct i2c_adapter {
@@ -161,6 +165,7 @@ linux i2c设备驱动程序中的硬件读写层由struct i2c_adapter来描述�
 但是，随着设备的增长，同时由于device部分总是静态定义在文件中，导致这一部分占用的内核空间越来越大，而且，最主要的问题时，对于资源来说，大多都是一些重复的定义：比如时钟、定时器、引脚中断、i2c地址等同类型资源。  
 按照一贯的风格，对于大量的重复定义，我们必须对其进行抽象化，于是linus一怒之下对其进行大刀阔斧的整改，于是设备树横空出世，是的，设备树就是针对各种总线(i2c bus，platform bus等等)的device资源部分进行整合。  
 
+![](https://raw.githubusercontent.com/linux-downey/bloc_test/master/article/linux_driver/i2c_framwork/device_tree_fram.png)  
 将设备部分的静态描述转换成设备树的形式，由内核在加载时进行解析，这样节省了大量的空间。  
 
 对于i2c驱动程序的编写，可以参考我的另外一篇博客。  
