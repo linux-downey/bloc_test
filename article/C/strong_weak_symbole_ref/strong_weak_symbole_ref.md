@@ -169,15 +169,12 @@ main.c:
     }
 将test.c编译成静态库;
 
-<<<<<<< HEAD
     gcc -c test.c
     ar -rsc libtest.a test.o
 编译main.c:
 
     gcc main.c test.h -L. -ltest -o test
-=======
     
->>>>>>> e922194277029fe7a741695475a13e9569f6e557
 
     ./test
 输出结果：

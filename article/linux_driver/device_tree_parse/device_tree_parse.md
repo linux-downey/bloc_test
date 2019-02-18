@@ -50,6 +50,7 @@ __atags_pointer这个全局变量存储的就是r2的寄存器值，是设备树
         of_scan_flat_dt(early_init_dt_scan_root, NULL);
         of_scan_flat_dt(early_init_dt_scan_memory, NULL);
     }
+	
 出人意料的是，这个函数中只有一个函数的三个调用，直觉告诉我这三个函数调用并不简单。  
 首先of_scan_flat_dt()这个函数接收两个参数，一个是函数指针，一个为boot_command_line，boot_command_line是一个静态数组，存放着启动参数,而of_scan_flat_dt函数的作用就是扫描设备树中的节点，然后以各节点为参数依次调用其第一个参数中传入的函数。  
 在上述代码中，传入的参数分别为early_init_dt_scan_chosen，early_init_dt_scan_root，early_init_dt_scan_memory这三个函数，从名称可以猜测到，这三个函数分别是处理chosen节点、root节点中除子节点外的属性信息、memory节点。  
@@ -173,21 +174,67 @@ of_chosen和of_aliases都是struct device_node型的全局数据。
         unflatten_dt_nodes(blob, mem, dad, mynodes);
     }
 
-主要的解析函数为unflatten_dt_nodes(),在__unflatten_device_tree()函数中，unflatten_dt_nodes()被调用两次，第一次是扫描得出设备树转换成device node需要的空间，然后像系统申请内存空间，第二次就进行真正的解析工作，我们继续看unflatten_dt_nodes()函数：
+主要的解析函数为unflatten_dt_nodes(),在__unflatten_device_tree()函数中，unflatten_dt_nodes()被调用两次，第一次是扫描得出设备树转换成device node需要的空间，然后系统申请内存空间，第二次就进行真正的解析工作，我们继续看unflatten_dt_nodes()函数：
 值得注意的是，在第二次调用unflatten_dt_nodes()时传入的参数为unflatten_dt_nodes(blob, mem, dad, mynodes);  
 第一个参数是设备树存放首地址，第二个参数是申请的内存空间，第三个参数为父节点，初始值为NULL，第四个参数为mynodes，初始值为of_node.
 
-    
+    static int unflatten_dt_nodes(const void *blob,void *mem,struct device_node *dad,struct device_node **nodepp)
+    {
+        ...
+        for (offset = 0;offset >= 0 && depth >= initial_depth;offset = fdt_next_node(blob, offset, &depth)) {
+            populate_node(blob, offset, &mem,nps[depth],fpsizes[depth],&nps[depth+1], dryrun);
+            ...
+         }
+    }
+这个函数中主要的作用就是从根节点开始，对子节点依次调用populate_node()，从函数命名上来看，这个函数就是填充节点，为节点分配内存。  
+我们继续往下追踪：
 
+    static unsigned int populate_node(const void *blob,int offset,void **mem,
+				  struct device_node *dad,unsigned int fpsize,struct device_node **pnp,bool dryrun){
+        struct device_node *np;
+        ...
+        np = unflatten_dt_alloc(mem, sizeof(struct device_node) + allocl,__alignof__(struct device_node));
+        of_node_init(np);
+        np->full_name = fn = ((char *)np) + sizeof(*np);
+        if (dad != NULL) {
+			np->parent = dad;
+			np->sibling = dad->child;
+			dad->child = np;
+		}
+        ...
+        populate_properties(blob, offset, mem, np, pathp, dryrun);
+        np->name = of_get_property(np, "name", NULL);
+		np->type = of_get_property(np, "device_type", NULL);
+        if (!np->name)
+			np->name = "<NULL>";
+		if (!np->type)
+			np->type = "<NULL>";
+        ...
+    }
+通过跟踪populate_node()函数，可以看出，首先为当前节点申请内存空间，使用of_node_init()函数对node进行初始化，of_node_init()函数也较为简单：
 
+    static inline void of_node_init(struct device_node *node)
+    {
+        kobject_init(&node->kobj, &of_node_ktype);
+        node->fwnode.ops = &of_fwnode_ops;
+    }
+设置kobj，接着设置node的fwnode.ops。  
+然后再设置一些参数，需要特别注意的是：对于一个struct device_node结构体，申请的内存空间是sizeof(struct device_node)+allocl,这个allocl是节点的unit_name长度(类似于chosen、memory这类子节点描述开头时的名字，并非.name成员)。  
+然后通过np->full_name = fn = ((char *)np) + sizeof(*np);将device_node的full_name指向结构体结尾处，即将一个节点的unit name放置在一个struct device_node的结尾处。  
+同时，设置其parent和sibling节点。  
+接着，调用populate_properties()函数，从命名上来看，这个函数的作用是为节点的各个属性分配空间。  
+紧接着，设置device_node节点的name和type属性，name由设备树中.name属性而来，type则由设备树中.device_type而来。  
 
+一个设备树中节点转换成一个struct device_node结构的过程渐渐就清晰起来，现在我们接着看看populate_properties()这个函数，看看属性是怎么解析的：
 
-
-
-
-
-
-
+    static void populate_properties(const void *blob,int offset,void **mem,struct device_node *np,const char *nodename,bool dryrun){
+        for (cur = fdt_first_property_offset(blob, offset);
+	     cur >= 0;
+	     cur = fdt_next_property_offset(blob, cur)) {
+             fdt_getprop_by_offset(blob, cur, &pname, &sz);
+             unflatten_dt_alloc(mem, sizeof(struct property),__alignof__(struct property));
+         }
+    }
 
 
 
