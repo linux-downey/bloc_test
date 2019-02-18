@@ -130,6 +130,7 @@ device-tree strings：在dtb中有大量的重复字符串，比如"model","comp
 
 鉴于dtb文件为二进制文件，普通编辑器打开显示乱码，我们使用ultraEdit查看，它将数据以16进制形式显示：
 
+![](https://raw.githubusercontent.com/linux-downey/bloc_test/master/article/linux_driver/dtb_format/dtb_struct.png)  
 
 整个dtb文件还是比较简单的，图中的红色框出的部分为header部分的数据，可以看到：
 
@@ -151,13 +152,20 @@ device-tree strings：在dtb中有大量的重复字符串，比如"model","comp
 上文回顾：每一个属性都是以 key = value的形式来描述，value部分可选。  
 
 偏移地址来到0x00000038(0x28+0x10),接下来8个字节为00000003，根据上述structure中的描述，这是OF_DT_PROP，即标示属性的开始。  
+
 接下来4字节为00000018，表明该属性的value部分size为24字节。  
+
 接下来4字节是当前属性的key在string 部分的偏移地址，这里是00000000，由头部信息中off_dt_strings可以得到，string部分的开始为00000174，偏移地址为0，所以对应字符串为"compatible".
+
 之后就是value部分，这部分的数据是字符串，可以直接从图片右侧栏看出，总共24字节的字符串"hd,test_dts", "hd,test_xxx",因为字符串之间以0结尾，所以程序可以识别出这是两个字符串。  
+
 可以看出，到这里，compatible = "hd,test_dts", "hd,test_xxx";这个属性就被描述完了，对于属性的描述还是非常简单的。  
 
+
 按照固有的规律，接下来就是对#address-cells = <0x1>的解析，然后是#size-cells = <0x1>...
+
 然后就是递归的子节点chosen，memory@80000000等等都是按照上文中提到的structure解析规则来进行解析，最后以00000002结尾。  
+
 而整个结构的结束由00000009来描述。  
 
 一般而言，在32位系统中，dtc在编译dts文件时会自动考虑对齐问题，所以对于设备树的对齐字节，我们只需要有所了解即可，并不会常接触到。  
