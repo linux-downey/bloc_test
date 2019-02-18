@@ -3,10 +3,10 @@
 ## 为什么要了解设备树dtb文件的格式
 dtb作为二进制文件被加载到内存中，然后由内核读取并进行解析，如果对dtb文件的格式不了解，那么在看设备树解析相关的内核代码时将会寸步难行，而阅读源代码才是了解设备树最好的方式，所以，如果需要更透彻的了解设备树解析的细节，第一步就是需要了解设备树的格式。  
 
-***注：本文档参考官方文档：https://github.com/torvalds/linux/blob/master/Documentation/devicetree/booting-without-of.txt   ***
+***注：本文部分参考官方文档：https://github.com/torvalds/linux/blob/master/Documentation/devicetree/booting-without-of.txt   ***
 
 ## dtb格式总览
-dtb的格式是这样的：TODO
+dtb的格式是这样的：![](https://raw.githubusercontent.com/linux-downey/bloc_test/master/article/linux_driver/dtb_format/dtb_format_sumary.png)  
 
 ### dtb header
 但凡涉及到数据的记录，就一定会有一个总的描述部分，就像磁盘的超级块，书的目录，dtb当然也不例外，这个描述头部就是dtb的header部分，通过这个header部分，用户可以快速地了解到整个dtb的大致信息。  
@@ -61,8 +61,6 @@ offset to memory reserve map，dtb中memory reserve map所在内存相对头部�
 #### size_dt_struct
 表示整个dtb中struct部分的大小
 
-
-
 ### alignment gap
 中间的alignment gap部分表示对齐间隙，它并非是必须的，它是否被提供以及大小由具体的平台对数据对齐和的要求以及数据是否已经对齐来决定。  
 
@@ -97,17 +95,14 @@ structure的的结构是这样的：
 每个节点的信息都按照上述结构被描述，需要注意的是，所有用于描述一个特定节点的属性都必须在任何子节点之前定义，虽然设备树的层次结构不会因此产生二义性，但是linux kernel的解析程序要求这么做。  
 
 
-
-
 ### device-tree strings
 device-tree strings：在dtb中有大量的重复字符串，比如"model","compatile"等等，为了节省空间，将这些字符串统一放在某个地址，需要使用的时候直接使用索引来查看，需要注意的是，属性部分格式为key = value，key部分被放置在strings部分，而value部分的字符串并不会放在这一部分，而是直接放在structure中。  
 
 
 
-### dtb 示例
-
-整个头部还是很简单且清晰明了的，下面我们以一个示例文件来演示header结构：
-
+### dtb文件解析示例
+光说不练假把式，下面我就使用一个简单的示例来剖析dtb的文件格式。  
+下述示例仅仅是一个演示demo，不针对任何平台，为了演示方便，编写了一个非常简单的dts文件。    
 	/dts-v1/;
 	/ {
 
@@ -138,35 +133,34 @@ device-tree strings：在dtb中有大量的重复字符串，比如"model","comp
 
 整个dtb文件还是比较简单的，图中的红色框出的部分为header部分的数据，可以看到：
 
-	第一个四字节对应magic，数据为 D00DFEED.
-	第二四字节对应totalsize，数据为 000001BC，可以由整张图片看出，这个dtb文件的大小由0x0~0x1bb,大小刚好是0x1bc
-	第三个四字节对应off_dt_struct，数据为00000038。
-	第四个四字节对应off_dt_strings，数据为00000174，可以由整张图片看到，从0x174开始刚好是字符串开始的地方
-	第五个四字节对应off_mem_rsvmap，数据为00000028
-	第六个四字节对应version，数据为00000011，十进制为17
-	第七个四字节对应last_comp_version，数据为00000010，十进制为16，表示兼容版本16
-	第八个四字节对应boot_cpuid_phys，数据为00000000，仅在版本2中使用，这里为0
-	第九个四字节对应size_dt_strings，数据为00000048，表示字符串总长。
-	第十个四字节对应size_dt_struct，数据为0000013c，表示struct部分总长度。
+	第1个四字节对应magic，数据为 D00DFEED.
+	第2四字节对应totalsize，数据为 000001BC，可以由整张图片看出，这个dtb文件的大小由0x0~0x1bb,大小刚好是0x1bc
+	第3个四字节对应off_dt_struct，数据为00000038。
+	第4个四字节对应off_dt_strings，数据为00000174，可以由整张图片看到，从0x174开始刚好是字符串开始的地方
+	第5个四字节对应off_mem_rsvmap，数据为00000028
+	第6个四字节对应version，数据为00000011，十进制为17
+	第7个四字节对应last_comp_version，数据为00000010，十进制为16，表示兼容版本16
+	第8个四字节对应boot_cpuid_phys，数据为00000000，仅在版本2中使用，这里为0
+	第9个四字节对应size_dt_strings，数据为00000048，表示字符串总长。
+	第10个四字节对应size_dt_struct，数据为0000013c，表示struct部分总长度。
 
-##  mem_rsvmap部分
-在上文中看到，前0x28字节为头部，而头部的off_mem_rsvmap部分数据为0x00000028，即从0x28开始表示mem_rsvmap部分，而dtb文件中从0x28开始的两个8字节为0，在上文中提到：整个部分的结尾由一个数据为0的结构来表示，所以这里并没有设置mem_rsvmap。
+整个头部为40字节，16进制为0x28，从头部信息中off_mem_rsvmap部分可以得到，reserve memory起始地址为0x28，上文中提到，这一部分使用一个16字节的struct来描述，以一个全为0的struct结尾。  
+后16字节全为0，可以看出，这里并没有设置reserve memory。
 
 ## structure 部分
-上文回顾：每一个属性都是以 key = value的形式来描述，value部分选。
-来到0x00000038(0x28+16d),接下来8个字节为00000003，根据上述structure中的描述，这是OF_DT_PROP，即标示属性的开始。  
+上文回顾：每一个属性都是以 key = value的形式来描述，value部分可选。  
+
+偏移地址来到0x00000038(0x28+0x10),接下来8个字节为00000003，根据上述structure中的描述，这是OF_DT_PROP，即标示属性的开始。  
 接下来4字节为00000018，表明该属性的value部分size为24字节。  
 接下来4字节是当前属性的key在string 部分的偏移地址，这里是00000000，由头部信息中off_dt_strings可以得到，string部分的开始为00000174，偏移地址为0，所以对应字符串为"compatible".
-之后就是value部分，这部分的数据是字符串，可以直接从右侧栏看出，总共24字节的字符串"hd,test_dts", "hd,test_xxx",因为字符串之间以0结尾，所以程序可以识别出这是两个字符串。  
+之后就是value部分，这部分的数据是字符串，可以直接从图片右侧栏看出，总共24字节的字符串"hd,test_dts", "hd,test_xxx",因为字符串之间以0结尾，所以程序可以识别出这是两个字符串。  
 可以看出，到这里，compatible = "hd,test_dts", "hd,test_xxx";这个属性就被描述完了，对于属性的描述还是非常简单的。  
 
 按照固有的规律，接下来就是对#address-cells = <0x1>的解析，然后是#size-cells = <0x1>...
 然后就是递归的子节点chosen，memory@80000000等等都是按照上文中提到的structure解析规则来进行解析，最后以00000002结尾。  
 而整个结构的结束由00000009来描述。  
 
-## string 部分
-可以由上一小节structure部分中看出，string部分的作用是被structure部分引用。
-
+一般而言，在32位系统中，dtc在编译dts文件时会自动考虑对齐问题，所以对于设备树的对齐字节，我们只需要有所了解即可，并不会常接触到。  
 
 
 
