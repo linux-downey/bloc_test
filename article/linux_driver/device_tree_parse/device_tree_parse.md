@@ -311,6 +311,7 @@ full_name:这个指针指向整个结构体的结尾位置，在结尾位置存�
 
 这就是设备树子节点到struct device_node的转换，为了能更直观地看出设备树节点到struct device_node的转换过程，博主特意制作了一张脑图：
 
+![](https://raw.githubusercontent.com/linux-downey/bloc_test/master/article/linux_driver/device_tree_parse/device_xmind.png) 
 
 好了，关于linux设备树节点转换成device_node过程的讨论就到此为止啦，如果朋友们对于这个有什么疑问或者发现有文章中有什么错误，欢迎留言
 
