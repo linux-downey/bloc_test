@@ -12,6 +12,7 @@ linux最底层的初始化部分在HEAD.s中，这是汇编代码，我们暂且
         ...
     }
 而对于设备树的处理，基本上就在setup_arch()这个函数中。  
+
 *** 在这篇文章中，我们分析的方法就是持续地跟踪linux源代码，但是鉴于linux源代码的复杂性，只将程序中相关性较强的部分贴出来进行分析，因为如果去深究细节部分，那只会自讨苦吃。 ***
 
 
@@ -28,7 +29,13 @@ linux最底层的初始化部分在HEAD.s中，这是汇编代码，我们暂且
         ...
     }
 
-### setup_machine_fdt
+这三个被调用的函数就是主要的设备树处理函数，setup_machine_fdt()函数根据传入的设备树dtb的首地址完成一些初始化操作。  
+arm_memblock_init()函数主要是内存相关，为设备树保留相应的内存空间，保证设备树dtb本身存在于内存中而不被覆盖。用户可以在设备树中设置保留内存，这一部分同时作了保留指定内存的工作。  
+unflatten_device_tree()从命名可以看出，这个函数就是对设备树具体的解析，事实上在这个函数中所做的工作就是将设备树各节点转换成相应的struct device_node结构体。  
+
+下面我们再来通过代码跟踪仔细分析,先从setup_machine_fdt()开始。
+
+### setup_machine_fdt(__atags_pointer)
 __atags_pointer这个全局变量存储的就是r2的寄存器值，是设备树在内存中的起始地址,将设备树起始地址传递给setup_machine_fdt，对设备树进行解析。接着跟踪setup_machine_fdt()函数：
 
     const struct machine_desc * __init setup_machine_fdt(unsigned int dt_phys)
@@ -43,7 +50,7 @@ __atags_pointer这个全局变量存储的就是r2的寄存器值，是设备树
         ...
     }
 第一部分先将设备树在内存中的物理地址转换为虚拟地址，然后再检查该地址上是否有设备树的魔数(magic)，魔数就是一串用于识别的字节码，如果没有或者魔数不匹配，表明该地址没有设备树文件，函数返回，否则验证成功，将设备树地址赋值给全局变量initial_boot_params。  
-第二部分of_flat_dt_match_machine(mdesc_best, arch_get_next_mach)，逐一读取设备树根目录下的compatible属性，然后将compatible中的属性一一与内核中支持的硬件单板相对比，匹配成功后返回相应的machine_desc结构体指针。machine_desc结构体中描述了单板相关的一些硬件信息，这里不过多描述。
+第二部分of_flat_dt_match_machine(mdesc_best, arch_get_next_mach)，逐一读取设备树根目录下的compatible属性，。将compatible中的属性一一与内核中支持的硬件单板相对比，匹配成功后返回相应的machine_desc结构体指针。machine_desc结构体中描述了单板相关的一些硬件信息，这里不过多描述。主要的的行为就是根据这个compatible属性选取相应的硬件单板描述信息，一般compatible属性名就是"厂商，芯片型号"。  
 第三部分就是扫描设备树中的各节点，主要分析这部分代码。
 
     void __init early_init_dt_scan_nodes(void)
@@ -54,7 +61,7 @@ __atags_pointer这个全局变量存储的就是r2的寄存器值，是设备树
     }
 	
 出人意料的是，这个函数中只有一个函数的三个调用，直觉告诉我这三个函数调用并不简单。  
-首先of_scan_flat_dt()这个函数接收两个参数，一个是函数指针，一个为boot_command_line，boot_command_line是一个静态数组，存放着启动参数,而of_scan_flat_dt函数的作用就是扫描设备树中的节点，然后以各节点为参数依次调用其第一个参数中传入的函数。  
+首先of_scan_flat_dt()这个函数接收两个参数，一个是函数指针，一个为boot_command_line，boot_command_line是一个静态数组，存放着启动参数,而of_scan_flat_dt()函数的作用就是扫描设备树中的节点，然后对各节点分别调用传入的回调函数。    
 在上述代码中，传入的参数分别为early_init_dt_scan_chosen，early_init_dt_scan_root，early_init_dt_scan_memory这三个函数，从名称可以猜测到，这三个函数分别是处理chosen节点、root节点中除子节点外的属性信息、memory节点。  
 
     int __init early_init_dt_scan_chosen(unsigned long node, const char *uname,int depth, void *data){
@@ -81,6 +88,13 @@ __atags_pointer这个全局变量存储的就是r2的寄存器值，是设备树
         ...
     }
 通过进一步代码分析，第二个函数执行是为了将root节点中的#size-cells和#address-cells属性提取出来，并非获取root节点中所有的属性，放到全局变量dt_root_size_cells和dt_root_addr_cells中。
+size-cells和address-cells表示对一个属性(通常是reg属性)的地址需要多少个四字节描述，而地址的长度需要多少个四字节描述。
+
+    #size-cells = 1
+    #address-cells = 1
+    reg = <0x12345678 0x100 0x22 0x4>
+在上述示例中，size-cells为1表示数据大小为4字节描述，address-cells为1表示地址由四字节描述。  
+而reg属性由四个四字节组成，所以存在两组地址描述，第一组是起始地址为0x12345678，长度为0x100，第二组起始地址为0x22，长度为0x4,因为在<>中，所有数据都是默认为32位。
 
 接下来看第三个函数调用：
 
@@ -97,10 +111,12 @@ __atags_pointer这个全局变量存储的就是r2的寄存器值，是设备树
             early_init_dt_add_memory_arch(base, size);
         }
     }
-函数先判断节点的unit name是memory@0,如果不是，则返回。然后将所有的reg属性取出来，根据address-cell和size-cell的值进行解析，然后调用early_init_dt_add_memory_arch()来申请相应的内存空间。
+函数先判断节点的unit name是memory@0,如果不是，则返回。然后将所有memory相关的reg属性取出来，根据address-cell和size-cell的值进行解析，然后调用early_init_dt_add_memory_arch()来申请相应的内存空间。
 
 到这里，setup_machine_fdt()函数对于设备树的第一次扫描解析就完成了，主要是获取了一些设备树提供的总览信息。  
-接下来继续回到setup_arch()函数中，继续向下跟踪代码。  
+
+
+*** 接下来继续回到setup_arch()函数中，继续向下跟踪代码。 ***  
 
 
 ### arm_memblock_init
@@ -125,8 +141,7 @@ memblock_init对于设备树的部分解析就完成了，主要是为设备树�
 
     void __init unflatten_device_tree(void)
     {
-        __unflatten_device_tree(initial_boot_params, NULL, &of_root,     —————— part1
-                    early_init_dt_alloc_memory_arch, false);
+        __unflatten_device_tree(initial_boot_params, NULL, &of_root,early_init_dt_alloc_memory_arch, false);  —————— part1
 
         of_alias_scan(early_init_dt_alloc_memory_arch);                  —————— part2
         ...
@@ -159,7 +174,10 @@ memblock_init对于设备树的部分解析就完成了，主要是为设备树�
         }
     }
 从上文贴出的程序来看，of_alias_scan()函数先是处理设备树chosen节点中的"stdout-path"或者"stdout"属性(两者最多存在其一)，然后将stdout指定的path赋值给全局变量of_stdout_options，并将返回的全局struct device_node类型数据赋值给of_stdout，指定系统启动时的log输出。  
-接下来为aliases节点申请内存空间，如果一个节点中同时没有name/phandle/linux,phandle，对于这些特殊节点将不会申请内存空间。  
+接下来为aliases节点申请内存空间，如果一个节点中同时没有name/phandle/linux,phandle，对于这些特殊节点将不会申请内存空间。
+
+然后，使用of_alias_add()函数将所有的aliases内容放置在同一个链表中。  
+
 of_chosen和of_aliases都是struct device_node型的全局数据。  
 
 
@@ -291,6 +309,14 @@ full_name:这个指针指向整个结构体的结尾位置，在结尾位置存�
 .kobj：用于在/sys目录下生成相应用户文件。  
 
 
+这就是设备树子节点到struct device_node的转换，为了能更直观地看出设备树节点到struct device_node的转换过程，博主特意制作了一张脑图：
+
+
+好了，关于linux设备树节点转换成device_node过程的讨论就到此为止啦，如果朋友们对于这个有什么疑问或者发现有文章中有什么错误，欢迎留言
+
+***原创博客，转载请注明出处！***
+
+祝各位早日实现项目丛中过，bug不沾身.
 
 
 
