@@ -4,17 +4,19 @@
 
 ## 从start_kernel开始
 *** 注：鉴于linux源代码的复杂性，在本篇的代码跟踪中 ，博主就只贴出相关代码，试图构造一个清晰的框架 ***
-start kernel原型是这样的：
+linux最底层的初始化部分在HEAD.s中，这是汇编代码，我们暂且不作过多讨论，在head.s完成部分初始化之后，就开始调用C语言函数，而被调用的第一个C语言函数就是start_kernel，start kernel原型是这样的：
     asmlinkage __visible void __init start_kernel(void)
     {
         ...
         setup_arch(&command_line);
         ...
     }
-设备树的处理基本上就在这个函数中。  
+而对于设备树的处理，基本上就在setup_arch()这个函数中。  
+*** 在这篇文章中，我们分析的方法就是持续地跟踪linux源代码，但是鉴于linux源代码的复杂性，只将程序中相关性较强的部分贴出来进行分析，因为如果去深究细节部分，那只会自讨苦吃。 ***
+
 
 ### setup_arch
-
+可以看到，在start_kernel()中调用了setup_arch(&command_line);
     void __init setup_arch(char **cmdline_p)
     {
         const struct machine_desc *mdesc;
@@ -228,14 +230,65 @@ of_chosen和of_aliases都是struct device_node型的全局数据。
 一个设备树中节点转换成一个struct device_node结构的过程渐渐就清晰起来，现在我们接着看看populate_properties()这个函数，看看属性是怎么解析的：
 
     static void populate_properties(const void *blob,int offset,void **mem,struct device_node *np,const char *nodename,bool dryrun){
+        ...
         for (cur = fdt_first_property_offset(blob, offset);
 	     cur >= 0;
-	     cur = fdt_next_property_offset(blob, cur)) {
+	     cur = fdt_next_property_offset(blob, cur)) 
+         {
              fdt_getprop_by_offset(blob, cur, &pname, &sz);
              unflatten_dt_alloc(mem, sizeof(struct property),__alignof__(struct property));
-         }
-    }
+             if (!strcmp(pname, "phandle") ||  !strcmp(pname, "linux,phandle")) {
+			 if (!np->phandle)
+				np->phandle = be32_to_cpup(val);
 
+            pp->name   = (char *)pname;
+            pp->length = sz;
+            pp->value  = (__be32 *)val;
+            *pprev     = pp;
+            pprev      = &pp->next;
+            ...
+		}
+        }
+    }
+从属性转换部分的程序可以看出，对于大部分的属性，都是直接填充一个struct property属性，而对于，"phandle"属性和"linux,phandle"属性，直接填充struct device_node 的phandle字段，不放在属性链表中。  
+struct property结构体是这样的：
+
+    struct property {
+        char	*name;
+        int	length;
+        void	*value;
+        struct property *next;
+        ...
+    };
+在设备树中，对于属性的描述是key = value，这个结构体中的name和value分别对应key和value，而length表示value的长度，next指针指向下一个struct property结构体。  
+
+## struct device_node的生成
+程序跟踪到这里，设备树由dtb二进制文件经过解析为每个节点生成一个struct device_node结构体的过程基本上就清晰了，我们再进行一下总结，首先看看struct device_node结构：
+
+    struct device_node {
+        const char *name;
+        const char *type;
+        phandle phandle;
+        const char *full_name;
+        ...
+        struct	property *properties;
+        struct	property *deadprops;	/* removed properties */
+        struct	device_node *parent;
+        struct	device_node *child;
+        struct	device_node *sibling;
+        struct	kobject kobj;
+        unsigned long _flags;
+        void	*data;
+        ...
+    };
+
+.name属性：设备节点中的name属性转换而来。  
+.type属性：由设备节点中的device_type转换而来。  
+.phandle属性：有设备节点中的"phandle"和"linux,phandle"属性转换而来，特殊的还可能由"ibm,phandle"属性转换而来。  
+full_name:这个指针指向整个结构体的结尾位置，在结尾位置存储着这个结构体对应设备树节点的unit_name，意味着一个struct device_node结构体占内存空间为sizeof(struct device_node)+strlen(unit_name)+字节对齐。 
+.properties这是一个设备树节点的属性链表，属性可能有很多种，比如："interrupts","timer"，"hwmods"等等。
+.parent,.child,.sibling:与当前属性链表节点相关节点，所以相关链表节点构成整个device_node的属性节点。  
+.kobj：用于在/sys目录下生成相应用户文件。  
 
 
 
