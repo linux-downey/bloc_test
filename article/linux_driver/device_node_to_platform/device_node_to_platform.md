@@ -1,0 +1,1 @@
+从of_platform_default_populate_init开始。
