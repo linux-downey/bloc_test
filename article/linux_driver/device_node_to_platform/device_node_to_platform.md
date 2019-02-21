@@ -137,17 +137,19 @@ struct platform_device终于现出了真身，在这个函数调用中，显示�
 
     struct platform_device *of_device_alloc(struct device_node *np,const char *bus_id,struct device *parent)
     {
+        //统计reg属性的数量
         while (of_address_to_resource(np, num_reg, &temp_res) == 0)
 		    num_reg++;
+        //统计irq的数量
 	    num_irq = of_irq_count(np);
-
+        //根据num_irq和num_reg的数量申请相应的内存空间。
         if (num_irq || num_reg) {
             res = kzalloc(sizeof(*res) * (num_irq + num_reg), GFP_KERNEL);
             if (!res) {
                 platform_device_put(dev);
                 return NULL;
             }
-
+            //
             dev->num_resources = num_reg + num_irq;
             dev->resource = res;
             for (i = 0; i < num_reg; i++, res++) {
@@ -158,7 +160,7 @@ struct platform_device终于现出了真身，在这个函数调用中，显示�
                 pr_debug("not all legacy IRQ resources mapped for %s\n",
                     np->name);
 	    }
-
+        //
         dev->dev.of_node = of_node_get(np);
 	    dev->dev.fwnode = &np->fwnode;
 	    dev->dev.parent = parent ? : &platform_bus;
@@ -168,7 +170,7 @@ struct platform_device终于现出了真身，在这个函数调用中，显示�
 	    else
 		    of_device_make_bus_id(&dev->dev);
     }
-
+首先，函数
 
     
 
