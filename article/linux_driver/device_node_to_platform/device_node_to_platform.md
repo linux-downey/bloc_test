@@ -119,16 +119,14 @@ of_platform_default_populate()调用了of_platform_populate()，需要注意的�
         dev->dev.bus = &platform_bus_type;
 	    dev->dev.platform_data = platform_data;
 
-        of_msi_configure(&dev->dev, dev->dev.of_node);
 
         if (of_device_add(dev) != 0) {
 		    platform_device_put(dev);
 		    goto err_clear_flag;
 	    }
     }
-struct platform_device终于现出了真身，在这个函数调用中，显示申请并初始化一个platform_device结构体  
+struct platform_device终于现出了真身，在这个函数调用中，显示申请并初始化一个platform_device结构体，将传入的device_node链接到成员：dev.fo_node中
 赋值bus成员和platform_data成员，platform_data成员为NULL。  
-然后将传入的device_node链接到成员：dev.fo_node中
 再使用of_device_add()将当前生成的platform_device添加到系统中。 
 
 对于of_platform_device_create_pdata()函数中的实现，我们需要逐一讲解其中的函数实现：
@@ -140,37 +138,79 @@ struct platform_device终于现出了真身，在这个函数调用中，显示�
         //统计reg属性的数量
         while (of_address_to_resource(np, num_reg, &temp_res) == 0)
 		    num_reg++;
-        //统计irq的数量
+        //统计中断irq属性的数量
 	    num_irq = of_irq_count(np);
-        //根据num_irq和num_reg的数量申请相应的内存空间。
+        //根据num_irq和num_reg的数量申请相应的struct resource内存空间。
         if (num_irq || num_reg) {
             res = kzalloc(sizeof(*res) * (num_irq + num_reg), GFP_KERNEL);
             if (!res) {
                 platform_device_put(dev);
                 return NULL;
             }
-            //
+            //设置platform_device中的num_resources成员
             dev->num_resources = num_reg + num_irq;
+            //设置platform_device中的resource成员
             dev->resource = res;
+
+            //将device_node中的reg属性转换成platform_device中的struct resource成员。  
             for (i = 0; i < num_reg; i++, res++) {
                 rc = of_address_to_resource(np, i, res);
                 WARN_ON(rc);
             }
+            //将device_node中的irq属性转换成platform_device中的struct resource成员。 
             if (of_irq_to_resource_table(np, res, num_irq) != num_irq)
                 pr_debug("not all legacy IRQ resources mapped for %s\n",
                     np->name);
 	    }
-        //
+        //将platform_device的dev.of_node成员指针指向device_node。  
         dev->dev.of_node = of_node_get(np);
+        //将platform_device的dev.fwnode成员指针指向device_node的fwnode成员。
 	    dev->dev.fwnode = &np->fwnode;
+        //设备parent为platform_bus
 	    dev->dev.parent = parent ? : &platform_bus;
 
-        if (bus_id)
-		    dev_set_name(&dev->dev, "%s", bus_id);
-	    else
-		    of_device_make_bus_id(&dev->dev);
     }
-首先，函数
+首先，函数先统计设备树中reg属性和中断irq属性的个数，然后分别为它们申请内存空间，链入到platform_device中的struct resources成员中。除了设备树中"reg"和"interrupt"属性之外，还有可选的"reg-names"和"interrupt-names"这些io中断资源相关的设备树节点属性也在这里被转换。  
+将相应的设备树节点生成的device_node节点链入到platform_device的dev.of_node中。  
+
+
+### of_device_add
+
+    int of_device_add(struct platform_device *ofdev){
+        ...
+        return device_add(&ofdev->dev);
+    }
+将当前platform_device中的struct device成员注册到系统device中，并为其在用户空间创建相应的访问节点。  
+
+
+## 总结
+总的来说，将device_node转换为platform_device的过程还是比较简单的。
+整个转换过程的函数调用关系是这样的：
+
+                                of_platform_default_populate_init()
+                                            |
+                                of_platform_default_populate();
+                                            |
+                                of_platform_populate();
+                                            |
+                                of_platform_bus_create()
+                    _____________________|_________________
+                    |                                      |
+            of_platform_device_create_pdata()       of_platform_bus_create()
+            _________________|____________________
+           |                                      |
+     of_device_alloc()                        of_device_add()         
+    
+
+好了，关于linux设备树中device_node到platform_device的转换过程的讨论就到此为止啦，如果朋友们对于这个有什么疑问或者发现有文章中有什么错误，欢迎留言
+
+***原创博客，转载请注明出处！***
+
+祝各位早日实现项目丛中过，bug不沾身.
+
+
+
 
     
+
 
