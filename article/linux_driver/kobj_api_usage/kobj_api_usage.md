@@ -99,6 +99,26 @@ struct kset *kset_create_and_add(const char *name,
 
 
 
+device_register()
+{
+	device_initialize(dev);
+	return device_add(dev);
+}
+
+device_add()    算是device_register的第二个版本。
+
+dev_set_name();主要是设置device->kobj的名称。
+
+device_create() 最后调用device_add(dev)
+
+device_create_file()最后还是调用device_create_file()，
+
+
+kobj->name表示在/sys下的名字。  
+device_create传入的名称字符串被设置成了dev->kobj的名称。
+
+
+在/dev下创建文件由device_add中的devtmpfs_create_node(dev);
 spinlock
 rcu
 
