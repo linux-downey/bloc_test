@@ -1,0 +1,52 @@
+linux 内核makefile
+makefiles包括五个部分：
+	顶层makefile
+	.config文件，内核编译的配置文件
+	arch/$(ARCH)/Makefile    对应平台架构的makefile
+	scirpts/makefile.*       kbuild makefiles的通用规则
+	kbuild makefiles   
+	
+顶层的makefiles读取.config文件
+顶层makefiles负责两件事：编译vmlinux(常驻于内存的镜像)和所有模块
+
+arch makefile主要是提供平台特性信息给顶层makefile
+
+每个子目录都有一个kbiuld makefile
+
+用户的级别与分工：
+user，仅仅是make menuconfig或者是make，从来不用去修改内核makefile
+normal developers，普通开发者：作为普通开发者，需要维护kbuild makefile，但是为了更好更高效地完成工作，需要堆整个makefile
+体系有一个大致的了解
+针对架构的开发者：这些人的工作是针对整个架构，需要了解arch makefile和kbuild makefile
+kbuild developers：这些人需要堆makefile的每个方面都有细致的了解
+
+这个makefile文档是针对普通开发者和架构针对架构的开发者。
+
+kbuild files：在子目录下，一般使用makefile，但是同时也可以使用名称：kbuild，如果两者同时存在，就使用kbuild
+infrastructure 基础设施
+
+obj-y表示编译进内核，obj-m表示编译成模块，通常使用这样一种通用形式：
+obj-$(CONFIG_FOO) += foo.o
+CONFIG_FOO一般是m或者y，如果两者都不是，那就既不编译也不链接
+
+
+所有的obj-y的模块都被编译进vmlinux中。这个obj-y的模块列表由.config决定
+
+kbuild编译所有的obj-y文件，然后调用ar rcSTP将所有的这些文件都合并成built-in.a文件
+这算是一份简单的存档(archive)，不包含符号表，所以不适合作为链接的输入，
+符号表具体的作用？为什么可以打包之后不带符号表，纯二进制？
+scripts/link-vmlinux.sh脚本制作一份build_in.a和一份符号表，使得其可以作为链接器的输入
+
+obj-y的顺序是重要的，obj-y的模块在list里面允许重复存在，第一个实力会被编译进内核，但是随后的会被忽略
+
+
+链接的顺序也是比较重要的，因为通过module_init/initcall()声明的函数将会在boot阶段
+调用，依据他们的出现顺序。
+
+模块被编译进内核的时候，这些模块到底是怎么运行的？为什么编译和链接的顺序非常重要。
+
+module-y : 表示生成module.o，区别与obj-y
+当在kbuild部分添加一个obj-y时，编译器会将其打包进build_in.a.
+好奇：当只使用内核头文件时，如果指定obj-y，会有怎么样的结果，编译出来的镜像会放在哪里。
+
+
