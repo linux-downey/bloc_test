@@ -49,4 +49,55 @@ module-y : 表示生成module.o，区别与obj-y
 当在kbuild部分添加一个obj-y时，编译器会将其打包进build_in.a.
 好奇：当只使用内核头文件时，如果指定obj-y，会有怎么样的结果，编译出来的镜像会放在哪里。
 
+编译生成lib，可以使用lib-y:=xxx.o,
+
+obj-y += xxx/，可以指示整个文件夹，编译时可以进入到相应文件夹，仅仅添加到搜索目录中，并非包含全部文件夹。
+
+编译选项：ccflags-y  asflags-y  ldflags-y
+这三个标志位适用于当前的kbuild makefile以及调用的，不包括上层的makefile中。
+ccflags-y:CC的编译选项，在顶层makefile中，KBUILD_CFLAGS变量被应用到整颗编译树中。  
+asflags-y：汇编的编译选项
+ldflags-y：链接器的编译选项
+
+ subdir-ccflags-y, subdir-asflags-y选项作用可以参考ccflags-y和asflags-y，只是多了subdir-前缀，表示对所有子目录有效
+
+
+ CFLAGS_$@, AFLAGS_$@，仅在当前命令中有效，比如 CFLAGS_XYZ
+ 
+ 
+依赖性跟踪：
+如果更改CC，所有文件都会被重新编译
+cc，ld，as的各个编译选项
+
+
+arch makefiles：
+顶层makefile设置环境和做一些准备工作，当kbuild开始执行时，大致的流程是这样的：
+1. 配置内核参数到 .config
+2. 保存linux的版本号到include/linux/version.h
+3. 更新编译目标需要的所有前置条件
+4. 递归地进入各子目录，编译init-，core* drivers-*,net-* libs-*，并且编译所有目标文件。
+5. 链接所有的目标文件，并生成vmlinux
+6. 最后，特定于体系结构的部分执行任何所需的后处理    并构建最终的bootimage，包括构建启动记录，准备initrd镜像。
+initrd全名为init ram disk，在系统启动时作为临时文件系统，在根文件系统启动之前作为桥梁作用。  
+
+设置变量以将构建调整为适应体系结构：
+LDFLAGS  
+LDFLAGS_vmlinux  在链接vmlinux的时候提供选项
+
+
+arch makefile指定目标为vmlinux，对其进行压缩，包装以及复制到指定位置
+
+将dtc加入到vmlinux
+
+执行链接脚本：
+当vmlinux image被编译生成，链接脚本arch/$(ARCH)/kernel/vmlinux.lds被使用。
+
+
+顶层头文件被定义的变量：
+
+
+
+
+反码，补码。大小端
+
 
