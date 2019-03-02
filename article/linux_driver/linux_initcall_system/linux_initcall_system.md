@@ -73,8 +73,116 @@ __used是一个宏定义，
 ## xxx_initcall修饰函数的调用
 既然我们知道了xxx_initcall是怎么定义而且目标函数的放置位置，那么使用xxx_initcall()修饰的函数是怎么被调用的呢？  
 我们就从内核C函数起始部分也就是start_kernel开始往下挖,这里的调用顺序为：
-start_kernel
-->
+	
+	start_kernel  
+		-> rest_init();
+			-> kernel_thread(kernel_init, NULL, CLONE_FS);
+				-> kernel_init()
+					-> kernel_init_freeable();
+						-> do_basic_setup();
+							-> do_initcalls();
+这个do_initcalls()就是我们需要寻找的函数了，在这个函数中执行所有使用xxx_initcall()声明的函数，接下来我们再来看看它是怎么执行的：
+
+
+	static initcall_t *initcall_levels[] __initdata = {
+		__initcall0_start,
+		__initcall1_start,
+		__initcall2_start,
+		__initcall3_start,
+		__initcall4_start,
+		__initcall5_start,
+		__initcall6_start,
+		__initcall7_start,
+		__initcall_end,
+	};
+
+	int __init_or_module do_one_initcall(initcall_t fn)
+	{
+		...
+		if (initcall_debug)
+			ret = do_one_initcall_debug(fn);
+		else
+			ret = fn();
+		...
+		return ret;
+	}
+
+	static void __init do_initcall_level(int level)
+	{
+		initcall_t *fn;
+		...		
+		for (fn = initcall_levels[level]; fn < initcall_levels[level+1]; fn++)
+			do_one_initcall(*fn);
+	}
+
+	static void __init do_initcalls(void)
+	{
+		int level;
+		for (level = 0; level < ARRAY_SIZE(initcall_levels) - 1; level++)
+			do_initcall_level(level);
+	}
+
+在上述代码中，定义了一个静态的initcall_levels数组，这是一个指针数组，数组的每个元素都是一个指针.  
+
+do_initcalls()循环调用do_initcall_level(level)，level就是initcall的优先级数字，由for循环的终止条件ARRAY_SIZE(initcall_levels) - 1可知，总共会调用do_initcall_level(0)~do_initcall_level(7)，一共七次。   
+
+而do_initcall_level(level)中则会遍历initcall_levels[level]中的每个函数指针，initcall_levels[level]实际上是对应的__initcall##level##_start指针变量，然后依次取出__initcall##level##_start指向地址存储的每个函数指针，并调用do_one_initcall(*fn)，实际上就是执行当前函数。  
+
+可以猜到的是，这个__initcall##level##_start所存储的函数指针就是开发者用xxx_initcall()宏添加的函数，对应".initcall_##level##.init"段。
+
+do_one_initcall(*fn)的执行：判断initcall_debug的值，如果为真，则调用do_one_initcall_debug(fn);如果为假，则直接调用fn。事实上，调用do_one_initcall_debug(fn)只是在调用fn的基础上添加一些额外的打印信息，可以直接看成是调用fn。  
+
+那么，在initcall源码部分有提到，在开发者添加xxx_initcall(fn)时，事实上是将fn放置到了".initcall##level##.init"的段中，但是在do_initcall()的源码部分，却是从initcall_levels[level](即__initcall##level##_start指针)取出，initcall_levels[level]是怎么关联到".initcall##level##.init"段的呢？  
+答案在vmlinux.lds.h中：
+
+	#define INIT_CALLS_LEVEL(level)						\
+		VMLINUX_SYMBOL(__initcall##level##_start) = .;		\
+		KEEP(*(.initcall##level##.init))			\
+		KEEP(*(.initcall##level##s.init))			\
+
+	#define INIT_CALLS							\
+		VMLINUX_SYMBOL(__initcall_start) = .;			\
+		KEEP(*(.initcallearly.init))				\
+		INIT_CALLS_LEVEL(0)					\
+		INIT_CALLS_LEVEL(1)					\
+		INIT_CALLS_LEVEL(2)					\
+		INIT_CALLS_LEVEL(3)					\
+		INIT_CALLS_LEVEL(4)					\
+		INIT_CALLS_LEVEL(5)					\
+		INIT_CALLS_LEVEL(rootfs)				\
+		INIT_CALLS_LEVEL(6)					\
+		INIT_CALLS_LEVEL(7)					\
+		VMLINUX_SYMBOL(__initcall_end) = .;
+在这里首先定义了__initcall_start，将其关联到".initcallearly.init"段。  
+
+然后对每个level定义了INIT_CALLS_LEVEL(level)，将INIT_CALLS_LEVEL(level)展开之后的结果是定义__initcall##level##_start，并将
+__initcall##level##_start关联到".initcall##level##.init"段和".initcall##level##s.init"段。   
+
+到这里，__initcall##level##_start和".initcall##level##.init"段的关联就比较清晰了。  
+
+## 总结
+便于理解，我们需要一个示例来梳理整个流程，假设我是一个驱动开发者，开发一个名为beagle的驱动，在系统启动时需要调用beagle_init()函数来启动启动服务
+我需要先将其添加到系统中：
+
+	core_initcall(beagle_init)
+core_initcall(beagle_init)宏展开为__define_initcall(beagle_init, 1)，所以beagle_init()这个函数被放置在".initcall1.init"段处。  
+在内核启动时，系统会调用到do_initcall()函数。 根据指针数组initcall_levels[1]找到__initcall1_start指针，在vmlinux.lds.h可以查到：__initcall1_start对应".initcall1.init"段的起始地址，依次取出段中的每个函数指针，并执行函数。  
+添加的服务就实现了启动。    
+
+可能有些C语言基础不太好的朋友不太理解do_initcall_level()函数中依次取出地址并执行的函数执行逻辑：
+		
+	for (fn = initcall_levels[level]; fn < initcall_levels[level+1]; fn++)
+		do_one_initcall(*fn);
+fn为函数指针，fn++相当于函数指针+1，相当于：内存地址+sizeof(fn)，sizeof(fn)根据平台不同而不同，一般的32位机上是4字节，64位机则是8字节。  
+而initcall_levels[level]指向当前".initcall##level##s.init"段，initcall_levels[level+1]指向".initcall##(level+1)##s.init"段,两个段之间的内存就是存放所有添加的函数指针。  
+也就是从".initcall##level##s.init"段开始，每次取一个函数出来执行，并累加指针，直到取完。  
+
+
+好了，关于linux中initcall系统的讨论就到此为止啦，如果朋友们对于这个有什么疑问或者发现有文章中有什么错误，欢迎留言
+
+***原创博客，转载请注明出处！***
+
+祝各位早日实现项目丛中过，bug不沾身.
 
 
 
