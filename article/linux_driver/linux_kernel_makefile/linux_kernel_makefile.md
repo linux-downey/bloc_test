@@ -1,4 +1,4 @@
-# linux内核module makefile
+# linux内核可加载模块的makefile
 在开发linux内核驱动时，免不了要接触到makefile的编写和修改，尽管网上的makefile模板一大堆，做一些简单的修改就能用到自己的项目上，但是，对于这些基础的东西，更应该做到知其然并知其所以然。  
 *** 本篇文章中只讨论linux内核模块编译的makefile，不涉及linux顶层makefile的探究 ***
 参考[官方文档](https://github.com/torvalds/linux/blob/master/Documentation/kbuild/modules.txt)了解更多信息。   
@@ -34,9 +34,11 @@ all，clean这一类的是makefile中的伪目标，伪目标并不是一个真�
 标准的make指令是这样的：make -C $KDIR M=$PWD [target]，下面分别介绍每个字段的含义。  
 
 -C选项：此选项指定内核源码的位置，make在编译时将会进入内核源码目录，执行编译，编译完成时返回。  
-$KDIR：/lib/modules/$(shell uname -r)/build/，指定内核源码的位置。  
-直接在目标板上编译时，内核头文件默认存放在/lib/modules/$(shell uname -r)/build/中，而库文件则直接引用正在运行的内核镜像。
-当跨平台编译时，就需要指定相应的内核源码目录，而不是系统中的源码目录。交叉编译工具链和架构的问题TODO.
+$KDIR：/lib/modules/$(shell uname -r)/build/，指定内核源码的位置。
+
+直接在目标板上编译时，内核头文件默认存放在/lib/modules/$(shell uname -r)/build/中，这个build/目录是一个软连接，链接到源码头文件的安装位置。而内核真正的源码库则直接引用正在运行的内核镜像。  
+
+当跨平台编译时，就需要指定相应的内核源码目录，而不是系统中的源码目录，但是交叉编译时，需不需要指定架构平台和交叉编译工具链呢？我们接着往下看;  
 *** 
 M=$(PWD)：需要编译的模块源文件地址
 *** 
@@ -56,6 +58,15 @@ hello_world总是简单的，但是在实际开发中，就会出现更复杂的
 hello.o目标文件依赖于a.o,b.o,hello_world.o,那么这里的a.o和b.o如果没有指定源文件，根据推导规则就是依赖源文件a.c,b.c,hello_world.c.  
 除了hello-y，同时也可以用hello-objs,实现效果是一样的。  
 
+### 同时编译多个可加载模块
+kbuild支持同时编译多个可加载模块，也就是生成多个.ko文件，它的格式是这样的：
+
+        obj-m := foo.o bar.o
+        foo-y := <foo_srcs>
+        bar-y := <bar_srcs>
+就是这么简单。  
+
+
 ### ifneq ($(KERNELRELEASE),)
 通常，标准的makefile会写成这样：
 
@@ -71,10 +82,34 @@ hello.o目标文件依赖于a.o,b.o,hello_world.o,那么这里的a.o和b.o如果
                 $(MAKE) -C $(KDIR) M=$(PWD) clean
         endif
 为什么要添加一个ifneq，else，all条件判断。  
-这得从linux内核模块make执行的过程说起：当键入make时，make在当前目录下寻找makefile并执行，KERNELRELEASE在顶层的makefile中被定义，所以在执行当前makefile时KERNELRELEASE并没有被定义，走else分支，
+这得从linux内核模块make执行的过程说起：当键入make时，make在当前目录下寻找makefile并执行，KERNELRELEASE在顶层的makefile中被定义，所以在执行当前makefile时KERNELRELEASE并没有被定义，走else分支，直接执行
+
+        $(MAKE) -C $(KDIR) M=$(PWD) modules
+而这条指令会进入到$(KDIR)目录，调用顶层的makefile，在顶层makefile中定义了KERNELRELEASE变量，在顶层makefile中会递归地再次调用到当前目录下的makefile文件，这时KERNELRELEASE变量已经非空，所以执行if分支，在可加载模块编译列表添加hello模块，由此将模块编译成可加载模块放在当前目录下。   
+归根结底，各级子目录中的makefile文件的作用就是先切换到顶层makefile，然后通过obj-m在可加载模块编译列表中添加当前模块，kbuild就会将其编译成可加载模块。  
+
+如果是直接编译整个内核源码，就省去了else分支中进入顶层makefile的步骤。  
+
+需要注意的一个基本概念是：每一次编译，顶层makefile都试图递归地进入每个子目录调用子目录的makefile，只是当目标子目录中没有任何修改时，默认不再进行重复编译以节省编译时间。  
+
+这里同时解决了上面的一个疑问：既然是从顶层目录开始编译，那么只要顶层目录中指定了架构(ARCH)和交叉编译工具链地址(CROSS_COMPILE)，各子目录中就不再需要指定这两个参数。  
 
 
+## 头文件的放置
+当编译的目标模块依赖多个头文件时，kbuild对头文件的放置有这样的规定：
+* 直接放置在makefile同在的目录下，在编译时当前目录会被添加到头文件搜索目录。  
+* 放置在系统目录，这个系统目录是源代码目录中的include/linux/。  
+* 与通用的makefile一样，使用-I$(DIR)来指定，不同的是，代表编译选项的变量是固定的，为ccflag.
+        一般的用法是这样的：
+
+                ccflags-y := -I$(DIR)/include   
+        kbuild就会将$(DIR)/includ目录添加到编译时的头文件搜索目录中。  
 
 
+好了，关于linux编译内核模块的makefile介绍就到此为止啦，如果朋友们对于这个有什么疑问或者发现有文章中有什么错误，欢迎留言
+
+***原创博客，转载请注明出处！***
+
+祝各位早日实现项目丛中过，bug不沾身.
 
 
