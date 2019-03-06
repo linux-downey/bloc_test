@@ -1,15 +1,21 @@
 # linux设备树格式
-设备树的一般操作方式是：开发人员根据开发需求编写dts文件，然后使用dtc将dts编译成dtb文件。dts文件是文本格式的文件，而dtb是二进制文件，在linux启动时被加载到内存中，接下来我们需要来分析设备树dtb文件的格式。   
-## 为什么要了解设备树dtb文件的格式
-dtb作为二进制文件被加载到内存中，然后由内核读取并进行解析，如果对dtb文件的格式不了解，那么在看设备树解析相关的内核代码时将会寸步难行，而阅读源代码才是了解设备树最好的方式，所以，如果需要更透彻的了解设备树解析的细节，第一步就是需要了解设备树的格式。  
+设备树的一般操作方式是：开发人员根据开发需求编写dts文件，然后使用dtc将dts编译成dtb文件。  
 
-***注：本文部分参考官方文档：https://github.com/torvalds/linux/blob/master/Documentation/devicetree/booting-without-of.txt   ***
+dts文件是文本格式的文件，而dtb是二进制文件，在linux启动时被加载到内存中，接下来我们需要来分析设备树dtb文件的格式。  
+
+## 为什么要了解设备树dtb文件的格式
+dtb作为二进制文件被加载到内存中，然后由内核读取并进行解析，如果对dtb文件的格式不了解，那么在看设备树解析相关的内核代码时将会寸步难行，而阅读源代码才是了解设备树最好的方式，所以，如果需要更透彻的了解设备树解析的细节，第一步就是需要了解设备树的格式。    
+
+***注：本文部分参考:[官方文档](https://github.com/torvalds/linux/blob/master/Documentation/devicetree/booting-without-of.txt
+)***
 
 ## dtb格式总览
 dtb的格式是这样的：![](https://raw.githubusercontent.com/linux-downey/bloc_test/master/article/linux_driver/dtb_format/dtb_format_sumary.png)  
 
+
 ### dtb header
-但凡涉及到数据的记录，就一定会有一个总的描述部分，就像磁盘的超级块，书的目录，dtb当然也不例外，这个描述头部就是dtb的header部分，通过这个header部分，用户可以快速地了解到整个dtb的大致信息。  
+但凡涉及到数据的记录，就一定会有一个总的描述部分，就像磁盘的超级块，书的目录，dtb当然也不例外，这个描述头部就是dtb的header部分，通过这个header部分，用户可以快速地了解到整个dtb的大致信息。   
+
 header可以用这么一个结构体来描述：
 
 	struct fdt_header {
@@ -73,13 +79,26 @@ memory reserve map：描述保留的内存部分，这个map的数据结构是�
 		uint64_t physical_address;
 		uint64_t size;
 	}
-这部分存储了此结构的列表，整个部分的结尾由一个数据为0的结构来表示(即physical_address和size都为0，总共16字节)。    
-这一部分的作用是告诉内核哪一些内存空间需要被保留而不应该被系统覆盖使用，因为在内核启动时常常需要动态申请大量的内存空间，只有提前进行注册，用户需要使用的内存才不会被系统征用而造成数据覆盖。值得一提的是，对于设备树而言，即使不指定保留内存，系统也会默认为设备树保留相应的内存空间。  
-同时，这一部分需要64位(8字节)对齐。
+这部分存储了此结构的列表，整个部分的结尾由一个数据为0的结构来表示(即physical_address和size都为0，总共16字节)。  
 
+这一部分的数据并非是节点中的memory子节点，而是在设备开始之前(也就是第一个花括号之前)定义的,例如：
+
+	/dts-v1/
+	/memreserve/ 0x10000000  0x100000
+	/*在结构提中的表示为 physical_address=0x10000000，size=0x100000 */
+	{
+		...
+	}
+
+这一部分的作用是告诉内核哪一些内存空间需要被保留而不应该被系统覆盖使用，因为在内核启动时常常需要动态申请大量的内存空间，只有提前进行注册，用户需要使用的内存才不会被系统征用而造成数据覆盖。  
+
+值得一提的是，对于设备树而言，即使不指定保留内存，系统也会默认为设备树保留相应的内存空间。  
+
+同时，这一部分需要64位(8字节)对齐。
 
 ### device-tree structure
 device-tree structure：每个节点都会被描述为一个struct，节点之间可以嵌套，因此也会有嵌套的struct。  
+
 structure的的结构是这样的：
 
 * 一个node开始信号，OF_DT_BEGIN_NODE，数据为0x00000001
@@ -96,12 +115,15 @@ structure的的结构是这样的：
 
 
 ### device-tree strings
-device-tree strings：在dtb中有大量的重复字符串，比如"model","compatile"等等，为了节省空间，将这些字符串统一放在某个地址，需要使用的时候直接使用索引来查看，需要注意的是，属性部分格式为key = value，key部分被放置在strings部分，而value部分的字符串并不会放在这一部分，而是直接放在structure中。  
+device-tree strings：在dtb中有大量的重复字符串，比如"model","compatile"等等，为了节省空间，将这些字符串统一放在某个地址，需要使用的时候直接使用索引来查看。  
+
+需要注意的是，属性部分格式为key = value，key部分被放置在strings部分，而value部分的字符串并不会放在这一部分，而是直接放在structure中。  
 
 
 
 ### dtb文件解析示例
 光说不练假把式，下面我就使用一个简单的示例来剖析dtb的文件格式。  
+
 下述示例仅仅是一个演示demo，不针对任何平台，为了演示方便，编写了一个非常简单的dts文件。    
 	/dts-v1/;
 	/ {
@@ -146,6 +168,7 @@ device-tree strings：在dtb中有大量的重复字符串，比如"model","comp
 	第10个四字节对应size_dt_struct，数据为0000013c，表示struct部分总长度。
 
 整个头部为40字节，16进制为0x28，从头部信息中off_mem_rsvmap部分可以得到，reserve memory起始地址为0x28，上文中提到，这一部分使用一个16字节的struct来描述，以一个全为0的struct结尾。  
+
 后16字节全为0，可以看出，这里并没有设置reserve memory。
 
 ## structure 部分
