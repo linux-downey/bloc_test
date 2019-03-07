@@ -1,27 +1,39 @@
 # linux I2C 设备驱动
 
 ## linux中的总线
-无论是MCU开发或者是单板机的开发，总线总是充斥在各个角落。对于CPU而言，系统总线包含地址总线、数据总线、控制总线，一般而言，根据外设支持的不同速度，再将总线划分不同等级，这些总线是硬件上实实在在存在的东西，CPU就是通过这些电路来和外围器件交换数据。像I2C、SPI、SERIAL等外设就是挂在系统总线上。  
-今天要介绍的就是linux设备驱动程序中的I2C总线，但是这里的I2C总线并非指物理上的I2C控制器与CPU之间的总线连接，而是软件上基于I2C总线的一种抽象，在软件上使用一种分层分离的概念。  
-有经验的工程师在编写代码时总会先思考框架，考虑代码的健壮性、可移植性、维护性、可读性。对于可移植性来说，针对不同的平台，应用实现是固定不变的，不同之处就在于硬件。那我们就可以将不变的应用软件与变化的硬件配置进行分离，中间使用某个接口进行衔接，当切换另一个平台时，应用部分就可以保持不变，只是改动硬件部分的代码，这样对代码的稳定性和后期维护来说节省了大量的成本。  
+
+今天来介绍的linux设备驱动程序中的I2C总线，但是这里的I2C总线并非指物理上的I2C控制器与CPU之间的总线连接，而是软件上基于I2C总线的一种抽象，在软件上使用一种分层分离的概念。  
+
+有经验的工程师在编写代码时总会先思考框架，考虑代码的健壮性、可移植性、维护性、可读性。  
+
+对于可移植性来说，针对不同的平台，应用实现是固定不变的，不同之处就在于与硬件打交道的底层处理部分。  
+
+那我们就可以将不变的应用软件与变化的硬件配置进行分离，中间使用某个接口进行衔接，当切换另一个平台时，应用部分就可以保持不变，只是改动硬件部分的代码，这样对代码的稳定性和后期维护来说节省了大量的成本。  
 
 ## linux中的总线架构
 linux中的总线，不论是连接硬件的I2C总线，SPI总线，又或者是虚拟的platform总线，都遵循了这样一个模式：
 
-对于总线而言，一条总线主要是维护两个部分：driver结构体的device结构体，多个device或者driver分别挂在链表中，通常driver部分对应稳定不变的软件实现部分，而device部分则对应需要改动的部分，只要分配得合理，通常在一类驱动程序中，我们就只要修改device部分即可实现驱动的移植。  
+对于总线而言，一条总线主要是维护两个部分：driver结构体的device结构体，多个device或者driver分别挂在链表中。  
+
+通常driver部分对应稳定不变的软件驱动实现部分。而device部分则对应硬件资源部分，在同系列的设备中，通常一个驱动可以对应多个设备部分，因为在同系列驱动程序中，往往只是资源的不同，操作方式是一致的，比如gpio、key，由比如at24cxx系列产品。  
+
 在之前的驱动程序中，我们一般的做法是在入口程序中：  
 * 申请设备号，同时绑定file operation结构体。 
 * 注册class 
 * 注册device
 * 将设备号与相应device节点绑定，用户访问设备节点就调用相应file operation结构体中函数。  
-这个模板可以说适用于所有字符设备驱动，在写demo的时候这样确实没有问题，但是这样面临一个问题：即使是对于gpio的驱动而言，如果我要实现多个gpio驱动程序，就要重复地使用这一套框架来对每一个gpio实现一次，这样还可以接受，毕竟普通IO引脚不多。  
+这个模板可以说适用于所有字符设备驱动，在写demo的时候这样确实没有问题，但是这样面临一个问题：即使是对于gpio的驱动而言，如果我要实现多个gpio驱动程序，就要重复地使用这一套框架来对每一个gpio实现一次，这样还可以接受，毕竟普通IO引脚不多。    
+
 但是对于I2C或者SPI这类驱动而言，如果我要同时实现多个I2C设备的驱动，温湿度传感器、加速度计、存储设备、I2C控制设备等等，linux源代码中/driver目录下的设备数不胜数，而且还在不断地扩大中，为每一个设备实现一个驱动实在是太不划算。  
+
 何以解忧？这就是总线模型诞生的缘由。linux团队将代码中相对固定的代码抽象出来做成driver，将变化的部分设计成另一块device，所有的device使用同一份driver代码，大大地节省了空间，要知道，这些空间可是宝贵的内存空间。  
 
 ## I2C的基本知识扫盲
-回到本文的重点——I2C,做过裸板开发或者是单片机开发的朋友肯定对I2C不陌生，I2C是主从结构，主器件使用从机地址进行寻址，它的拓扑结构是这样的：
+回到本文的重点——I2C,做过裸板开发或者是单片机开发的朋友肯定对I2C不陌生，I2C是主从结构，主器件使用从机地址进行寻址，它的拓扑结构是这样的：   
 
+![](https://raw.githubusercontent.com/linux-downey/bloc_test/master/article/linux_driver/i2c_bus_driver/I2C_tupo.png)  
 (图片来自网络，如有侵权，请联系我及时删除)  
+
 基本的流程是这样的：
 * 主机发送从机地址
 * 从机监听总线，检测到接收地址与自身地址地址匹配，回复。
@@ -32,9 +44,12 @@ linux中的总线，不论是连接硬件的I2C总线，SPI总线，又或者是
 
 ## I2C设备驱动程序框架
 I2C设备驱动程序框架分为两个部分：driver和device。  
-分别将driver和device加载到内存中，i2c bus在程序加载时会自动调用match函数，根据名称来匹配driver和device，匹配完成时调用probe()
+
+分别将driver和device加载到内存中，i2c bus在程序加载时会自动调用match函数，根据名称来匹配driver和device，匹配完成时调用probe()  
+
 在driver中，定义probe()函数，在probe函数中创建设备节点，针对不同的设备实现不同的功能。  
 在device中，设置设备I2C地址，选择I2C适配器。  
+
 I2C适配器：I2C的底层传输功能，一般指硬件I2C控制器。
 
 ## I2C设备驱动程序
@@ -354,17 +369,21 @@ int main(int argc,char *argv[])
 
 ### device的另一种创建
 在上述i2c的device创建中，我们使用了i2c_new_device()接口，值得一提的是，这个接口并不会检测设备是否存在，只要对应的device-driver存在，就会调用driver中的probe函数。  
-但是有时候会有这样的需求：在匹配时需要先检测设备是否插入，如果没有i2c设备连接在主板上，就拒绝模块的加载，这样可以有效地管理i2c设备的资源，避免无关设备占用i2c资源。 
+
+但是有时候会有这样的需求：在匹配时需要先检测设备是否插入，如果没有i2c设备连接在主板上，就拒绝模块的加载，这样可以有效地管理i2c设备的资源，避免无关设备占用i2c资源。  
+
 新的创建方式接口为：
 
-    struct i2c_client *i2c_new_probed_device(struct i2c_adapter *adap,struct i2c_board_info *info,unsigned short const *addr_list,int (*probe)(struct i2c_adapter *, unsigned short addr))
+    struct i2c_client *i2c_new_probed_device(struct i2c_adapter *adap,struct i2c_board_info *info,unsigned short const *addr_list,int (*probe)(struct i2c_adapter *, unsigned short addr))  
+
 这个函数添加了在匹配模块时的检测功能：
 * 参数1：adapter，适配器
 * 参数2：board info，包含名称和i2c地址
 * 参数3：设备地址列表，既然参数2中有地址，为什么还要增加一个参数列表呢？咱们下面分解
-* 参数4：probe检测函数，此probe非彼probe，这个probe函数实现的功能是检测板上是否已经物理连接了相应的设备，当传入NULL时，就是用默认的probe函数，建议使用默认probe。 
+* 参数4：probe检测函数，此probe非彼probe，这个probe函数实现的功能是检测板上是否已经物理连接了相应的设备，当传入NULL时，就是用默认的probe函数，建议使用默认probe。   
 
-为了一探究竟，我们来看看i2c_new_probed_device的源代码实现：
+为了一探究竟，我们来看看i2c_new_probed_device的源代码实现：  
+
 ```C
 struct i2c_client *i2c_new_probed_device(struct i2c_adapter *adap,struct i2c_board_info *info,unsigned short const *addr_list,int (*probe)(struct i2c_adapter *, unsigned short addr))
 {
@@ -411,7 +430,9 @@ struct i2c_client *i2c_new_probed_device(struct i2c_adapter *adap,struct i2c_boa
 * 检测对应地址上设备是否处于运行状态
 * 将找到的地址赋值给info->addr
 * 调用i2c_new_device
+
 看到这里就一目了然了，一切细节在源码面前都无处可藏。其实就在对相应地址做一次检测而已，到最后还是调用i2c_new_device。  
+
 不过不知道你有没有发现，i2c_new_device传入的参数2的addr部分被忽略了，所以board info中的地址其实是无关紧要的，因为函数会在addr list中查找可用的地址然后赋值给board info的addr元素，而原本的addr被覆盖。所以，如果你在写内核代码时感到疑惑，看源码就好了！  
 
 

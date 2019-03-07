@@ -1,8 +1,12 @@
 # linux i2c驱动源码剖析
 在上一章节中我们对linux i2c驱动框架进行了解析，在这一节中，我们走进i2c驱动的内核代码，看看在内核中，i2c框架到底是怎么形成的。  
+
 *** 注： 基于beagle bone green开发板，linux4.14内核版本 ***    
+
 ## 从设备树开始
-首先需要了解的是：系统在开始启动时，bootloader将设备树在内存中的开始地址传递给内核，内核开始对设备树进行解析，将设备树中的子节点转换成struct device_node节点，再由struct device_node节点转换成struct platform_device节点，如果此时在系统中存在对应的struct platform_driver节点，则调用driver驱动程序中的probe函数，在probe函数中进行一系列的初始化。  
+
+首先需要了解的是：系统在开始启动时，bootloader将设备树在内存中的开始地址传递给内核，内核开始对设备树进行解析，将设备树中的子节点转换成struct device_node节点，再由struct device_node节点转换成struct platform_device节点，如果此时在系统中存在对应的struct platform_driver节点，则调用driver驱动程序中的probe函数，在probe函数中进行一系列的初始化。   
+
 ## struct i2c_adapter的注册
 正如我在之前章节中所说的，每一个struct i2c_adapter描述一个硬件i2c控制器，其中包含了对应的硬件i2c控制器的数据收发，同时，每一个struct i2c_adapter都直接集成在系统中，而不需要驱动开发者去实现(除非做一款全新芯片的驱动移植)，那么，这个i2c adapter是怎样被注册到系统中的呢？  
 
@@ -29,6 +33,7 @@
     }
     ...
 可以看到，i2c0对应的compatible为"ti,omap4-i2c"，如果你有了解过linux总线的匹配规则，就知道总线在对driver和device进行匹配时依据compatible字段进行匹配(当然会有其他匹配方式，但是设备树主要使用这一种方式)，依据这个规则，在整个linux源代码中搜索"ti,omap4-i2c"这个字段就可以找到i2c0对应的driver文件实现了。  
+
 在i2c-omap.c中找到了这个compatible的定义：
 
     static const struct of_device_id omap_i2c_of_match[] = {
@@ -38,6 +43,7 @@
         },
         ...
     }
+
 同时，根据platform driver驱动的规则，需要填充一个struct platform_driver结构体，然后注册到platform总线中，因此，我们也可以在同文件下找到相应的初始化部分：
 
     static struct platform_driver omap_i2c_driver = {
@@ -54,6 +60,7 @@
     {
         return platform_driver_register(&omap_i2c_driver);
     }
+
 既然platform总线的driver和device匹配上，就会调用相应的probe函数，根据.probe = omap_i2c_probe,我们再查看omap_i2c_probe函数：
 
     static int omap_i2c_probe(struct platform_device *pdev)
@@ -63,6 +70,7 @@
         i2c_add_numbered_adapter(adap);
         ...    //deinit part
     }
+
 在probe函数中我们找到一个i2c_add_numbered_adapter()函数，再跟踪代码到i2c_add_numbered_adapter()：
 
     int i2c_add_numbered_adapter(struct i2c_adapter *adap)
@@ -77,13 +85,16 @@
         ...
         return i2c_register_adapter(adap);
     }
+
 看到这里，整个i2c adapter的注册就已经清晰了，首先在设备树中会有对应的硬件i2c控制器子节点，在系统启动时，系统将设备节点转换成struct platform_device节点，与系统中预置的struct platform_driver相匹配，调用struct platform_driver驱动部分的probe函数，完成一系列的初始化和设置，生成一个i2c adapter，注册到系统中。  
+
 当用户需要使用此adapter时，就可以直接通过索引number来获取这个adapter，进行数据通信。  
 
 
 ## i2c总线的初始化
 i2c总线也是集成在系统中的，驱动开发者不需要关心i2c总线的初始化，只需要将相应的i2c_client和i2c_driver挂载在总线上进行匹配即可。  
-那么，i2c总线在系统中是如何初始化得来的呢？  
+那么，i2c总线在系统中是如何初始化得来的呢？   
+
 答案就在文件i2c-core-base.c中，它的过程是这样的：
 
     static int __init i2c_init(void)
@@ -91,7 +102,8 @@ i2c总线也是集成在系统中的，驱动开发者不需要关心i2c总线�
         ...
         bus_register(&i2c_bus_type);
         ...
-    }
+    }  
+
 从函数名可以看出，将i2c_bus_type注册到bus系统中，我们再来看看i2c_bus_type是何方神圣：
 
 
@@ -119,18 +131,25 @@ i2c总线也是集成在系统中的，驱动开发者不需要关心i2c总线�
         .shutdown	= i2c_device_shutdown,
     };
 当这个模块被加载进系统时，就会执行i2c_init函数来进行初始化。  
+
 struct bus_type结构体描述了linux中的各种bus，比如spi bus，i2c bus，platform bus等等，可以看到，在i2c_bus_type中，定义了match(),probe(),remove()和shutdown()函数，match()函数就是当有新的i2c_client或者i2c_driver添加进来时，试图寻找与新设备匹配的项，返回匹配的结果。  
+
 remove()和shutdown()，顾名思义，这两个函数是管理的驱动移除行为的。    
+
 而对于probe函数，在之前的章节中提到：当相应的device和driver经由总线匹配上时，会调用driver部分提供的probe函数。 
+
 那么：      
-*** 总线的probe函数和具体驱动driver部分的probe函数是怎么一个关系呢？ ***
-*** match函数和probe函数到底是怎么被调用的，以及执行一些什么行为呢？ ***
-带着这两个疑问，我们接着往下看。
+* ***总线的probe函数和具体驱动driver部分的probe函数是怎么一个关系呢？***
+* ***match函数和probe函数到底是怎么被调用的，以及执行一些什么行为呢？***  
+
+带着这两个疑问，我们接着往下看。  
+
 ## match()和probe()
 在这里我们不免要回顾一下前面章节所说的，作为一个驱动开发者，如果我们要开发某些基于i2c的设备驱动，需要实现的框架流程是怎样的：
-1. 填充一个i2c_driver结构体，如果以设备树方式匹配，需要填充of_match_table部分，如果是其他总线方式匹配，需要填充.driver.name或者.id_table属性，然后提供一个.probe函数以及一个remove函数，probe中对设备进行操作，remove负责回收资源。 将i2c_driver注册到i2c总线中。  
-2. 如果是设备树形式，提供相应的设备树节点。 如果是总线匹配形式，提供一个i2c_client部分注册到i2c总线中。  
-3. 当双方注册到i2c总线时，device(i2c_client)和driver部分匹配，调用driver提供的probe函数。  
+
+* 填充一个i2c_driver结构体，如果以设备树方式匹配，需要填充of_match_table部分，如果是其他总线方式匹配，需要填充.driver.name或者.id_table属性，然后提供一个.probe函数以及一个remove函数，probe中对设备进行操作，remove负责回收资源。 将i2c_driver注册到i2c总线中。  
+* 如果是设备树形式，提供相应的设备树节点。 如果是总线匹配形式，提供一个i2c_client部分注册到i2c总线中。  
+* 当双方注册到i2c总线时，device(i2c_client)和driver部分匹配，调用driver提供的probe函数。  
 linux下的标准总线方式的驱动框架，但是问题是，为什么device和driver都注册进去之后，就会调用driver部分提供的probe函数呢？  
 
 ## 走进源代码
@@ -146,6 +165,7 @@ linux下的标准总线方式的驱动框架，但是问题是，为什么device
         i2c_add_driver(&drv);
     }
     ...
+
 跟踪i2c_add_driver：
 
     #define i2c_add_driver(driver)  i2c_register_driver(THIS_MODULE, driver)
@@ -162,7 +182,9 @@ linux下的标准总线方式的驱动框架，但是问题是，为什么device
         bus_add_driver(drv);
         ...
     }
+
 经过一系列的代码跟踪，找到了bus_add_driver()，根据名称可以知道，这个函数就是将当前i2c_driver添加到i2c_bus_type(即i2c总线)中。  
+
 接着往下看：
 
     int bus_add_driver(struct device_driver *drv)
@@ -178,7 +200,9 @@ linux下的标准总线方式的驱动框架，但是问题是，为什么device
         driver_attach(drv);
         ...
     }
+
 从第一部分可以看到，将当前drv链入到bus->p->klist_drivers链表中，那么可以猜到，在注册device部分的时候，就会将device链入到bus->p->klist_devices中。  
+
 然后，再看driver_attach(drv):
 
     int driver_attach(struct device_driver *drv)
@@ -204,16 +228,22 @@ linux下的标准总线方式的驱动框架，但是问题是，为什么device
         ...
     }
 driver_attach调用bus_for_each_dev，传入当前驱动bus(即i2c_bus_type)，当前驱动drv，以及一个函数__driver_attach。  
-bus_for_each_dev对每个device部分调用__driver_attach。
+
+bus_for_each_dev对每个device部分调用__driver_attach。  
+
 在__driver_attach中，对每个drv和dev调用driver_match_device()，并根据函数返回值决定是否继续执行调用driver_probe_device()。  
+
 从函数名来看，这两个函数大概就是我们在前文中提到的match和probe函数了，我们不妨再跟踪看看，先看看driver_match_device()函数：
 
     static inline int driver_match_device(struct device_driver *drv,struct device *dev)
     {
         return drv->bus->match ? drv->bus->match(dev, drv) : 1;
     }
+
 果然不出所料，这个函数十分简单，如果当前驱动的所属的bus有相应的match函数，就调用match函数，否则返回1.  
-当前driver所属的总线为i2c_bus_type，根据上文i2c总线的初始化部分可以知道，i2c总线在初始化时提供了相应的match函数，所以，总线的match函数被调用，并返回匹配的结果。   
+
+当前driver所属的总线为i2c_bus_type，根据上文i2c总线的初始化部分可以知道，i2c总线在初始化时提供了相应的match函数，所以，总线的match函数被调用，并返回匹配的结果。  
+
 接下来我们再看看driver_probe_device()函数：
 
     int driver_probe_device(struct device_driver *drv, struct device *dev)
@@ -238,8 +268,10 @@ bus_for_each_dev对每个device部分调用__driver_attach。
         ...
     }
 在driver_probe_device中又调用了really_probe，在really_probe()中，先判断当前bus总线中是否注册probe()函数如果有注册，就调用总线probe函数，否则，就调用当前drv注册的probe()函数。  
-到这里，我们解决了上一节中的一个疑问：总线和driver部分都有probe函数时，程序是怎么处理的？
-答案已经显而易见了：优先调用总线probe函数。  
+
+到这里，我们解决了上一节中的一个疑问：总线和driver部分都有probe函数时，程序是怎么处理的？  
+
+答案已经显而易见了：优先调用总线probe函数。   
 
 而且我们理清了总线的match()函数和probe()函数是如何被调用的。  
 
@@ -266,7 +298,8 @@ bus_for_each_dev对每个device部分调用__driver_attach。
         ...
     }
 对于总线probe函数，获取匹配成功的device，再由device获取driver，优先调用driver->probe_new,因为driver中没有设置，直接调用driver的probe函数。  
-总线probe和driver的probe函数的关系就清晰了，当match返回成功时，优先调用总线probe，总线probe中再调用driver的probe函数，如果总线probe函数不存在，就直接调用driver的probe函数，所以当我们在系统中添加了相应的device和driver部分之后，driver的probe函数就会被调用。  
+
+总线probe和driver的probe函数的关系就是：当match返回成功时，优先调用总线probe，总线probe中再调用driver的probe函数，如果总线probe函数不存在，就直接调用driver的probe函数，所以当我们在系统中添加了相应的device和driver部分之后，driver的probe函数就会被调用。  
 
 ### 总线match函数 
 对于总线match函数，我们直接查看在i2c总线初始化时的函数定义：
@@ -294,11 +327,14 @@ bus_for_each_dev对每个device部分调用__driver_attach。
 
         return 0;
     }
-在i2c_device_match函数中，可以看到，match函数并不只是提供一种匹配方式：
-1. i2c_of_match_device，看到of我们就应该马上意识到这是设备树的匹配方式。  
-2. acpi_driver_match_device则是acpi的匹配方式，acpi的全称为the Advanced Configuration & Power Interface，高级设置与电源管理。  
-3. i2c_match_id(),通过注册i2c_driver时提供的id_table进行匹配，这是设备树机制产生之前的主要配对方式。  
-接下来再深入函数内部，查看匹配的细节部分：
+i2c_device_match就是i2c_driver与i2c_device匹配的部分，在i2c_device_match函数中，可以看到，match函数并不只是提供一种匹配方式：  
+
+* i2c_of_match_device，看到of我们就应该马上意识到这是设备树的匹配方式。  
+* acpi_driver_match_device则是acpi的匹配方式，acpi的全称为the Advanced Configuration & Power Interface，高级设置与电源管理。  
+*  i2c_match_id(),通过注册i2c_driver时提供的id_table进行匹配，这是设备树机制产生之前的主要配对方式。  
+
+接下来再深入函数内部，查看匹配的细节部分：  
+
 ### 设备树匹配方式
     const struct of_device_id *i2c_of_match_device(const struct of_device_id *matches,
                 struct i2c_client *client)
@@ -310,7 +346,9 @@ bus_for_each_dev对每个device部分调用__driver_attach。
 
         return i2c_of_match_device_sysfs(matches, client);
     }
-在i2c_of_match_device中，调用了of_match_device()和i2c_of_match_device_sysfs()两个函数，这两个函数代表了两种匹配方式，先来看看of_match_device：
+
+在i2c_of_match_device中，调用了of_match_device()和i2c_of_match_device_sysfs()两个函数，这两个函数代表了两种匹配方式，先来看看of_match_device：  
+
     const struct of_device_id *of_match_device(const struct of_device_id *matches,const struct device *dev)
     {
         if ((!matches) || (!dev->of_node))
@@ -334,7 +372,13 @@ bus_for_each_dev对每个device部分调用__driver_attach。
         }
         ...
     }
-of_match_device调用of_match_node，of_match_node调用__of_match_node函数，如果你对设备树有一定的了解，就知道系统在初始化时会将所有设备树子节点转换成由struct device_node描述的节点，在最后被调用的__of_match_node函数中，对device_node中的compatible属性和driver部分的of_match_table中的compatible属性进行匹配，由于compatible属性可以设置多个，所以程序中会对其进行逐一匹配。  
+of_match_device调用of_match_node。  
+
+of_match_node调用__of_match_node函数。  
+
+如果你对设备树有一定的了解，就知道系统在初始化时会将所有设备树子节点转换成由struct device_node描述的节点。  
+
+在被调用的__of_match_node函数中，对device_node中的compatible属性和driver部分的of_match_table中的compatible属性进行匹配，由于compatible属性可以设置多个，所以程序中会对其进行逐一匹配。  
 
 我们再回头来看设备树匹配方式中的i2c_of_match_device_sysfs()匹配方式：
 
@@ -373,7 +417,9 @@ of_match_device调用of_match_node，of_match_node调用__of_match_node函数，
         return NULL;
     }
 这种匹配方式一目了然，就是对id_table(driver部分)中的.name属性和i2c_client(device部分)的.name属性进行匹配。那么i2c_client的.name是怎么来的呢？  
-在非设备树的匹配方式中，i2c_client的.name属性由驱动开发者指定，而在设备树中，i2c_client由系统对设备树进行解析而来,i2c_client的name属性为设备树compatible属性"vender_id,product_id"中的"product_id",所以，在进行匹配时，默认情况下并不会严格地要求of_match_table中的compatible属性和设备树中compatible属性完全匹配，driver中.drv.name属性和.id.name属性也可以与设备树中的"product_id"进行匹配。  
+
+在非设备树的匹配方式中，i2c_client的.name属性由驱动开发者指定，而在设备树中，i2c_client由系统对设备树进行解析而来,i2c_client的name属性为设备树compatible属性"vender_id,product_id"中的"product_id",所以，在进行匹配时，默认情况下并不会严格地要求
+of_match_table中的compatible属性和设备树中compatible属性完全匹配，driver中.drv.name属性和.id.name属性也可以与设备树中的"product_id"进行匹配。  
   
 
 好了，关于linux i2c总线的match和probe机制的讨论就到此为止啦，如果朋友们对于这个有什么疑问或者发现有文章中有什么错误，欢迎留言

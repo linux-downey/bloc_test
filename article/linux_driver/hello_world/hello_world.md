@@ -1,8 +1,12 @@
 # linux字符设备驱动程序--hello_world
+
 ***基于4.14内核,运行在beagleBone green***
+
 ## 实现一个内核驱动程序的hello_world
+
 ### 程序实现
-linux设备驱动程序的编写就此开始了，首先我们先来实现一个hello_world.废话不多说，直接上代码：
+想要入手一项新技术，研究一套新框架，话不多说，先来个hello_world吧。  
+
 hello_world.c:  
     
     #include <linux/init.h>             
@@ -29,9 +33,11 @@ hello_world.c:
     module_init(hello_world_init);
     module_exit(hello_world_exit);
 
+
 上述代码就是一个设备驱动程序，只是它并不做什么事，仅仅是打印两条语句而已。   
+
 ### 编译
-下面就要编译这个程序，我们都知道，linux下编译程序一般使用make工具(简单的程序可以直接命令行来操作)，以及一个Makefile文件，在内核开发中，Makefile并不像应用程序那样，而是经过了一些封装，我们只需要往其中添加需要编译的目标文件即可：
+编译这个程序，我们都知道，linux下编译程序一般使用make工具(简单的程序可以直接命令行来操作)，以及一个Makefile文件，在内核开发中，Makefile并不像应用程序那样，而是经过了一些封装，我们只需要往其中添加需要编译的目标文件即可：
 
     obj-m+=hello_world.o
     all:
@@ -42,7 +48,8 @@ hello_world.c:
 编译：
 
     make
-编译结果会在当前目录生成hello_world.ko文件，这个文件就是我们需要的内核模块文件了。
+编译结果会在当前目录生成hello_world.ko文件，这个文件就是我们需要的内核模块文件了。  
+
 ### 加载
 编译生成了内核文件，接下来就要将其加载到内核中，linux支持动态地添加和删除模块，所以我们可以直接在系统中进行加载：
 
@@ -51,25 +58,34 @@ hello_world.c:
 
     lsmod | grep "hello_world"
 lsmod显示当前被加载的模块。  
+
 同时，我们也可以卸载这个模块：
 
     sudo rmmod hello_world.ko
 同样我们也可以通过lsmod指令来查看模块是否卸载成功。  
+
 但是，在这里我们并没有看到有任何打印信息的输出，在程序中我们使用printk函数来打印信息。  
+
 事实上，printk属于内核函数，它与printf在实现上唯一的区别就是printk可以通过指定消息等级来区分消息输出，在在这里，printk输出的消息被输出到/var/log/kern.log文件中，我们可以通过另开一个终端来查看内核日志消息：
 
     tail -f /var/log/kern.log
 tail -f表示循环读取/var/log/kern.log文件中的消息并显示在当前终端中，这样我们就可以在终端查看内核中printk输出的消息。  
+
 如果你不想重新开一个终端来显示内核日志，希望直接显示在当前终端，你可以这样做：
 
     tail -f /var/log/kern.log &
 仅仅是将这条指令放在当前进程后台执行，当前终端关闭时，这个后台进程也会被关闭。  
+
 我们使用开第二种方式来显示内核消息的方式来重新加载hello_world.ko模块：
 
     sudo insmod hello_world.ko
+
+
 然后查看消息输出，果然，在终端输出日志：
 
     Dec 16 10:01:15 beaglebone kernel: [98355.403532] hello world!!!
+
+
 然后卸载，同样，终端中显示相应的输出：
 
     Dec 16 10:01:50 beaglebone kernel: [98390.181631] goodbye world!!!
@@ -81,6 +97,8 @@ tail -f表示循环读取/var/log/kern.log文件中的消息并显示在当前�
 在上面实现了一个linux内核驱动程序(虽然什么也没干)，接下来我们再来添加一些小功能来丰富这个驱动程序：
 * 添加模块信息  
 * 模块加载时传递参数。  
+
+
 废话不多说，直接上代码：
 hello_world_PLUS.c:
 
@@ -116,8 +134,9 @@ hello_world_PLUS.c:
     module_exit(hello_world_exit);
 
 ### 在上一版本的区别
-添加了MODULE_AUTHOR()，MODULE_DESCRIPTION()，MODULE_VERSION()等模块信息
-添加了module_param()传入参数功能
+添加了MODULE_AUTHOR()，MODULE_DESCRIPTION()，MODULE_VERSION()等模块信息  
+
+添加了module_param()传入参数功能  
 ### 编译
 编译之前需要修改Makefile，将hello_world.o修改为hello_world_PLUS.o。  
 
