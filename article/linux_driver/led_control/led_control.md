@@ -1,11 +1,11 @@
 # gpio驱动程序
+上一章节[linux设备驱动程序--hello_world](https://www.cnblogs.com/downey-blog/p/10500828.html)章节主要介绍了linux字符设备驱动程序的框架，从这一章节开始我们讲解各种外设的控制，包括gpio，i2c，dma等等，既然是外设，那就涉及到具体的目标板，博主在这里使用的开发板是开源平台beagle bone green，内核版本为4.14.   
 
-前面的章节主要介绍了linux字符设备驱动程序的框架，这一章我们开始讲解各种外设的控制，包括gpio，i2c，dma等等，既然是外设，那就涉及到具体的目标板，博主在这里使用的开发板是开源平台beagle bone green，内核版本为4.14.   
 今天我们来讲解gpio的设备驱动程序。
 
-
 ## gpio相关的库函数
-为了linux的可移植性和统一，linux提供一套函数库供用户使用，内容涵盖了GPIO/I2C/SPI等外设的控制，关于函数库可以参考![官方网站](https://www.kernel.org/doc/html/v4.17/driver-api/gpio/intro.html)  
+为了linux的可移植性和统一，linux提供一套函数库供用户使用，内容涵盖了GPIO/I2C/SPI等外设的控制，关于函数库可以参考[官方网站](https://www.kernel.org/doc/html/v4.17/driver-api/gpio/intro.html)  
+
 这一章我们需要用到gpio相关的库函数：
 
     //检查gpio number是否合法
@@ -29,6 +29,7 @@
 
 ## linux gpio设备驱动程序
 在前面的章节我们知道了怎么写一个字符设备驱动程序的框架，现在我们就只需要往框架里面添加相应的处理代码就可以了。  
+
 现在尝试实现这样的需求：
 * 在beagle bone green开发板上的gpio上连接一个指示灯
 * 当用户打开/dev目录下的设备文件时，完成对gpio的初始化
@@ -201,7 +202,8 @@ static void __exit led_control_exit(void)
 module_init(led_control_init);
 module_exit(led_control_exit);
 ```  
-在init函数中对gpio进行相应的初始化，当用户在文件进行写操作时，根据传入的参数来判断打开或者关闭灯，在用户关闭文件时释放资源。    
+在init函数中对gpio进行相应的初始化，当用户在文件进行写操作时，根据传入的参数来判断打开或者关闭灯，在用户关闭文件时释放资源。   
+
 为此，需要添加一个用户程序来对设备文件进行读写，gpio_led_contro_user.c:
 ```C
 #include <stdio.h>
@@ -238,17 +240,22 @@ int main(int argc,char *argv[])
 }
 ```
 当用户程序执行时，用户程序一直获取用户的输入，根据用户输入"on"或者"off"，然后将其写入设备文件，触发系统调用，设备文件根据设备号找到内核中相应的file_operation结构体，相应write函数被调用，执行相应的点灯操作。  
+
 ## 编译加载运行
 ### 连接led
 在例程中我们使用了gpio26作为led引脚，所以我们需要连接一个led(视情况加一个电阻)到gpio26引脚上，具体引脚位置需要自行查看开发板手册。  
+
 ### 查看log
-首先我们可以打开两个终端窗口，一个为查看log信息，一个用来进行相关指令操作。 
+首先我们可以打开两个终端窗口，一个为查看log信息，一个用来进行相关指令操作。  
+
 ### 编译加载模块
 在查看log信息终端，我们需要循环查看/var/log/kern.log文件：
 
     tail -f /var/log/kern.log 
 这样内核printk()输出的信息就可以在这里看到了，方便进行调试。  
+
 然后需要编译内核驱动文件gpio_led_control.c，先修改Makefile(这里就不再展开，可以参考前面章节)。  
+
 然后编译：
 
     make
@@ -276,8 +283,10 @@ int main(int argc,char *argv[])
     int gpio_export(unsigned gpio, bool direction_may_change)
 当然，相对应的释放函数为
     void gpio_unexport(unsigned gpio)
+
 ### 自己动手试试  
 在gpio初始化的函数中添加这个接口，在加载完成之后查看/sys/class/gpio/目录下是否有相应的gpio$num(这里是gpio26)文件(需要注意的是，在上例中，当用户程序打开设备时才进行gpio的初始化，关闭文件时释放gpio的资源，所以需要打开文件再操作)。  
+
 如果有相应的文件，试试下面的指令：
 
     echo 0 > /sys/class/gpio/gpio26/value
@@ -288,6 +297,7 @@ int main(int argc,char *argv[])
 上文实现了通过操作设备文件来控制开发板的gpio，接下来我们看看gpio中断的实现，一个按键点灯程序，当加载模块后，按键反转灯的状态：
 * 添加gpio按键中断代码。  
 * 不再需要创建设备文件节点，直接通过按键来操作led。  
+
 接下来就是按键中断的示例代码 gpio_key_led_control.c：   
 ```C
 #include <linux/kernel.h>
@@ -389,8 +399,11 @@ module_exit(gpio_irq_exit);
     make
 加载：
     sudo insmod gpio_key_led_control.ko
-### 测试
+### 测试 
+这部分例程并没有注册文件接口，而是直接在内核中通过硬件中断检测是否有按键时间产生，来执行点亮和熄灭指示灯的操作。  
+
 现在就可以测试按键是否有效了，如果出现什么问题，可能需要调试代码，别忘了根据printk()输出的log信息来判断错误。  
+
 
 
 好了，关于linux驱动程序-gpio控制就到此为止啦，如果朋友们对于这个有什么疑问或者发现有文章中有什么错误，欢迎留言

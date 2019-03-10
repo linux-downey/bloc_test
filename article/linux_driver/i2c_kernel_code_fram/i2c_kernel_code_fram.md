@@ -32,6 +32,7 @@
 			};
     }
     ...
+
 可以看到，i2c0对应的compatible为"ti,omap4-i2c"，如果你有了解过linux总线的匹配规则，就知道总线在对driver和device进行匹配时依据compatible字段进行匹配(当然会有其他匹配方式，但是设备树主要使用这一种方式)，依据这个规则，在整个linux源代码中搜索"ti,omap4-i2c"这个字段就可以找到i2c0对应的driver文件实现了。  
 
 在i2c-omap.c中找到了这个compatible的定义：

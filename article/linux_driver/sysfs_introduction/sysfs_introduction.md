@@ -1,17 +1,29 @@
 # linux sysfs文件系统
+
+**本文部分内容参考自[官方文档](http://man7.org/linux/man-pages/man5/sysfs.5.html)**
+
 自2.6版本开始，linux内核开始使用sysfs文件系统，它的作用是将设备和驱动程序的信息导出到用户空间，方便了用户读取设备信息，同时支持修改和调整。  
-与ext系列和fat等文件系统不同的是，sysfs是一个虚拟文件系统，它是在linux启动时在内存中生成的，一般被挂载在/sys目录下，既然是存储在ram上，自然掉电不保存。  
-事实上，在之前也有同样的虚拟文件系统建立了内核与用户系统信息的交互，它就是procfs，但是procfs并非针对设备和驱动程序，而是针对整个内核信息的抽象接口，所以，内核开发人员觉得有必要使用一个独立的抽象接口来描述设备和驱动信息，毕竟直到目前，驱动代码在内核代码中占比非常大，内容也是非常庞杂。这样可以避免procfs的混乱，模块分层和分离总是能带来更清晰地框架。
+
+与ext系列和fat等文件系统不同的是，sysfs是一个系统在启动时构建在内存中虚拟文件系统，一般被挂载在/sys目录下，既然是存储在内存中，自然掉电不保存，不能存储用户数据。  
+
+事实上，在之前也有同样的虚拟文件系统建立了内核与用户系统信息的交互，它就是procfs，但是procfs并非针对设备和驱动程序，而是针对整个内核信息的抽象接口。  
+
+所以，内核开发人员觉得有必要使用一个独立的抽象接口来描述设备和驱动信息，毕竟直到目前，驱动代码在内核代码中占比非常大，内容也是非常庞杂。这样可以避免procfs的混乱，子系统之间的分层和分离总是能带来更清晰地框架。  
 
 ## sysfs的默认目录结构
 上文中提到，sysfs一般被挂载在/sys目录下，我们可以通过ls /sys来查看sysfs的内容：
 
     block  bus  class  dev  devices  firmware  fs  kernel  module  power
-首先需要注意的是，sysfs目录下的各个子目录中存放的设备信息并非独立的，我们可以看成它是从不同的角度来描述某个设备信息，一个设备可能同时有多个属性，所以对于同一个驱动设备，可能同时存在于不同的子目录下，例如：在之前的章节中，我们使用create_dev_node.c编译出create_dev_node.ko模块，加载完成之后，我们可以在/sys下面看到当前驱动相关的目录：
+
+首先需要注意的是，sysfs目录下的各个子目录中存放的设备信息并非独立的，我们可以看成不同的目录是从不同的角度来描述某个设备信息。  
+
+一个设备可能同时有多个属性，所以对于同一个驱动设备，同时存在于不同的子目录下，例如：在之前的章节中，我们使用create_dev_node.c编译出create_dev_node.ko模块，加载完成之后，我们可以在/sys下面看到当前驱动相关的目录：
 * /sys/module/create_device_node/ 
 * /sys/class/basic_class/basic_demo            (basic class为驱动程序中创建的class名称,basic_demo为设备名)
-* /sys/devices/virtual/basic_class/basic_demo  (basic class为驱动程序中创建的class名称,basic_demo为设备名)
-理解了这个概念，我们再来简览/sys各目录的功能(可参考![官方文档](http://man7.org/linux/man-pages/man5/sysfs.5.html) ：
+* /sys/devices/virtual/basic_class/basic_demo  (basic class为驱动程序中创建的class名称,basic_demo为设备名)  
+
+理解了这个概念，我们再来简览/sys各目录的功能：  
+
 * /sys/block:该子目录包含在系统上发现的每个块设备的一个符号链接。符号链接指向/sys/devices下的相应目录。  
 * /sys/bus:该目录包含linux下的总线设备，每个子目录下主要包含两个目录：device和driver，后面会讲到linux的总线驱动模型，几乎都是分层为device和driver来实现的。  
 * /sys/class:每一个在内核中注册了class的驱动设备都会在这里创建一个class设备。
@@ -22,14 +34,19 @@
 * /sys/kernel:包含各种正在运行的内核描述文件。
 * /sys/module:包含当前系统中被加载的模块信息。
 * /sys/power：官方暂时没有描述，但是根据里面文件内容和命名习惯推测，这里存放的是一些与电源管理相关的模块信息。  
+
 如果你手头上有设备的话，博主强烈建议动手操作一遍看看，这样才能加深理解和记忆。
 
 ## 如果在、sys中添加描述文件
 既然是承载用户与内核接口的虚拟文件系统，那肯定是要能被用户所使用的，那么我们应该怎样在/sys中添加描述文件呢？  
+
 首先，在上文中提到了，sysfs负责向用户展示驱动在内核中的信息，那么，肯定是要从内核出发，在内核中进行创建。  
+
 ### kobject kset
-Linux设备模型的核心是使用Bus、Class、Device、Driver四个核心数据结构，将大量的、不同功能的硬件设备（以及驱动该硬件设备的方法），以树状结构的形式，进行归纳、抽象，从而方便Kernel的统一管理。
-而硬件设备的数量、种类是非常多的，这就决定了Kernel中将会有大量的有关设备模型的数据结构。这些数据结构一定有一些共同的功能，需要抽象出来统一实现，否则就会不可避免的产生冗余代码。这就是Kobject诞生的背景。
+Linux设备模型的核心是使用Bus、Class、Device、Driver四个核心数据结构，将大量的、不同功能的硬件设备（以及驱动该硬件设备的方法），以树状结构的形式，进行归纳、抽象，从而方便Kernel的统一管理。  
+
+而硬件设备的数量、种类是非常多的，这就决定了Kernel中将会有大量的有关设备模型的数据结构。  
+这些数据结构一定有一些共同的功能，需要抽象出来统一实现，否则就会不可避免的产生冗余代码。这就是Kobject诞生的背景。
 
 目前为止，Kobject主要提供如下功能：
 
@@ -40,7 +57,8 @@ Linux设备模型的核心是使用Bus、Class、Device、Driver四个核心数�
     注1：在Linux中，Kobject几乎不会单独存在。它的主要功能，就是内嵌在一个大型的数据结构中，为这个数据结构提供一些底层的功能实现。 
     注2：Linux driver开发者，很少会直接使用Kobject以及它提供的接口，而是使用构建在Kobject之上的设备模型接口。
 
-至于kset，其实可以看成是kobject的集合，它也可以当成kobject来使用，下面来看看这两个结构体的内容：
+至于kset，其实可以看成是kobject的集合，它也可以当成kobject来使用，下面来看看这两个结构体的内容：  
+
 ```C
 struct kset {
     /*链表，记录所有连入这个kset的kobject*/
@@ -70,7 +88,8 @@ struct kobject {
 
 ### 创建实例
 介绍完kobject和kset的概念，当然是给出一个具体的实例来说明kobject和kset的使用：
-kobject_create_test.c:
+kobject_create_test.c:  
+
 ```C
 #include <linux/init.h>             
 #include <linux/module.h>          
@@ -145,8 +164,7 @@ module_exit(hello_world_exit);
     ls -l /sys/test*
 输出：
 
-    -l /sys/test*
-    /sys/test_kset:
+    /sys/test_kset
     total 0
 
     /sys/test_obj:
@@ -154,7 +172,8 @@ module_exit(hello_world_exit);
 果然，在/sys目录下生成了相应目录。  
 
 ## 添加属性
-事实上严格来说，上面的示例是有问题的：
+事实上严格来说，上面的示例是有问题的：  
+
 * 首先，这两个文件仅仅是存在在那里，任何作用也起不了
 * 如果你有同时查看log信息，会发现，上面的示例在加载时内核会报错：
     ```
@@ -185,7 +204,8 @@ struct kobj_type {
 * sysfs_ops：对文件的操作函数
 * default_attrs：表示当前object的属性
 
-我们再来看看sysfs_ops，这是对应文件的操作函数：
+我们再来看看sysfs_ops，这是对应文件的操作函数：  
+
 ```C
 struct sysfs_ops {
 	ssize_t	(*show)(struct kobject *, struct attribute *, char *);                 //当我们对/sys下目标文件进行读操作时，调用show函数
@@ -202,11 +222,11 @@ struct attribute {
 ```
 ## 必须来个小结
 不知道上面的结构体关系有没有把你绕晕，我们按照主干线再来总结一下：
-* kobject和kset将会在相应的目录下创建一个目录，父目录由参数parent指定，本目录名由参数name指定。  
+* kobject和kset将会在相应的/sys目录下创建一个目录，父目录由参数parent指定，本目录名由参数name指定。  
 * 每个kobject需要填充kobj_type结构体，这个结构体指定本目录的相关操作信息,也可以使用默认值。  
 * kobj_type结构体主要包含三个部分：
     * release主要负责当前kobject的释放
-    * sysfs_ops的内容为两个函数指针，store对应用户写行为，show对应用户读行为，这两个函数一般有开发者来决定执行什么操作，这个接口实现了用户与内核数据的交互。  
+    * sysfs_ops的内容为两个函数指针，store对应用户对文件写操作的回调函数，show对应用户读文件的回调函数，这两个函数一般有开发者来决定执行什么操作，这个接口实现了用户与内核数据的交互。  
     * attribute描述kobject的属性，它有两个元素，name和mode，分别表示kobject目录下的文件名和文件操作权限，定义为二级指针，在使用时传入的是指针数组。  
 
 ### 示例
@@ -332,9 +352,11 @@ module_exit(sysfs_ctrl_exit);
 
 ### 编译加载运行
 修改Makefile，然后使用make进行编译。  
+
 加载相应内核模块：
 
     sudo insmod kobject_create_with_attrs.ko
+
 加载完成之后如果你有在gpio26连上指示灯，可以看到指示灯现在处于亮的状态，同时我们可以用指令查看是否在/sys目录下生成了相应的目录：
 
     ls -l /sys/obj_test/kobject_test/
@@ -342,7 +364,9 @@ module_exit(sysfs_ctrl_exit);
 
     -r--r--r-- 1 root root 4096 Dec 25 14:45 led
     -rw-rw---- 1 root root 4096 Dec 25 14:52 led_status
+
 根据程序中的实现，led显示的内容是led的状态，同时我们可以通过向led_status文件来控制led灯的状态。  
+
 我们先查看led文件：
 
     cat /sys/obj_test/kobject_test/led
@@ -355,16 +379,23 @@ module_exit(sysfs_ctrl_exit);
 然后往led_status文件中写off来关闭led：
 
     echo "off" > /sys/obj_test/kobject_test/led_status
-果然，led被关闭，此时我们再查看led文件发现led状态为0。
+果然，led被关闭，此时我们再查看led文件发现led状态为0。  
+
 相信到这里，大家对kobject、kset和sysfs有了一个基本的理解，博主在这里再贴上一些kobject的注意事项：
 * 上文说到kobject常常不会单独存在，而是作为一部分嵌入到其他对象中，一个对象struct只能包含一个kobject，不然会导致混乱
 * kobject不能在栈上分配，也不推荐将其作为静态存储，最好的是在堆上申请资源，原因可以自己想想。
 * 释放kobject时不要使用kfree,要使用kobject_put()函数释放
 * 不要在release函数中对kobject改名，会造成内存泄漏。  
 
-关于kobject和kset更详细的部分欢迎大家访问![官方文档](https://www.kernel.org/doc/Documentation/kobject.txt)，这里有更详细的资料。  
+关于kobject和kset更详细的部分欢迎大家访问[官方文档](https://www.kernel.org/doc/Documentation/kobject.txt)，这里有更详细的资料。  
 同时建议大家多多尝试，这样才能有更深地理解。
 
  
+kobject描述部分参考[大牛的博客](http://www.wowotech.net/device_model/kobject.html) (博主目前看过最好的讲解linux内核的系列博客，强烈推荐！)
 
-kobject描述部分参考：http://www.wowotech.net/device_model/kobject.html(博主目前看过最好的讲解linux内核的系列博客，强烈推荐！)
+
+好了，关于linux驱动程序-sys_fs用户接口使用就到此为止啦，如果朋友们对于这个有什么疑问或者发现有文章中有什么错误，欢迎留言
+
+***原创博客，转载请注明出处！***
+
+祝各位早日实现项目丛中过，bug不沾身.
