@@ -4,7 +4,12 @@
 ## 简述bus的工作流程
 bus将所有挂在上面的具体设备抽象成两部分，driver和device。  
 
-driver实现了同类型设备的驱动程序实现，而device则向系统注册具体的设备需要的资源，每当添加一个新的driver(device)到bus中时，都将调用bus的match函数，试图寻找匹配的device(driver)。  
+driver实现了同类型设备的驱动程序实现，而device则向系统注册具体的设备需要的资源，每当添加一个新的driver(device)到bus中时，都将调用bus的match函数，试图寻找匹配的device(driver)。 
+
+总线大概是这样的：
+
+![](https://raw.githubusercontent.com/linux-downey/bloc_test/master/article/linux_driver/i2c_bus_driver/linux_bus_graph.png)
+
 
 如果匹配成功，就调用probe函数，在probe函数中实现设备的初始化、各种配置以及生成用户空间的文件接口。
 
@@ -242,8 +247,29 @@ spi_bus_type、i2c_bus_type、platform_bus_type分别为对应的struct bus_type
 
 果然，根据bus_add_device()的源代码，可以看到，将当前device链接到其对应bus的devices链表，然后在下面调用bus_probe_device();这个函数的作用就是轮询对应bus的drivers链接，查看新添加的device是否存在匹配的driver。  
 
-对应的，i2c_driver_register()将i2c driver部分添加到bus中，再轮询检查bus的devices链表是否有对应的device能匹配上。  
+对应的，i2c_driver_register()将i2c driver部分添加到bus中，再轮询检查bus的devices链表是否有对应的device能匹配上,有兴趣的可以从i2c_driver_register()开始研究源代码。  
 
+
+
+## device和driver的匹配
+上文中提到当bus中有新的device和driver添加时，会调用bus的match函数进行匹配，那么到底是怎么匹配的呢？  
+
+简单来说，在静态定义的device中，一般会有.name属性，与driver的.id_table属性相匹配。  
+
+device部分还有可能从设备树转换而来，就有设备树中相应的.compatible属性和driver的of_match_table.compatible属性相匹配。  
+
+事实上对于匹配这一部分，可以直接参考每个bus的match函数实现。  
+
+这一章节只是对linux中的总线做一个概念性的说明，在之后的博客中会详细介绍到相应bus的框架，同时也会详解对应的match()函数实现。  
+
+敬请期待！
+
+
+好了，关于linux的bus讨论就到此为止啦，如果朋友们对于这个有什么疑问或者发现有文章中有什么错误，欢迎留言
+
+***原创博客，转载请注明出处！***
+
+祝各位早日实现项目丛中过，bug不沾身.
 
 
     
