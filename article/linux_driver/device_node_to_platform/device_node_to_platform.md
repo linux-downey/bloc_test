@@ -1,4 +1,4 @@
-# 设备树处理之——device_node转换成platform_device  
+# linux设备驱动程序-设备树(2)-device_node转换成platform_device 
 
 ***以下讨论基于linux4.14，arm平台***
 

@@ -1,4 +1,4 @@
-# linux设备树的解析  
+# linux设备驱动程序-设备树(1)-dtb转换成device_node
 
 **本设备树解析基于arm平台**
 

@@ -1,8 +1,52 @@
 # linux设备驱动程序-i2c(2)-adapter和设备树的解析
 
-在上一章节中我们对linux i2c驱动框架进行了解析，在这一节中，我们走进i2c驱动的内核代码，看看在内核中，i2c框架到底是怎么形成的。  
+**(注： 基于beagle bone green开发板，linux4.14内核版本)**    
 
-*** 注： 基于beagle bone green开发板，linux4.14内核版本 ***    
+在本系列linux内核i2c框架的前两篇，分别讲了：  
+[linux设备驱动程序-i2c(0)-i2c设备驱动源码实现](https://www.cnblogs.com/downey-blog/p/10493289.html)    
+[linux设备驱动程序-i2c(1):i2c总线的添加与实现](https://www.cnblogs.com/downey-blog/p/10493216.html)  
+
+而在[linux设备驱动程序--串行通信驱动框架分析](https://www.cnblogs.com/downey-blog/p/10491953.html)中，讲到linux内核中串行通信驱动框架大体分为三层：
+* 应用层(用户空间接口操作)
+* 驱动层(包含总线、i2c-core的实现、以及总线的device和driver部分)
+* i2c硬件读写层
+
+在上一章节我们讲了整个总线的实现以及device和driver的匹配机制，这一章节我们要来讲讲i2c硬件读写层的实现。  
+
+## i2c的适配器
+我们来回顾一下，在本系列文章的第一章[linux设备驱动程序-i2c(0)-i2c设备驱动源码实现](https://www.cnblogs.com/downey-blog/p/10493289.html)源码中是怎么使用i2c和设备进行通信的呢？  
+* 首先，在总线的device部分，使用
+    struct i2c_adapter *adap = i2c_get_adapter(2)
+    这个接口，获取一个struct i2c_adapter结构体指针，并关联到i2c_client中。  
+* 然后，在总线driver部分的probe部分，在/dev目录下创建文件，并关联对应的file_operations结构体。  
+* 在file_operations结构体的write函数中，使用
+    s32 i2c_smbus_write_byte_data(const struct i2c_client *client,u8 command,u8 value);
+    这个接口，直接向i2c设备中写数据(command和value)。  
+* 而这个i2c_client就是device源码部分注册到bus中的i2c_client，且包含对应的adapter，同时包含i2c地址，设备名等信息。  
+
+如果再往深挖一层，会发现i2c_smbus_write_byte_data()的源码实现是这样的：
+
+    s32 i2c_smbus_write_byte_data(const struct i2c_client *client, u8 command,
+			      u8 value)
+    {
+        union i2c_smbus_data data;
+        data.byte = value;
+        return i2c_smbus_xfer(client->adapter, client->addr, client->flags,
+                    I2C_SMBUS_WRITE, command,
+                    I2C_SMBUS_BYTE_DATA, &data);
+    }
+    EXPORT_SYMBOL(i2c_smbus_write_byte_data);
+
+可以看到，在i2c smbus中主导通信的就是这个adapter。  
+
+那么，这个i2c_adapter到底是什么东西呢？其实，完全可以把它看成对应一个物理上i2c硬件控制器。
+
+## 硬件i2c控制器
+什么是硬件i2c控制器呢？为了照顾基础薄弱的同学，博主还是讲一讲吧。  
+
+
+用户编程并不需要操作i2c adapter。
+
 
 ## 从设备树开始
 
