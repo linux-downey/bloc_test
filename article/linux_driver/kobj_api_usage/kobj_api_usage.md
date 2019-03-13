@@ -179,7 +179,7 @@ dev_set_name();主要是设置device->kobj的名称。
 
 device_create() 最后调用device_add(dev)
 
-device_create_file()最后还是调用device_create_file()，
+device_create_file()最后还是调用sysfs_create_file()，
 
 
 kobj->name表示在/sys下的名字。  
