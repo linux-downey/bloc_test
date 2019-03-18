@@ -35,7 +35,7 @@ mmap的基本使用：
             printf("This is child,pid = %d\r\n",getpid());
             int fd = open("/home/downey/test_dir/test_c/mmap_file",O_RDWR);
             printf("fd = %d\r\n",fd);
-            char* ptr = (char*)mmap(NULL,4096,PROT_WRITE, MAP_SHARED, fd, 0);
+            char* ptr = (char*)mmap(NULL,4096,PROT_WRITE|PROT_READ, MAP_SHARED, fd, 0);
             if(ptr == NULL) printf("fuck\r\n");
             printf("0x%x\r\n",ptr);
             while(1)
@@ -53,7 +53,7 @@ mmap的基本使用：
             int fd = open("/home/downey/test_dir/test_c/mmap_file",O_RDWR);
             printf("fd = %d\r\n",fd);
             printf("This is father, child pid = %d,my pid = %d\r\n",pid,getpid());
-            char* ptr = (char*)mmap(NULL,4096,PROT_WRITE, MAP_SHARED, fd, 0);
+            char* ptr = (char*)mmap(NULL,4096,PROT_WRITE|PROT_READ, MAP_SHARED, fd, 0);
             if(ptr == NULL) printf("fuck1\r\n");
             printf("0x%x\r\n",ptr);
             while(1)
@@ -69,3 +69,19 @@ mmap的基本使用：
     }
 
 一个进程读，一个进程写
+需要注意的是，mmap()的操作并不会扩展文件的大小，如果是新创建的文件，文件长度为0，往映射内存的部分写东西将会到值Bus_error.
+创建文件时，需要先把文件扩大。
+使用ftruncate(fd,length);来对文件进行扩展，成功返回0，失败返回-1。  
+
+
+使用msync()函数来将当前写入的数据更新到物理空间中。 
+
+mmap调用流程在syscalls.c中，
+    
+    SYSCALL_DEFINE6(mmap, unsigned long, addr, size_t, len,
+		unsigned long, prot, unsigned long, flags,
+		unsigned long, fd, off_t, offset)
+
+
+
+
