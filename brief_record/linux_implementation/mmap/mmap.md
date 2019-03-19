@@ -236,6 +236,18 @@ mmap调用流程在syscalls.c中，
 
 
 
+在内存映射中，最关键的一个函数就是remap_pfn_range()，
+int remap_pfn_range(struct vm_area_struct *vma, unsigned long addr,
+		    unsigned long pfn, unsigned long size, pgprot_t prot)。  
+
+第一个参数 vma是映射到用户空间的虚拟地址，vma->vm_start虚拟地址的映射开始处。   
+第二个参数，addr，就是虚拟地址映射的开始处，等于vma->vm_start.  
+第三个参数，pfn，是被映射到用户空间的物理地址开始页。
+第四个参数，size，大小
+第五个参数，prot，映射内存的保护方式。
+
+计算映射地址对应内核的虚拟空间：被映射的内核虚拟地址起始+offset>>page_size，以页为单位映射的。  
+
 
     #include <sys/wait.h> 
     #include <signal.h>
