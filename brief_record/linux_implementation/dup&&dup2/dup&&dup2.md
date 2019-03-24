@@ -214,3 +214,129 @@ int main(void)
 	close(nfd);
 	return 0;
 }
+
+
+
+多进程打开文件：
+#include <sys/wait.h> 
+#include <signal.h>
+#include <sys/stat.h> 
+#include <fcntl.h> 
+#include <sys/mman.h> 
+
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+
+int main(void)
+{
+	int status;
+    int nfd = 0;
+	int pid = 0;
+    pid = fork();
+    if(pid < 0)
+    {
+
+    }
+    else if(0 == pid)
+    {
+        nfd = open("mmap_device",O_RDWR|O_CREAT);
+        printf("nfd =%d \r\n",nfd);
+        write(nfd,"huangdoa12345667",15);
+        while(1)
+        {
+            
+        }
+    }
+    else
+    {
+        
+        nfd = open("mmap_device",O_RDWR|O_CREAT);
+        printf("nfd = %d\r\n",nfd);
+        write(nfd,"1236475869",10);
+        while(1)
+        {
+
+        }
+    }
+
+    close(nfd);
+	
+	close(nfd);
+	return 0;
+}
+
+
+
+模拟在shell环境下执行shell，创建一个子进程，将子进程的返回通过管道传输到父进程，结束子进程。
+使用dup2实现。  
+
+#include <sys/wait.h> 
+#include <signal.h>
+#include <sys/stat.h> 
+#include <fcntl.h> 
+#include <sys/mman.h> 
+#include <linux/sched.h> 
+
+#include <stdio.h>
+#include <unistd.h>
+#include <stdlib.h>
+
+
+/*
+主进程写，子进程读
+主进程将文件描述符重定向为标准输出
+子进程讲描述符重定向为标准输入
+*/
+
+
+int main(void)
+{
+	int status;
+	int new_fd = 0;
+	int pid = 0;
+	int fd[2]={0};
+
+	if(fd<0)
+	{
+		printf("Failed to open file\r\n");
+		return 0;
+	}	
+	pipe(fd);
+	pid = fork();
+	if(pid == 0)
+	{
+		close(fd[0]);  //关闭读端
+		dup2(fd[1],STDOUT_FILENO);
+		
+		printf("xyz\n");
+		execl("/bin/ls","ls","-l",NULL);
+		close(fd[1]);
+		//while(1);
+		exit(0);
+	}
+	else if(pid <0)
+	{
+		
+	}
+	else
+	{
+
+		int c = 0;
+		char buf[1024]={0};
+		close(fd[1]);    //关闭写端
+		
+
+		wait(NULL);
+		printf("read result = %d\n",read(fd[0],buf,1024));
+
+		printf("read = :\n%s\n",buf);
+		exit(0);
+	}
+	
+	
+	return 0;
+}
+
+
+

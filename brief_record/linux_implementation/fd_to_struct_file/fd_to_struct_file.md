@@ -26,3 +26,63 @@ current->files->fdt->fd[].
 struct file主要是描述一个打开的文件，文件偏移地址fpos，以及fops(文件相应的读写操作)。
 当进程对同一文件打开两次时，将会创建两个struct file，这两个struct file指向同一个inode。
 需要验证。
+
+
+打开的文件总是返回当前可用的最小的文件描述符。  
+
+
+示例：先关闭标准输入，然后再打开一个文件，返回的fd就是标准输入的fd。  
+使用gets()从标准输入读就直接从文件中读取数据了。
+
+	#include <sys/wait.h> 
+	#include <signal.h>
+	#include <sys/stat.h> 
+	#include <fcntl.h> 
+	#include <sys/mman.h> 
+	#include <linux/sched.h> 
+
+	#include <stdio.h>
+	#include <unistd.h>
+	#include <stdlib.h>
+
+	int main(void)
+	{
+		int status;
+		int new_fd = 0;
+		int pid = 0;
+		int fd = 0;
+		int c;
+		char str[50] = {0};
+
+		close(STDIN_FILENO);
+		fd = open("mmap_device",O_RDWR);
+		printf("fd = %d\n",fd);
+		/*
+		while(c = getchar())
+		{
+			printf("read : %c\n",(char)c);
+		}*/
+
+		while(gets(str))
+		{
+			printf("read : %s\n",str);
+		}
+
+		return 0;
+	}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
