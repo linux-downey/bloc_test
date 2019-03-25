@@ -13,8 +13,9 @@
 填写正确的Kbuild就可以在make menuconfig的菜单中选中，配置结果出现在.config中
 顶层makefile根据.config再逐一地递归目录进行编译。  
 
-
-
+1.需要注意的是版本号被自动更改的问题
+2.在beagle bone平台上，新编译的镜像需要同时替换：vmlinuz、System.map、/lib/modules/$version/build这三个部分，因为每一次的编译都可能导致版本不同
+而无法加载模块。
 
 https://blog.csdn.net/a746742897/article/details/52329916
 https://ocelot1985-163-com.iteye.com/blog/980711
