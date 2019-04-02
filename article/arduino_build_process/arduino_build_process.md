@@ -101,9 +101,12 @@ arduino IDE会从board.txt目录下读取开发板指定的烧写软件
 烧写固件。
 
 关于arduino 编译流程以及配置文件的详细解释可以参考官方资料：
-编译：https://github.com/arduino/Arduino/wiki/Build-Process
-配置文件：https://github.com/arduino/Arduino/wiki/Arduino-IDE-1.5-3rd-party-Hardware-specification
-https://github.com/arduino/Arduino/wiki/Arduino-IDE-1.6.x-package_index.json-format-specification
+编译：https://github.com/arduino/Arduino/wiki/Build-Process  
+
+配置文件：https://github.com/arduino/Arduino/wiki/Arduino-IDE-1.5-3rd-party-Hardware-specification  
+
+https://github.com/arduino/Arduino/wiki/Arduino-IDE-1.6.x-package_index.json-format-specification  
+
 
 好了，关于arduino的编译流程讨论就到此为止了，如果朋友们对于这个有什么疑问或者发现有文章中有什么错误，欢迎留言
 
