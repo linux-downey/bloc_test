@@ -1,5 +1,7 @@
 ## 制作deb包的流程
 
+## 可以使用dh-make
+
 暂时只试了编译完成的包，制作deb的过程没有编译。  
 
 一个简单的deb包的目录结构
@@ -28,8 +30,10 @@ DEBIAN目录下的文件为控制文件，描述整个文件包属性
 deb包网址：https://www.debian.org/doc/manuals/maint-guide/dreq.zh-cn.html
 
 
+## sbuild部分 
 
 sbuild网址：https://wiki.debian.org/sbuild
+
 创建sbuild环境：sudo sbuild-createchroot --include=eatmydata,ccache,gnupg unstable /srv/chroot/unstable-amd64-sbuild http://deb.debian.org/debian
 
 其中--include 表示需要在创建时安装的包，以逗号结尾
@@ -41,7 +45,7 @@ unstable是当前发行版的名称，使用sudo lsb_release -a可以查看，co
 http://deb.debian.org/debian 表示镜像地址
 
 
-
+## gpg部分
 生成gpg：
 gpg --gen-key
 
