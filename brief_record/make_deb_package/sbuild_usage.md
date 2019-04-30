@@ -1,4 +1,8 @@
 ## sbuild的使用
+
+## 安装
+sudo apt-get install sbuild
+
 ### 创建
 首先，创建一个新的sbuild环境，换句话说，就是在当前主机上创建一个独立的debian环境以编译deb包，可以创建与主机不同的架构环境，比如在X86上创建arm32或者arm64的。
 
