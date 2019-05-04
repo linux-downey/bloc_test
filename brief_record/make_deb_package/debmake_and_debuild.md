@@ -172,8 +172,41 @@ debmake会生成一个默认的rules文件：
         #   dh_install --list-missing -X.pyc -X.pyo
 
 #!/usr/bin/make -f:表示这个可执行文件由/usr/bin/make来解析。  
+在上述示例中唯一没有被注释的行是
+
+        %：
+                dh $@
+其中的百分号意味着“任何 targets”， 它会以 target 名称作参数调用单个程序 dh，dh 命令是一个包装脚本，它会根据参数执行妥当的 dh_* 程序序列。
+在上述的rules中，将会执行多个dh*命令，这些dh命令有一些预定义的行为，
+
+rules中指定这些dh*命令部分建立在makefile的基础上，
+比如：
+dh_auto_build相当于调用make
+dh_auto_install相当于调用make install
+
+在使用的时候会使用到fakeroot。
+
+在默认生成的rules文件中我们可以 
+
+        #export DH_VERBOSE = 1
+去掉#，以看到rules执行的过程。  
 
 
 
+## 添加其他文件
+通常，除了添加可执行文件到/usr/bin/中，还需要添加库到/usr/lib.
+同样的，可以直接用Makefile中的install来指定。  
+
+## 其他操作
+preinst
+postinst
+prerm
+postrm
+
+
+
+
+使用sbuild，就可以进行编译工作了。
+编译完成的deb包可以先使用dpkg -i来尝试安装。  
 
 
