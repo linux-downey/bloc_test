@@ -148,10 +148,87 @@ makefile中的%匹配所有的目标。
  .LIBPATTERNS指定了搜索名称，一般来说， .LIBPATTERNS的内容就是lib%.so lib%.a表示在-l后指定的xxx时，搜索libxxx.a/so
 
  
-
-
-
 $@表示目标文件，$^表示所有的依赖文件，$<表示第一个依赖文件。
+
+
+伪目标：
+使用.phony来指定一个或多个伪目标
+伪目标可以有依赖，伪目标并非为一个真实需要生成的目标文件，
+显示指定伪目标的原因是：
+避免文件名的冲突，如果有一个正常目标名为clean，有一个伪目标为clean，就会冲突
+提高makefile的编译效率，如果一个伪目标不显示指定，make就会试图去将它当成
+
+如果一条指令没有依赖或者没有编译指令，make会认为它每次都要被执行。  
+就像make clean。
+
+特殊的makefile內建变量：
+.PHONY
+.SUFFIXES
+.DEFAULT
+.INTERMEDIATE
+.SECONDARY
+.SECONDEXPANSION
+.DELETE_ON_ERROR
+.LOW_RESOLUTION_TIME
+.SILENT
+.EXPORT_ALL_VARIABLES
+.NOTPARALLEL
+.ONESHELL
+.POSIX
+
+多个目标共用一个rule
+a.o b.o : common.h
+
+
+静态模式规则的语法：
+target ```: target-pattern: prereq-patterns
+例如：
+obj = foo.o bar.o
+all: ${obj}
+${obj}:%.o:%.c
+	command
+这种语法表示target-pattern是怎么由prereq-patterns生成。一般使用模式匹配%。
+
+双冒号：：
+双冒号的作用就是为同一个目标建立不同的规则，各自单独的编译
+
+Newprog :: foo.c
+
+       $(CC) $(CFLAGS) $< -o $@
+
+Newprog :: bar.c
+
+       $(CC) $(CFLAGS) $< -o $@
+当foo.c更新时，Newprog更新，当bar.c更新时，Newprog更新。如果是普通规则下的：，make将会报错。双冒号规则需要定义命令。
+
+
+命令的格式：
+命令的解析，本质上命令是由shell来解析的
+* 以tab开头的空白行并不是空白行，而算是一个空命令
+* 在命令中添加的注释会被直接传递给shell，makefile命令中的注释是否为注释取决于shell。
+* 在命令中定义的变量，即tab后的第一个字符串将被视为命令的一部分，而不是makefile中的变量定义，并传递给shell
+* 条件语句会被传递给shell
+
+关于行的拆分：在命令中，行的拆分也遵循shell的处理风格。
+
+
+
+
+变量的使用：
+在命令中使用makefile中的变量需要加$符号。  
+
+变量的两种处理方式：立即分配和延迟分配
+
+foo = $(bar)
+bar = $(ugh)
+ugh = Huh?
+
+all:;echo $(foo)
+
+输出的结果是 Huh?
+
+这样既有好处又有一些坏处：
+
 
 
 
