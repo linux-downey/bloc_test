@@ -67,8 +67,6 @@ clean:
 * '#'在前的一行表示注释
 * 反斜杠换行显示，Makefiel的语法是以行为单位的。
 
-makefile的名称约定：当执行make时，make程序会在当前目录下寻找GNUmakefile，makefile、Makefile这三种文件。  
-同时，如果用户不想用标准名称，可以使用-f或者--file参数指定文件名作为Makefile。 
 
 
 makefile可以include其他文件，包括其他的makefile，其他的bash文件。如果被include的文件不存在，不会报错。    
@@ -526,6 +524,9 @@ makefile最简单的示例以及原则
 
 
 
+
+多目录makefile加一章
+函数加一章
 
 
 
