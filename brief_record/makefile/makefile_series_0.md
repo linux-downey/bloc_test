@@ -28,7 +28,7 @@ make工具专门用作源代码的编译以及工程的构建，它通过读取M
 俗话说，一例胜千言，在讲解makefile之前我们先贴上一个简单的makefile示例：
 
     1. main:foo.c foo.h common.h
-	2.    gcc foo.c foo.h common.h -o main
+	2.    gcc foo.c -o main
 
     3. clean:
     4.    -rm main
