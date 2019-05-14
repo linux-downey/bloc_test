@@ -256,6 +256,7 @@ ${RESULT}结果:
 
 
 ## 其他常用函数
+
 ***    
 ### $(foreach var,list,text)
 
@@ -267,19 +268,134 @@ ${RESULT}结果:
     * text ： 对目标元素执行的操作。  
 * 返回值 ： 返回执行操作后的文本.
 
-**示例：**(无)
+**示例：** 
 
     TEXT := foo.c bar.c
-    RESULT := ${foreach file , TEXT , ${file}:%.o=%.c}
+    RESULT := ${foreach file,${TEXT},${file}.c}
+
+${RESULT}结果:
+
+    foo.c.c bar.c.c
+
+从结果可以看出，makefile中在${file}后添加了一个.c后缀。    
+
+**值得注意的是：第三个参数中的text是对元素执行的操作，但是！这里的操作并不是指的shell下的操作，不能执行类似于：@echo ${file}等操作，echo是shell下的函数，而这里是遵循makefile的语法，我们可以使用makefile中允许的函数比如：wildcard()，我们应该分清这一点。**  
+**在示例中，对于TEXT中的每个file(这个可以是任何临时变量)，返回第三个参数执行后的文本，这里是直接将file展开加上.c，整个表达式最后的返回结果就是所有单条语句返回结果的列表集合。**   
+
+*** 
 
 
 
+### $(file op filename[,text])
+
+**函数介绍：** 
+* 函数作用 ：向文件执行文本的输入输出  
+* 参数：
+    * op ： 要对文件进行的操作，支持：>(覆盖写) >>(追加写)  <(读)
+    * filename ： 文件名  
+    * text ： 如果op为写，此参数表示要写入的文本。    
+* 返回值 ： 返回值无意义
+**示例：** 
+
+    TEXT := "hello world"
+    RESULT := ${file >test,${TEXT}}
+
+执行结果：当当前目录下存在test文件时，"hello world"被写入到test中，当不存在test文件时，文件被创建且同时写入"hello world".  
+
+***
 
 
+### $(call variable,param,param,…)
+
+**函数介绍：** 
+* 函数作用 ：
+* 参数：
+    * var ：
+    * list ： 
+    * text ： 
+* 返回值 ： 
+**示例：** (无)  
+
+***
 
 
+### $(value variable)
+
+**函数介绍：** 
+* 函数作用 ：获取未展开的变量值。    
+* 参数：
+    * variable ：目标变量，不需要添加"$"   
+* 返回值 ： 返回变量的未展开的值.  
+**示例：** 
+
+    FOO = $PATH
+    all:
+        @echo $(FOO)
+        @echo $(value FOO)
+
+执行结果：
+
+    ATH
+    /home/downey/bin:/home/downey/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/usr/games:/usr/local/games:/snap/bin
+第一个结果${FOO}为ATH是因为，make将$P解析成makefile中的变量，而不是将(PATH)作为一个整体来解析。  
+
+第二个结果得到的就是真实的环境变量值。  
+
+**事实上，博主对这个value函数的定义并不理解，按照官方文档理解，既然是未扩展的值，\$(value FOO)的返回值不应该是"$PATH"这个字符串吗？**  
+**之后，博主尝试了将PATH换成其他定义的变量，例如：**
+
+    TEXT := hello
+    FOO := $TEXT
+    all:
+        @echo $(value FOO)
+**输出的结果为"EXT"(\$T+EXT)，而非hello(\${TEXT})，更不是"\$TEXT"这个字符串，这个结果就非常奇怪了，明明这个和PATH一样同样是变量，为什么这个结果和$PATH结果完全不一样。**  
+
+**是不是因为PATH是内置变量？那我就换一个内置变量试试：**
+
+    FOO = $CURDIR
+    all:
+        @echo $(value FOO)
+**输出结果为"URDIR",依旧是(\$C+URDIR)，\$(CURDIR)应该是当前目录。**  
+
+**后来查看makefile的内置变量，发现PATH其实是linux shell环境下的全局变量,我接着使用USER(同是shell环境变量，使用export查看)，与PATH一样的效果：**  
+
+    FOO = $USER
+    all:
+        @echo $(value FOO)
+**输出为"downey"(我的用户名)**  
+**其中FOO的赋值只能是 "=" 而不能是 ":="，这一部分确实是和扩展相关的属性。但是博主还是不理解其中的原理。**  
+**经过各种实验，我只能将它理解为，value函数可以解析shell中的环境变量，而对于官方的说法：返回变量的未经扩展的值，目前仍然不能理解。**
+**同时，网上的大部分博客都是复制粘贴，没有什么参考价值。**    
+**希望路过的大神不吝赐教！！**
+
+***
 
 
+### 
+
+**函数介绍：** 
+* 函数作用 ：对list中的每个var，调用text命令。  
+* 参数：
+    * var ：被操作的目标元素  
+    * list ： 目标元素列表  
+    * text ： 对目标元素执行的操作。  
+* 返回值 ： 返回执行操作后的文本.
+**示例：** (无)  
+
+***
+
+### 
+
+**函数介绍：** 
+* 函数作用 ：对list中的每个var，调用text命令。  
+* 参数：
+    * var ：被操作的目标元素  
+    * list ： 目标元素列表  
+    * text ： 对目标元素执行的操作。  
+* 返回值 ： 返回执行操作后的文本.
+**示例：** (无)  
+
+***
 
 
 
