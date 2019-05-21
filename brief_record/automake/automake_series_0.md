@@ -1,4 +1,4 @@
-# linux autotools工具自动化打包源码
+# linux autotools工具使用详解(0) - 使用示例
 通常，在编写编译小型程序的时候，仅仅在命令行进行编译或者是自己写个对应的makefile使用make工具进行编译。  
 
 但是，这种做法在面临中大型工程的时候就有些捉襟见肘了。对于大型工程而言，编写makefile的工作量将非常大，而且不能保证makefile在兼容性、扩展性等等。  
@@ -25,9 +25,109 @@ autotoos工具包的目标其实是根据现有源码自动化地生成makefile�
 ## autools介绍
 autotools实际上包含一系列的工具，主要的包括有autoscan、autoconf、autolocal等工具，在制作源码包的过程中这些工具会被分别调用以实现相应的功能。  
 
-现在我们来梳理一下使用autotools自动构建工具生成标准makefile的流程。  
+我们先来看一个简单的autotools使用示例。  
+## autotools使用示例
 
-### autotools使用流程
+### 创建文件并编辑
+我们需要创建以下五个文件：
+
+    src/main.c src/Makefile.am README Makefile.am configure.ac 
+然后分别编辑上述的五个文件：  
+***  
+src/main.c:源码包的源代码部分
+
+    #include <config.h>
+    #include <stdio.h>
+
+    int
+    main (void)
+    {
+    puts ("Hello World!");
+    puts ("This is " PACKAGE_STRING ".");
+    return 0;
+    }
+***  
+README:包含整个包的描述信息
+
+    This is a demonstration package for GNU Automake.
+    Type 'info Automake' to read the Automake manual.
+
+***   
+Makefile.am：Makefile的配置信息，它并不是Makefile，也不遵循Makefile的语法，只是提供描述信息给automake工具去生成Makefile。  
+
+    bin_PROGRAMS = hello
+    hello_SOURCES = main.c
+***  
+src/Makefile.am:生成src目录下的Makefile
+
+    SUBDIRS = src
+    dist_doc_DATA = README
+***  
+configure.ac:configure文件的配置信息，同样的，这些信息将被提供给autotools工具以生成configure文件和Makefile文件。  
+
+    AC_INIT([amhello], [1.0], [bug-automake@gnu.org])
+    AM_INIT_AUTOMAKE([-Wall -Werror foreign])
+    AC_PROG_CC
+    AC_CONFIG_HEADERS([config.h])
+    AC_CONFIG_FILES([
+    Makefile
+    src/Makefile
+    ])
+    AC_OUTPUT
+
+### 调用autotools指令
+创建并配置完上述五个文件，我们就可以开始生成源码包的工作了。  
+首先，执行下面的指令生成一些必要的文件：
+
+    autoreconf --install
+将会输出以下调试信息：
+
+    configure.ac: installing './install-sh'
+    configure.ac: installing './missing'
+    configure.ac: installing './compile'
+    src/Makefile.am: installing './depcomp'
+这条指令将会创建上述log信息中出现的四个文件，然后执行一系列指令，以正确的顺序调用autotools中的各个程序，比如：autoconf，automake等等。  
+
+到这里，整个hello_world版本源码包基本上就生成了，如果我们需要将其发布，只需要进行打包即可。  
+
+当用户修改了configure.ac或者Makefile.ac文件时，不需要再重复执行**autoreconf**指令，只需要再次执行**make**即可，所有修改相关的部分都将自动更新。  
+
+### 源码包的使用
+如果你曾有从源码安装程序的经验，就知道源码安装三部曲：  
+* ./configure : 根据目标平台生成Makefile
+* make ： 对源码进行编译工作，生成开发者指定的最终的目标文件，通常是共享库、可执行文件等，这个示例中是生成了src/hello可执行文件，可直接运行。  
+* make install：将生成的共享库、可执行文件copy到系统目录。默认将其copy到/usr/local/目录下对应的文件夹中。  
+
+在安装完成之后，就可以在终端的任何目录执行编译源码生成的可执行文件：
+
+    hello
+或者在make完成之后，无需安装，执行相应程序：
+
+    src/hello
+输出结果为：
+
+    Hello World!
+    This is amhello 1.0.
+
+## 小结
+从上述的过程来看，autotools编译生成源码包的操作是非常简单的，只需要创建几个对应的文件并对其进行配置即可，事实上，操作的流程是比较简单的，主要的难点在于配置文件的语法以及实际项目的复杂性。  
+
+在下一章节，我们将深入autotools中，展现文件配置的细节，知其然更要知其所以然。  
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 #### 1、准备源代码
 #### 2、使用autoscan命令
 使用指令：**autoscan**，这条指令会搜索源代码，生成两个文件：**autoscan.log**，**configure.scan**，我们需要关注的是**configure.scan**文件，这个文件是主要的配置文件。  
