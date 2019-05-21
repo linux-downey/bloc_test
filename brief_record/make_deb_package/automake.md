@@ -85,14 +85,17 @@ AM_INIT_AUTOMAKE括号中的值通常是一系列的编译参数，比如上述�
 
 * AC_OUTPUT ： 这个宏表示当前文件的结束，这个宏必须存在。  
 
+#### 3、手动创建依赖文件
+在使用autotools时，有些文件需要
 
 
 
 
 
-使用autoscan，configure.scan
 
-将configure.scan重命名为configure.ac，并编辑configure.ac
+
+
+
 
 新建Makefile.am文件，并编辑Makefile.am文件
 
@@ -119,8 +122,6 @@ touch NEWS README AUTHORS ChangeLog
 hello.c
 src/hello_lib.c
 src/hello_lib.h
-
-
 
 
 
