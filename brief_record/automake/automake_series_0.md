@@ -53,7 +53,7 @@ README:包含整个包的描述信息
     Type 'info Automake' to read the Automake manual.
 
 ***   
-Makefile.am：Makefile的配置信息，它并不是Makefile，也不遵循Makefile的语法，只是提供描述信息给automake工具去生成Makefile。  
+Makefile.am：Makefile的配置信息，提供描述信息给automake工具去生成Makefile。  
 
     bin_PROGRAMS = hello
     hello_SOURCES = main.c
