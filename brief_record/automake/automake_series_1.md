@@ -147,8 +147,14 @@ Makefile.am的语法和普通的Makefile一直，不同的是Makefile.am支持�
 事实上，Makefile.am支持大部分makefile的语法，详情可以参考[官方文档](https://www.gnu.org/software/automake/manual/automake.html#A-Program)   
 
 
+
+
 autotools中两个主要的配置文件的常用选项介绍就到此为止了，在下一章节，我们将以一个稍微复杂的实例来演示autotools的用法。  
 毕竟，hello_world工程只是入门，我们需要的是能够使用。  
+
+
+
+
 
 
 
