@@ -65,3 +65,75 @@ AM_INIT_AUTOMAKE括号中的值通常是一系列的编译参数，比如上述�
 * AC_OUTPUT ： 这个宏表示当前文件的结束，这个宏必须存在。  
 
 
+<<<<<<< HEAD
+=======
+### Makefile.am文件
+Makefile.am文件由用户编写，automake程序会将其转化成Makefile.in文件，在configure的执行阶段会将Makefile.in转化为Makefiele。  
+
+Makefile.am的语法和普通的Makefile一直，不同的是Makefile.am支持更多的内置变量，需要遵循特定的命名规则。  
+
+在上一章节中提到的Makefile.am和src/makefile.am文件是这样的：
+
+    src/Makefile.am：
+
+        bin_PROGRAMS = hello
+        hello_SOURCES = main.c 
+    Makefile.am:  
+
+        SUBDIRS = src
+        dist_doc_DATA = README
+
+在Makefile.am中，我们更多的是关注其中的一些内建变量，可以直接很方便地使用这些变量的特性：  
+* 以_PROGRAMS结尾的变量，指示makefile需要编译生成的目标。bin_PROGRAMS则表示最后再make install的时候目标会被安装到\$(bindir)中，\$(bindir)的目录为/usr/local/bin。除了安装到\$(bindir)中,还支持安装到sbindir，libexecdir、pkglibexecdir中。
+    例如，将hello安装到/usr/local/sbin中就可以使用下列指令：
+
+        sbin_PROGRAMS = hello
+
+* \$(TARGET)_SOURCES : 表示生成目标依赖的源文件，.h文件也需要添加，目标也可以是静态库和动态库.上述示例中hello依赖main.c，所以是这样的：
+    hello_SOURCES = main.c 
+
+* 编译通常涉及到编译选项，同样的，我们可以使用_CFLAGS后缀来指定编译选项，例如添加一个-g选项：
+
+    hello_CFLAGS = -g
+
+* 以_LIBRARIES结尾的表示目标库文件，lib_LIBRARIES表示编译出的库文件将被安装到\$(libdir)中，\$(libdir)的目录为/usr/local/lib/. 
+    如果我们需要编译一个静态库文件，可以这样写：
+
+        lib_LIBRARIES = libhello.a
+        libhello_a_SOURCES = …
+    如果是动态库，我们可以这样写：
+        lib_LIBRARIES = libhello.la
+        libhello_la_SOURCES = …
+    同样的，lib_LIBRARIES的前缀lib_表示安装目录。  
+  
+* 既然涉及到库文件，那么就肯定要涉及到库的链接问题，了解Makefile的朋友肯定知道，在链接时需要指定链接的目标库才能正常完成链接，所以在这里也需要用户来指定，指定链接库使用LDADD指令，比如：
+
+    LDADD = src/libhello.a
+    就是在编译的链接过程将libhello.a进行链接。  
+
+
+* 事实上，某些静态库只在编译链接时用到，并不需要安装到系统目录中，这时候我们就可以使用:noinst_LIBRARIES。noinst_前缀同样适用于目标文件和动态库，比如：
+    noinst_PROGRAMS = hello  
+    在安装时就不会将hello安装到系统目录中。  
+
+* 同样的，库的编译会涉及到编译选项问题，可以使用**_LDFLAGS**后缀来指定编译选项，使用方法同_CFLAGS。  
+
+* SUBDIRS : SUBDIRS是一个特殊的变量，这个变量内容是一个列表，列出在处理当前目录下的Makefile之前需要先递归处理的目录，所以在上述示例中的SUBDIRS = src指令的意思是：在处理当前目录下的Makefile之前先需要去处理src/目录下的Makefile。  
+
+* dist_doc_DATA ：表示目标文档将会被安装到\$(docdir)中相对应目录,\$(docdir)默认为 : /usr/local/share/doc/。带有_DATA后缀的目标并不会在make install时被自动安装，所以需要添加dist_前缀以进行安装，
+
+事实上，Makefile.am支持大部分makefile的语法，详情可以参考[官方文档](https://www.gnu.org/software/automake/manual/automake.html#A-Program)   
+
+
+
+
+autotools中两个主要的配置文件的常用选项介绍就到此为止了，在下一章节，我们将以一个稍微复杂的实例来演示autotools的用法。  
+毕竟，hello_world工程只是入门，我们需要的是能够使用。  
+
+
+
+
+
+
+
+>>>>>>> 7f96d35ebb865f5f0b843b479618a2ea55971cde
