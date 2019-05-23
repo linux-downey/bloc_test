@@ -29,8 +29,43 @@ dpkg -i $PACKAGE_NAME
 
 
 ## 对于deb包的操作
+dpkg命令除了使用-i指令安装deb包之后，还提供一系列的选项对deb包进行操作。  
+
+我们以libtool为例来演示dpkg的各个选项设置。  
+
+首先，下载libtool的deb包：
+
+    sudo apt-get download libtool  
+该指令表示下载对应的deb包而不安装，指令执行完成将在当前目录下出现一个libtool的软件包，它的命名方式为：
+
+    <name>_<VersionNumber>-<DebianRevisionNumber>_<DebianArchitecture>.deb
+在当前主机上出现的软件包名为：
+
+    libtool_2.4.6-0.1_all.deb
+表示包名为libtool，版本号为2.4.6,次版本号为0.1，all表示适用于所有架构。  
 
 
+## dpkg选项
+如果要在linux下查看一个指令的使用方法，最好的办法就是使用--help选项：
+
+    dpkg --help
+基本上所有成熟软件都会支持这个选项，它将列出关于这个命令的详细信息。  
+
+### -i 安装
+dpkg -i package 或者 dpkg --install package：表示安装该软件包，deb包并非平台无关的包，deb包与主机架构需要对应，才能安装使用，在安装的过程中终端将打印相应的步骤信息，在出错时也方便调试。 
+
+事实上，deb包的安装分为了两个阶段：先解压压缩包，然后进行配置。这两个步骤可以分开处理。  
+
+### --unpack 解压
+
+
+
+### -r -P 移除
+dpkg -r packge 或者 dpkg --remove packge：表示从系统中移除一个deb包，但是保留其配置文件、维护文件以及用户数据，仅相当于停用程序，下次安装可继续使用。  
+
+dpkg -P packge 或者 dpkg --purge ： 表示从系统汇总移除一个deb包，同时，删除所有包相关的文件。  
+
+### 
 
 
 
