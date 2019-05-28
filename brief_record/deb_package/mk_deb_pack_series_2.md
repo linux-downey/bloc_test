@@ -378,5 +378,7 @@ override_dh_auto_build:
 在一些中小型项目中，通过debmake自动生成的文件可以直接使用，但是在复杂的项目中，我们就需要对rules进行自定义才能完成相应的需求，或者对其进行针对性的优化。  
 
 
+参考资料[官方文档](https://www.debian.org/doc/manuals/maint-guide/dreq.en.html#customrules)，建议参考英文文档，中文有部分翻译错误！
+
 
 
