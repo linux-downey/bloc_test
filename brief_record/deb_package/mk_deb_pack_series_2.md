@@ -255,13 +255,23 @@ which debuild
 打开这个可执行文件，就可以看到脚本的内容。  
 
 #### debuild指令作用
-debian指令生成deb包的所有必要文件，事实上它包含了一系列的指令：
-* 首先，它会执行**dpkg-buildpackage**,这个指令可以单独地进行deb包的编译工作，与dpkg-deb -b实现一样的功能，只是形式不一样。
-* 接着，执行rules脚本中的各条以dh_开头的指令，这一系列命令将在模拟真实环境下做一些必要的检测以及配置，其中会涉及到使用fakeroot来执行指令。  
-fakeroot的作用是使用虚拟的root权限来执行deb包安装、清除这些需要root权限才能执行的情况，同时将创建的文件权限、属主改为root执行的情况。  
+debian指令生成deb包的所有必要文件，事实上它包含了一系列的指令：  
+
+* 首先，它会执行**dpkg-buildpackage**,这个指令完成一系列复杂的事情，包括：
+    * 设置变量，调用dpkg-source --before-build做一系列准备工作
+    * 检查编译依赖和冲突。
+    * 调用fakeroot debian/rules clean清除源码树
+    * 调用dpkg-source -b生成源码包
+    * 调用build钩子函数，调用debian/rules build-target，fakeroot debian/rules binary-target等完成源码的编译，调用一系列dh_开头的命令。  
+    * 调用dpkg-genchanges生成.changes文件并配置  
+    * 调用dpkg-source --after-build清除某些编译结果.  
+    * 对源码包进行简单的检查，调用一系列dh_开头的命令。  
+    * 如果指定需要gpg签名，则给.dsc文件签名。    
+fakeroot的作用是使用虚拟的root权限来执行deb包安装、清除这些需要root权限才能执行的情况，同时将创建的文件权限、属主改为root执行的情况。   
 因为在一般情况下，deb包制作者并不会使用root用户来编译deb包，这就造成了生成的文件权限和属主不符合系统要求的情况(因为deb包中的某些文件需要安装到系统中)，同时，在检查deb包的安装和清除时，如果使用真实的root权限，很可能因为各种异常而给系统带来文件垃圾。fakeroot完美地解决了这个问题。    
-* 然后，执行lintian 或者 linda，主要是lintian指令，这个指令主要是对deb包进行一系列的检查工作，主要用于检查二进制和源包是否符合Debian规范以及检查其他常见的打包错误
-* 最后，根据选项执行deb包的签名工作，调用debsign，通常，正规的deb包都需要使用gpg对其进行签名，然后才能进行发布工作。但是在制作个人包的时候可以选择先不签名或者在随后手动签名。  
+* 然后，执行lintian 或者 linda，主要是lintian指令，这个指令主要是对deb包进行一系列的检查工作，主要用于检查二进制和源包是否符合Debian规范以及检查其他常见的打包错误  
+* 最后，根据选项执行deb包的签名工作，调用debsign，通常，正规的deb包都需要使用gpg对其进行签名，然后才能进行发布工作。但是在制作个人包的时候可以选择先不签名或者在随后使用**debsign**手动签名。   
+
 
 #### debuild使用选项
 在上述的编译工作中，我们直接使用指令：
@@ -276,6 +286,12 @@ debuild [debuild options] [dpkg-buildpackage options] [--lintian-opts lintian op
 
 所以，在使用debuild时，使用熟知的**debuild --help**可能并不能查看相应的选项，所以我们需要同时去查找dpkg-buildpackage或者lintian的指令。  
 
+这里的 **-us -uc**指令是**dpkg-buildpackage**的选项，它的说明是这样的：
+```
+-us    Do not sign the source package.
+-uc    Do not sign the .changes file.
+```
+为了简化deb包的生成过程，这里就不使用gpg对其进行签名了(在后面的章节将讲到gpg和deb仓库的创建)。    
 
 
 ### 自定义rules文件
@@ -300,10 +316,66 @@ rules中target的执行是这样的：
 ```
 debian/rules target
 ```
-就执行了rules中的target项对应的操作。  
+就执行了rules中的target项对应的操作，在自定义的rules文件中，上述提到的带有(必须)后缀的目标是必须被加上的，当然也可以使用模式规则。  
+
+#### 规则对应程序的调用
+在rules文件中，每一个特定的目标都对应的特定功能，比如：
+* debian/rules clean 运行了 dh clean，接下来实际执行的命令为：
+```
+dh_testdir
+dh_auto_clean
+dh_clean
+```
+* debian/rules build 运行了 dh build，其实际执行的命令为：
+```
+dh_testdir
+dh_auto_configure
+dh_auto_build
+dh_auto_test
+```
+
+* fakeroot debian/rules binary 执行了 fakeroot dh binary，其实际执行的命令为：
+```
+dh_testroot
+dh_prep
+dh_installdirs
+dh_auto_install
+dh_install
+...
+...
+dh_md5sums
+dh_builddeb
+```
+* fakeroot debian/rules binary-arch 执行了 fakeroot dh binary-arch，其效果等同于 fakeroot dh binary 并附加 -a 参数于每个命令后。  
+* .....
 
 
+#### 规则与Makefile的关系
+规则的调用当然是遵循某些规则的，它几乎是完全根据Makefile中的实现来调用的，比如：
+* dh_auto_clean  通常在 Makefile 存在且有 distclean 目标时执行以下命令
+```
+make disclean
+```
+* dh_auto_configure通常在configure文件存在的时候调用以下命令：
+```
+./configure --prefix=/usr --sysconfdir=/etc --localstatedir=/var ...
+```
+* dh_auto_build通常执行Makefile中的第一个目标，也就是相当于执行：
+```
+make
+```
+* ....
 
+#### 规则的覆盖
+在rules文件中，可以使用override_前缀对某个指令进行覆盖，由此可以自定义一些行为：
+```
+override_dh_auto_build:
+        echo hello_world
+```
+这样，在执行dh_auto_build时，仅仅打印出hello_world而不做任何其他事。  
+
+
+在一些中小型项目中，通过debmake自动生成的文件可以直接使用，但是在复杂的项目中，我们就需要对rules进行自定义才能完成相应的需求，或者对其进行针对性的优化。  
 
 
 
