@@ -5,7 +5,6 @@
 在这一章中，我们来使用官方提供的自动化构建工具集**debhelper**来创建一个由源码生成的deb包，源码包最大的好处就是它非常不错的跨平台性能。  
 
 
-
 ## 准备源码包  
 
 ### 源代码
@@ -68,7 +67,7 @@ debhello-1.0.0为原目录名称
 cd debhello-1.0.0
 debmake
 ```
-执行完成之后，会发现整个源码包目录下多了很多配置文件。执行tree查看整个目录的结构：    
+执行完成之后，会发现整个源码包目录下多了很多配置文件。执行tree查看整个目录的结构(如出错，请看下一小节**debmake纠错**)：    
 
 ```
 .
@@ -138,7 +137,9 @@ FileNotFoundError: [Errno 2] No such file or directory
 export DEBEMAIL="linux_downey@gmail.com"
 export DEBFULLNAME="downey_boy"
 ```
-2、找到脚本出错位置，然后修改它，对比第一种方案而言，这是治本的办法，首先根据提示找到 **/usr/lib/python3/dist-packages/debmake/para.py**出错未见的44行，既然这条语句有问题，那我们就将其换一种获取用户名的方法：
+推荐使用这种方法，最后设置的"DEBEMAIL"和"DEBFULLNAME"变量值会在control文件中使用。  
+
+2、找到脚本出错位置，然后修改它，对比第一种方案而言，这是治本的办法，但是修改系统里面的东西总是需要非常谨慎的。首先根据提示找到 **/usr/lib/python3/dist-packages/debmake/para.py**出错未见的44行，既然这条语句有问题，那我们就将其换一种获取用户名的方法：
 ```
 import os, pwd
 os.getlogin = lambda: pwd.getpwuid(os.getuid())[0]
@@ -154,7 +155,8 @@ os.getlogin = lambda: pwd.getpwuid(os.getuid())[0]
 changelog  control    patches   postrm         rules   watch
 compat     copyright  postinst  README.Debian  source
 ```
-在这些文件当中，changelog、control、copyright、postrm、postinst的应用以及修改在上一章节已经详细介绍过，这里就不再赘述，我们主要看看其他的文件
+**在这些文件当中，changelog、control、copyright、postrm、postinst的应用以及修改在上一章节已经详细介绍过，这里就不再赘述，我们主要看看其他的文件(这些文件需要根据项目实际情况做修改)。**
+
 ### compat
 非必须，compat事实上是compatible的缩写，表示debhelper的兼容级别。通常为9或者10，在使用版本10的时候也可以选择兼容旧版本9.  
 
@@ -214,16 +216,73 @@ gentoo for Debian
 
 那么唯一起到实际作用的就是16、17行了。熟悉makefile的朋友应该知道，这种形式属于模式规则的语法，以此隐式地完成所有工作。其中的百分号意味着“任何 targets”， 它会以 target 名称作参数调用单个程序 dh，dh命令是一个包装脚本，它会根据参数执行妥当的 dh_* 程序序列。   
 
+#### 对rules的处理
+事实上，使用默认的rules脚本是不能正常工作的，我们需要屏蔽掉其中的一个规则(默认使用所有的规则)：dh_usrlocal。  
+
+我们可以在上述的rules文件中的17行后添加一行：
+```
+override_dh_usrlocal:
+
+```
+override_表示覆盖写，以空指令覆盖dh_usrlocal就可以达到目的了。  
+
 ### 使用脚本生成deb包
-在所有文件修改完成之后，就可以使用以下指令来编译deb包了：
+在所有文件修改完成之后，就可以使用以下指令来编译deb包了，在系统生成的与debian同级目录下输入：
 ```
 debuild -us -uc
 ```
+不出意外，就会在debian的父目录中生成一系列的文件，其中一个以.deb结尾的就是我们要的deb包了。  
 
+
+## 实用扩展
+事实上，完成一个hello world是非常简单的，但是如果仅仅满足于完成一个hello world工程，那我们将无法学到任何东西，因为总是完成一件事最容易的部分是最低效的学习方式。  
+
+所以，我们需要继续深入，才能了解更多相关的知识。   
+
+使用自动化构建工具编译deb包最主要的两个部分是：rules规则和debuild指令，我们就来看看这两个指令。  
+
+
+### debuild命令
+#### debuild指令的实质
+事实上，debuild命令的结果是执行一个perl脚本，我们可以通过以下指令找到它：  
+```
+which debuild
+```
+一般情况下，输出结果是这样的：  
+```
+/usr/bin/debuild
+```
+打开这个可执行文件，就可以看到脚本的内容。  
+
+#### debuild指令作用
+debian指令生成deb包的所有必要文件，事实上它包含了一系列的指令：
+* 首先，它会执行**dpkg-buildpackage**,这个指令可以单独地进行deb包的编译工作，与dpkg-deb -b实现一样的功能，只是形式不一样。
+* 接着，执行rules脚本中的各条以dh_开头的指令，这一系列命令将在模拟真实环境下做一些必要的检测以及配置，其中会涉及到使用fakeroot来执行指令。  
+fakeroot的作用是使用虚拟的root权限来执行deb包安装、清除这些需要root权限才能执行的情况，同时将创建的文件权限、属主改为root执行的情况。  
+因为在一般情况下，deb包制作者并不会使用root用户来编译deb包，这就造成了生成的文件权限和属主不符合系统要求的情况(因为deb包中的某些文件需要安装到系统中)，同时，在检查deb包的安装和清除时，如果使用真实的root权限，很可能因为各种异常而给系统带来文件垃圾。fakeroot完美地解决了这个问题。    
+* 然后，执行lintian 或者 linda，主要是lintian指令，这个指令主要是对deb包进行一系列的检查工作，主要用于检查二进制和源包是否符合Debian规范以及检查其他常见的打包错误
+* 最后，根据选项执行deb包的签名工作，调用debsign，通常，正规的deb包都需要使用gpg对其进行签名，然后才能进行发布工作。但是在制作个人包的时候可以选择先不签名或者在随后手动签名。  
+
+#### debuild使用选项
+在上述的编译工作中，我们直接使用指令：
+```
+debuild -us -uc
+```
+与其他指令有所区别的是，debuild指令是一个命令集合的脚本，它的执行选项同时可以包含几个指令的选项：
+```
+debuild [debuild options] [dpkg-buildpackage options] [--lintian-opts lintian options] [--linda-opts linda options]   
+```
+第一部分选项是debuild的选项，第二部分为dpkg-buildpackage的选项，第三四部分为lintian和linda的选项。  
+
+所以，在使用debuild时，使用熟知的**debuild --help**可能并不能查看相应的选项，所以我们需要同时去查找dpkg-buildpackage或者lintian的指令。  
 
 
 
 ### 自定义rules文件
+#### 调试变量设置
+在上述默认生成的rules文件中，可以将**DH_VERBOSE = 1**这一行的注释去掉，这样在执行各类dh命令时就会输出相应的信息。
+
+#### 规则
 rules文件的规则，语法和Makefile非常像，rules文件中包含了多个规则，一个新的rule以自己的target进行声明来起头，后续的行以TAB开头，以下是对各target的简单解释：  
 
 * clean target：清理所有编译的、生成的或编译树中无用的文件。(必须)
@@ -242,6 +301,10 @@ rules中target的执行是这样的：
 debian/rules target
 ```
 就执行了rules中的target项对应的操作。  
+
+
+
+
 
 
 
