@@ -78,11 +78,9 @@ gnupg(gpg),是一个加密&签名软件
 
 然后使用
         sudo  sbuild-shell  xenial-amd64
-就可以进到相应系统的shell，可以在shell中对文件进行操作，也可以直接操作/srv/chroot/xenial-x86_64-sbuild这个目录中的文件。
-
+就可以进到相应系统的shell，可以在shell中对文件进行操作，也可以直接操作/srv/chroot/xenial-x86_64-sbuild这个目录中的文件。  
 
 退出可以使用exit()
-
 
 ## 配置及配置文件
 
@@ -92,7 +90,7 @@ $build_arch_all = 1;
 $distribution = '$distribution';
 
 使能build_arch_all会默认构建一个依赖于架构的包
-指定distribution，也可以不指定
+指定distribution，也可以不指定。  
 
 ### 使用lintian
 使能lintian将提高软件包的生成质量
