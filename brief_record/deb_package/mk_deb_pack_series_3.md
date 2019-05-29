@@ -165,12 +165,27 @@ $autopkgtest_opts = [ '--', 'schroot', '%r-%a-sbuild' ];
 
 
 ## 执行编译命令
-在上一章节中，我们有讲到怎样将一个
+在上一章节中，我们有讲到debmake指令将源码目录进行自动构建，然后使用debuild命令对其进行打包编译，那sbuild是怎样编译deb包的呢？  
+和上一节中的操作类似，步骤如下：
+* 准备源码(同上章)
+* 源码打包，**需要注意的是，在对源码进行打包时，使用debuild需要将源文件目录打包成$PKGNAME-$VERSION.tar.gz的形式。而在使用sbuild时，我们需要将源文件目录打包成$PKGNAME_$VERSION.orig.tar.gz的形式。**  
+* 使用debmake自动生成配置文件模板(同上章)
+* 根据具体项目需求修改控制文件以及rules文件(同上章)
+* 使用sbuild指令进行打包工作(上一章为调用debuild -us -uc)。  
+
+sbuild指令将依次调用debootstrap进入新创建的chroot环境、**dpkg-buildpackage -us -uc**编译deb包(同样将使用到fakeroot)、根据选项调用lintian。  
+   
+sbuild与debuild在运行上不同的是：
+* sbuild进入纯净环境编译，很小概率出现包的依赖问题。  
+* sbuild在编译时即时的下载某些依赖软件，需要更长的时间，通常我们可以使用缓存机制来缓解这个问题。  
 
 
 
+### 获取deb包
+在sbuild执行完成之后，我们就可以在debian/的上级目录看到一系列的文件包，其中后缀为.deb的软件包就是我们需要的deb包，可以对其进行测试。  
 
 
+更多详细资料请参考[官方文档](https://wiki.debian.org/sbuild)  
 
 
 
