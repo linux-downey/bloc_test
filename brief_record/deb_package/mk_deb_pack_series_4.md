@@ -132,7 +132,15 @@ gpg -opt FBB436FE
 但是有时候可能一个用户名或者邮箱对应多个gpg key，它就会将对应的都列出来，因为，我们可以灵活地对它们进行操作，如果你确定只想指定一个gpg key(通常在脚本中希望如此)，就直接使用key值，这个一定是唯一的。   
 
 ### 查看key
-gpg key在生成之后被保存在~.gnupg/目录下，我们可以直接操作里面的文件，但是，如果你不是非常熟悉gpg，最好还是使用命令来进行操作，毕竟这才是相对安全的做法。  
+gpg key在生成之后被保存在~.gnupg/目录下，我们可以直接操作里面的文件，使用ls查看目录下的文件是这样的：
+```
+private-keys-v1.d  pubring.gpg~  secring.gpg  trustdb.gpg
+pubring.gpg        random_seed   S.gpg-agent
+
+```
+其中pubring.gpg和secring.gpg就对应公钥和私钥文件。  
+
+但是，如果你不是非常熟悉gpg，最好还是使用命令来进行操作，毕竟这才是相对安全的做法。  
 
 首先，我们可以使用下面的指令查看对应的gpg key：
 ```
@@ -170,10 +178,64 @@ E - encryption                     表示加密
 C - creating certificate           表示创建证书
 A - authentication purposes        表示用作认证
 ```
-可以明显看到，默认情况下主密钥对是不负责加密工作的，而子密钥对才负责加密，这又是为什么？见后文。  
+可以明显看到，默认情况下主密钥对是不负责加密工作的，而子密钥对才负责加密，这又是为什么呢？见后文详解。  
 
-### 导入key
- 
+### 导出gpg key
+需要注意的是，生成的gpg key被保存在统一的文件中，通常主秘钥和子秘钥的公钥保存在同一个文件中，如果我们想要导出一份公钥，可以使用导出的指令：
+```
+gpg --export FBB436FE > pub.key
+```
+其中，FBB436FE为对应的gpg key值，这样，就将当前的gpg key中的公钥导出，需要注意的是，这种导出并不会删除该用户公钥文件中的公钥，只是相当于拷贝了一份出来。   
+
+同时，在某些情况下，我们需要将私钥导出，将私钥换一个更加安全的地方保管，同样的，我们需要将私钥导出：  
+```
+gpg --export-secret-keys FBB436FE > sec.key
+```
+至此，就将私钥导出到了sec.key文件中，同样的，这种导出仅仅是copy一份出来，并不会删除源文件中的私钥。  
+
+在真实场景中，导出私钥后最好是删除源文件中的私钥，这样有利于私钥的安全：
+```
+gpg --delete-secret-keys FBB436FE
+```
+尽管系统会提示一堆警告，但是我很明确我在做什么，所以我还是固执地将它删除了。但是如果你没有备份主私钥，而将主私钥删了，那么这个gpg key就可以直接丢弃了。    
+
+同时，对于子秘钥的私钥导出，也有相对应的接口：
+```
+gpg --export-secret-subkeys $key_num
+```
+而子秘钥的公钥导出可以直接使用对应的$key_num即可。  
+
+#### 验证gpg私钥导出
+我们可以使用以下方法验证gpg的主私钥是否被删除：
+* 使用**gpg --export-secret-keys FBB436FE > sec.key**试图导出主私钥，系统会直接提示：
+```
+gpg: WARNING: nothing exported
+```
+* 对比发现，在删除之前，~.gnupg/secring.gpg比删除之后明显要大，如果只存在一份秘钥的情况下，删除之后的~.gnupg/secring.gpg文件大小变成了0。  
+
+
+#### --armor选项
+诚然，对于公钥私钥文件，都是以二进制形式存在的，普通编辑器打开全是乱码，如果你想要让秘钥导入导出的文件可读，可以加上--armor选项，这个选项将会创建ASCII码形式的秘钥，便于读写和直接复制。比如下面的导出公钥操作：
+```
+gpg --export --armor FBB436FE > pub_armor.key
+```
+就可以直接查看pub_armor.key中的内容了。  
+
+
+### 导入gpg key
+除了自己创建gpg key，我们可以直接导入外部的gpg key文件，导入的方式也是非常简单：
+```
+gpg --import $file
+```
+这个file是对应的key文件，也就是在上述导出示例中生成的key文件，不管是在别处直接导出的二进制文件，或者是导出的ASCII文件，都是可以识别的。  
+
+我们将上述被导出且被删除的主私钥重新导入，可以使用以下指令：
+```
+gpg --import sec.key
+```
+然后就发现，我们之前删除的主秘钥的key又回来了。  
+
+
 
 
 更多细节可以参考[官方文档](https://gnupg.org/documentation/manuals/gnupg/#toc-A-short-installation-guide)    
