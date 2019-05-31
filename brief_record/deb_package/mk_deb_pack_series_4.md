@@ -1,4 +1,4 @@
-# linux下deb包的制作(4) -- 使用gpg进行签名
+# linux下deb包的制作(4) -- gpg的操作介绍
 随着计算机的飞速发展，除了享受它的各种便利，随之而来的也有各种网络安全问题，虽然linux下的安全问题没有windows下的那么严重，也总是不能被忽视的。  
 
 在这一系列文章中，我们一直讨论的是deb包的相关操作，那么，在我们下载安装软件包时，怎么确定这个安装包是安全的呢？  
@@ -234,6 +234,44 @@ gpg --import $file
 gpg --import sec.key
 ```
 然后就发现，我们之前删除的主秘钥的key又回来了。  
+
+### 发布自己的gpg key
+与普通的RSA生成密钥对不一样的是，gpg key可以作为个人的信用凭证，它在创建的时候就绑定了个人名称和个人邮箱。   
+
+最主要的是，你的gpg key可以对外发布，最常用的做法是发布到官方网站，这样别人就可以在官方网站查看你的gpg 公钥，以此来进行加密数据的交互，将gpg key上传到官方网站的方式是这样的：
+```
+gpg --keyserver keyserver.ubuntu.com --send-key FBB436FE
+```
+其中，--keyserver选项指定官网的URL，即keyserver.ubuntu.com，但是，gpg key的官网服务器对这种上传行为并没有严格地审查，所以从官网获取的gpg key并不能保证是安全的。  
+
+所以任何人都可以使用你的名字上传他们自己的gpg key，你需要同时告知别人你的gpg key的fingerprint，可以通过以下指令获取gpg key fingerprint：
+```
+gpg --fingerprint FBB436FE
+```
+如果你有自己的个人网站，也可以选择将gpg key放在个人网站上，这只是一种发布形式而已。  
+
+### 撤销证书
+当我们不想使用某个gpg key，同时这个gpg key已经被发布出去的时候，简单地从本地删除这个gpg key其实是不太可取的，因为别人并不知道你已经将这个gpg key删除，可能继续使用这个gpg key给你发送数据或者用它验证数据，导致一些不必要的麻烦。  
+
+遇到这种情况，我们需要做的就是撤销gpg key，撤销gpg key有两(三)个步骤：
+* 生成一张撤销证书，可以使用下面的指令：
+```
+gpg --output revoke.asc --gen-revoke FBB436FE
+```
+* 将生成的撤销证书导入(revoke.asc)到当前用户的密钥文件中
+```
+gpg --import revoke.asc
+```
+* 如果你有将自己的密钥发布出去，就可以将撤销后的gpg key发布，就会在对应的网站上显示相应的状态了。  
+
+当你的证书被撤销时，再使用gpg --list-key FBB436FE指令查看key时，被撤销的key就出现了不同的状态：
+```
+pub   4096R/C0B56915 2019-05-30 [revoked: 2019-05-30]
+uid                  huangdao nothing <linux_downey@sina.com>
+```
+显示证书已经被撤销，不能继续使用。  
+
+
 
 
 
