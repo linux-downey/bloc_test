@@ -1,0 +1,11 @@
+autoksyms_h := $(if $(-), include/generated/autoksyms.h)
+
+$(autoksyms_h):
+	$(Q)mkdir -p $(dir $@)
+	$(Q)touch $@
+	
+创建目录，创建文件，暂时不知道这个文件具体的含义
+大概是关于模块的导出。
+
+	
+	

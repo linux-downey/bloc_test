@@ -1,0 +1,40 @@
+prepare3: include/config/kernel.release
+ifneq ($(srctree),.)
+	@$(kecho) '  Using $(srctree) as source for kernel'
+	$(Q)if [ -f $(srctree)/.config -o \
+		 -d $(srctree)/include/config -o \
+		 -d $(srctree)/arch/$(SRCARCH)/include/generated ]; then \
+		echo >&2 "  $(srctree) is not clean, please run 'make mrproper'"; \
+		echo >&2 "  in the '$(srctree)' directory.";\
+		/bin/false; \
+	fi;
+endif
+
+依赖于
+include/config/kernel.release
+这个文件中包含的是 内核的版本。  
+同样可以通过
+	make kernelrelease
+获取
+
+
+prepare3的作用是：检查编译时是否指定输出目录，如果没有，命令部分就不会被执行。  
+
+否则执行。
+	@$(kecho) '  Using $(srctree) as source for kernel'
+	$(Q)if [ -f $(srctree)/.config -o \
+		 -d $(srctree)/include/config -o \
+		 -d $(srctree)/arch/$(SRCARCH)/include/generated ]; then \
+		echo >&2 "  $(srctree) is not clean, please run 'make mrproper'"; \
+		echo >&2 "  in the '$(srctree)' directory.";\
+		/bin/false; \
+
+kecho 和 echo 作用相似，只是受限于quiet变量。  
+
+后面的if判断就是检查：源目录下是否存在 .config 文件、/include/config 目录 、arch/$(SRCARCH)/include/generated 目录，
+如果存在其中任意一个，停止编译。  
+
+提示用户清除这些文件，否则这些文件将导致编译过程的混乱，因为类似.config文件将在目标目录下生成一份，两份.config文件将会
+混淆编译过程。  
+
+

@@ -1,0 +1,82 @@
+# 依赖树
+vmlinux:
+	scripts/link-vmlinux.sh
+	autoksyms_recursive(执行一些命令)
+		vmlinux-deps
+	vmlinux-deps := $(KBUILD_LDS) $(KBUILD_VMLINUX_OBJS) $(KBUILD_VMLINUX_LIBS)  
+		//KBUILD_VMLINUX_OBJS、KBUILD_VMLINUX_LIBS结果是根目录下各级子目录中的*build-in.a
+		KBUILD_LDS := arch/$(SRCARCH)/kernel/vmlinux.lds
+
+		KBUILD_VMLINUX_OBJS := $(head-y) $(init-y) $(core-y) $(libs-y2) \
+			      $(drivers-y) $(net-y) $(virt-y)
+
+		KBUILD_VMLINUX_LIBS := $(libs-y1)
+		
+		vmlinux-deps : vmlinux-dirs     vmlinux-dirs	:= $(patsubst %/,%,$(filter %/, $(init-y) $(init-m) \
+		     							$(core-y) $(core-m) $(drivers-y) $(drivers-m) \
+		     							$(net-y) $(net-m) $(libs-y) $(libs-m) $(virt-y)))
+			$(vmlinux-dirs): prepare
+				prepare: prepare0 prepare-objtool
+					prepare0: archprepare
+						archprepare: archheaders archscripts prepare1 scripts
+							prepare1: prepare3 outputmakefile asm-generic $(version_h) $(autoksyms_h) \
+										include/generated/utsrelease.h
+								prepare3: include/config/kernel.release
+						scripts: scripts_basic scripts_dtc
+
+					prepare-objtool: $(objtool_target)
+
+	FORCE
+
+vmlinux: scripts/link-vmlinux.sh autoksyms_recursive $(vmlinux-deps) FORCE
+	$(call if_changed,link-vmlinux)
+
+
+scripts/link-vmlinux.sh是一个脚本文件。  
+
+
+autoksyms_recursive: $(vmlinux-deps)
+ifdef CONFIG_TRIM_UNUSED_KSYMS
+	$(Q)$(CONFIG_SHELL) $(srctree)/scripts/adjust_autoksyms.sh \
+	  "$(MAKE) -f $(srctree)/Makefile vmlinux"
+endif
+
+
+执行： cmd_link-vmlinux 命令
+
+
+************************************************************************************
+先研究：vmlinux-deps := $(KBUILD_LDS) $(KBUILD_VMLINUX_OBJS) $(KBUILD_VMLINUX_LIBS)
+
+KBUILD_LDS = arch/$(SRCARCH)/kernel/vmlinux.lds  这是一个链接文件。
+
+
+KBUILD_VMLINUX_OBJS  和  KBUILD_VMLINUX_LIBS 就是主角了。  
+************************************************************************************
+
+
+************************************************************************************
+vmlinux-dirs	:= $(patsubst %/,%,$(filter %/, $(init-y) $(init-m) \
+		     $(core-y) $(core-m) $(drivers-y) $(drivers-m) \
+		     $(net-y) $(net-m) $(libs-y) $(libs-m) $(virt-y)))
+
+将目标中的 xxx/ 替换 成为 xxx, 必须严格匹配xxx/,获取文件目录
+************************************************************************************
+
+init-y  结果是 init/build-in.a
+
+vmlinux-deps := $(KBUILD_LDS) $(KBUILD_VMLINUX_OBJS) $(KBUILD_VMLINUX_LIBS)
+
+
+
+
+drivers的makefile中仅仅是给：
+obj-y 和 obj-m赋值。
+
+还有 xxx-core-objs
+obj-y 可以是目录，也可以是.o文件。  
+lib-y
+always  通常是主机程序
+targets
+
+

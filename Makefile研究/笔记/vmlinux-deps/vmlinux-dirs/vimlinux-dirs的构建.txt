@@ -1,0 +1,26 @@
+将所有去掉目录中的 "/"
+vmlinux-dirs	:= $(patsubst %/,%,$(filter %/, $(init-y) $(init-m) \
+		     $(core-y) $(core-m) $(drivers-y) $(drivers-m) \
+		     $(net-y) $(net-m) $(libs-y) $(libs-m) $(virt-y)))
+
+
+
+
+
+上述的 core-y 之类的值是在主Makefile中被定义的。  
+
+这些目录在链接vmlinux的时候将会用到。
+
+
+进入所有的子目录，并进行编译。  
+$(vmlinux-dirs): prepare
+	$(Q)$(MAKE) $(build)=$@ need-builtin=1
+			 
+
+
+		
+
+
+
+
+		

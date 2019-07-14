@@ -1,0 +1,32 @@
+$(Q)$(MAKE) $(build)=scripts/basic
+	$(Q)rm -f .tmp_quiet_recordmcount
+	
+进入到 scripts/basic/ 目录,
+
+
+scripts/basic/Makefile：
+	
+	hostprogs-y	:= fixdep
+	always		:= $(hostprogs-y)
+
+	# fixdep is needed to compile other host programs
+	$(addprefix $(obj)/,$(filter-out fixdep,$(always))): $(obj)/fixdep
+
+
+在这里，hostprogs-y目标仅有 fixdep。    
+ 
+在 Makfile.host 中被解析以及编译。    
+
+host-csingle	:= $(foreach m,$(__hostprogs), \
+			$(if $($(m)-objs)$($(m)-cxxobjs),,$(m)))
+
+quiet_cmd_host-csingle 	= HOSTCC  $@
+      cmd_host-csingle	= $(HOSTCC) $(hostc_flags) $(KBUILD_HOSTLDFLAGS) -o $@ $< \
+		$(KBUILD_HOSTLDLIBS) $(HOSTLDLIBS_$(@F))
+$(host-csingle): $(obj)/%: $(src)/%.c FORCE
+	$(call if_changed_dep,host-csingle)  
+	
+
+
+
+	

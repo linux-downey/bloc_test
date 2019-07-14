@@ -1,0 +1,10 @@
+目前只有mips架构和x86架构才有。 
+
+	 
+在mips架构中是这样的
+	 
+archscripts: scripts_basic
+    $(Q)$(MAKE) $(build)=arch/mips/tools elf-entry
+    $(Q)$(MAKE) $(build)=arch/mips/boot/tools relocs
+	 
+不重要  暂时不分析

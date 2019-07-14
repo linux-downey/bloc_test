@@ -1,0 +1,50 @@
+filechk在Kbuild.include中被定义。  
+
+
+
+define filechk
+	$(Q)set -e;				\
+	mkdir -p $(dir $@);			\
+	{ $(filechk_$(1)); } > $@.tmp;		\
+	if [ -r $@ ] && cmp -s $@ $@.tmp; then	\
+		rm -f $@.tmp;			\
+	else					\
+		$(kecho) '  UPD     $@';	\
+		mv -f $@.tmp $@;		\
+	fi
+endef
+
+
+检查生成的目标文件是否有更新。  
+
+比如：
+$(version_h): FORCE
+	$(call filechk,version.h)
+	$(Q)rm -f $(old_version_h)
+
+就会先将
+	filechk_version.h
+重写到。  
+
+filechk_version.h的值一般以echo开头:
+
+	define filechk_version.h
+		echo \#define LINUX_VERSION_CODE $(shell                         \
+		expr $(VERSION) \* 65536 + 0$(PATCHLEVEL) \* 256 + 0$(SUBLEVEL)); \
+		echo '#define KERNEL_VERSION(a,b,c) (((a) << 16) + ((b) << 8) + (c))'
+	endef
+
+然后就是对比.tmp文件和version.h文件是否有更新，有的话，就以.tmp文件来更新version.h文件。  
+
+
+if [ -r $@ ] && cmp -s $@ $@.tmp; then	\
+		rm -f $@.tmp;			\
+	else					\
+		$(kecho) '  UPD     $@';	\
+		mv -f $@.tmp $@;		\
+	fi
+	
+这一部分就是做对比，首先判断两个条件是否同时成立：文件存在且可读，两个文件相等，表示文件没有更新，删除.tmp文件。 
+
+否则，将.tmp文件改名为$@,即为示例中的version文件。
+

@@ -1,0 +1,25 @@
+scripts_dtc: scripts_basic
+	$(Q)$(MAKE) $(build)=scripts/dtc
+
+进入 scripts/dtc 目录
+
+包含 scripts/dtc/Makefile
+
+
+
+scripts/dtc/Makefile:
+	
+hostprogs-$(CONFIG_DTC) := dtc
+always		:= $(hostprogs-y)
+
+dtc-objs	:= dtc.o flattree.o fstree.o data.o livetree.o treesource.o \
+		   srcpos.o checks.o util.o
+dtc-objs	+= dtc-lexer.lex.o dtc-parser.tab.o
+
+
+同样的，在Makefile.host中解析并编译出dtc。  
+
+
+
+
+

@@ -1,0 +1,30 @@
+
+
+echo-cmd = $(if $($(quiet)cmd_$(1)),\
+	echo '  $(call escsq,$($(quiet)cmd_$(1)))$(echo-why)';)
+
+
+
+# printing commands
+cmd = @set -e; $(echo-cmd) $(cmd_$(1))
+
+
+首先执行echo-cmd,这个echo-cmd先判断 $(quiet)cmd_$(1) 是否存在，如果存在就打印命令。
+
+所以通常可以看到cmd定义是这样的：
+
+quiet_cmd_cc_s_c = CC $(quiet_modtag)  $@
+      cmd_cc_s_c = $(CC) $(filter-out $(DEBUG_CFLAGS), $(c_flags)) $(DISABLE_LTO) -fverbose-asm -S -o $@ $<
+
+在执行上述命令时，就会先将 CC $(quiet_modtag)  $@ 打印出来。  
+
+然后在执行cmd_$1.
+
+
+
+
+
+
+
+
+

@@ -1,0 +1,44 @@
+
+//检查规则中的依赖文件或者目标是否有更新，从而决定是否重新编译规则,
+
+比如主makefile中的：
+vmlinux: scripts/link-vmlinux.sh autoksyms_recursive $(vmlinux-deps) FORCE
+	+$(call if_changed,link-vmlinux)
+
+当依赖或者目标有更新时，执行 cmd_link-vmlinux。  cmd_link-vmlinux通常是一个shell命令。  
+
+******************************************************************************
+//依赖文件中被修改的文件(去除伪目标)，
+
+any-prereq = $(filter-out $(PHONY),$?)  $(filter-out $(PHONY) $(wildcard $^),$^)
+******************************************************************************
+
+$@表示目标文件，主要是检查cmd_$@是否为空，为空就返回空，否则返回1
+arg-check = $(if $(strip $(cmd_$@)),,1)
+******************************************************************************
+如果 any-prereq 和 arg-check有一者不为空，则执行cmd
+
+$(1)为call if_changed传入的第一个参数。  
+
+cmd = @set -e; $(echo-cmd) $(cmd_$(1))
+******************************************************************************
+//如果设置了打印变量，就将指令打印出来
+echo-cmd = $(if $($(quiet)cmd_$(1)),\
+	echo '  $(call escsq,$($(quiet)cmd_$(1)))$(echo-why)';)
+******************************************************************************
+$(cmd_$(1)：
+执行对应的命令。  
+比如：
+vmlinux ：... 
+    $(call if_changed,link-vmlinux)
+就相当于检查 vmlinux的依赖有没有被改变，如果有，就需要重新编译，就执行：cmd_vmlinux命令。
+******************************************************************************
+
+
+//与if_changed不同的是，这个函数生成.d的文件依赖
+if_changed_dep = $(if $(strip $(any-prereq) $(arg-check)),$(cmd_and_fixdep),@:)
+
+
+
+//与if_changed不同的是，他将执行传入的rule_$(1)命令
+if_changed_rule = $(if $(strip $(any-prereq) $(arg-check)),$(rule_$(1)),@:)

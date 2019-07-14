@@ -1,0 +1,9 @@
+dtbs dtbs_check: prepare3 scripts_dtc
+	$(Q)$(MAKE) $(build)=$(dtstree)
+	
+	
+	
+	
+	
+	
+	

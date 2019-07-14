@@ -1,0 +1,41 @@
+prepare1: prepare3 outputmakefile asm-generic $(version_h) $(autoksyms_h) \
+						include/generated/utsrelease.h
+	$(cmd_crmodverdir)
+
+主要执行一条命令 : cmd_crmodverdir
+
+
+
+cmd_crmodverdir = $(Q)mkdir -p $(MODVERDIR) \
+                  $(if $(KBUILD_MODULES),; rm -f $(MODVERDIR)/*)
+
+cmd_crmodverdir可翻译为： command - clear mod-ver-dir
+
+*************************************************************************************************************
+KBUILD_MODULES：
+    当用户执行 make 或者 make all 或者 make modules时，KBUILD_MODULES会被赋值为1，即同时编译所有的可加载模块
+$(if $(KBUILD_MODULES),; rm -f $(MODVERDIR)/*)
+
+    这条语句的含义就是：如果指定编译外部模块，则不做任何事，如果没有指定编译外部模块，清除$(MODVERDIR)/目录下所有内容。  
+    目的是对其进行重新编译工作。
+*************************************************************************************************************
+
+
+
+
+*************************************************************************************************************
+
+MODVERDIR := $(if $(KBUILD_EXTMOD),$(firstword $(KBUILD_EXTMOD))/).tmp_versions
+
+KBUILD_EXTMOD，当在执行make时指定了  M=dir  或者  SUBDIR=dir  来指定编译外部模块时，KBUILD_EXTMOD的值等于传入的目录
+
+此时 MODVERDIR=KBUILD_EXTMOD的第一个字符串/.tmp_versions
+
+
+如果没有指定编译外部模块，则MODVERDIR为空
+
+*************************************************************************************************************
+
+
+prepare1 针对指定目录的外部模块的编译。
+

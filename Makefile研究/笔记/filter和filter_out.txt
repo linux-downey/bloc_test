@@ -1,0 +1,8 @@
+filter和filter-out函数：
+
+$(filter pattern…,text) 和 $(filter-out pattern…,text)
+
+filter：从text中选出pattern中存在的。
+
+filter-out：从text中删除pattern中存在的。
+

@@ -1,0 +1,29 @@
+
+prepare-objtool: $(objtool_target)
+
+objtool_target := tools/objtool
+
+需要编译 tools/objtool 。
+
+匹配了当前 Makefile 中的 ：
+
+tools/%: FORCE
+	$(Q)mkdir -p $(objtree)/tools
+	$(Q)$(MAKE) LDFLAGS= MAKEFLAGS="$(tools_silent) $(filter --j% -j,$(MAKEFLAGS))" O=$(abspath $(objtree)) subdir=tools -C $(src)/tools/ $*
+
+编译生成 objtool
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

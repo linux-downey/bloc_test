@@ -1,0 +1,103 @@
+makefile.lib，这也是一个非常重要的文件
+被包含进Makefile.build中。 
+
+设置一些flag。  
+asflags-y  += $(EXTRA_AFLAGS)
+ccflags-y  += $(EXTRA_CFLAGS)
+cppflags-y += $(EXTRA_CPPFLAGS)
+ldflags-y  += $(EXTRA_LDFLAGS)
+KBUILD_AFLAGS += $(subdir-asflags-y)
+KBUILD_CFLAGS += $(subdir-ccflags-y)
+
+//如果既是內建目标，又是模块，就不编译该模块
+obj-m := $(filter-out $(obj-y),$(obj-m))
+
+
+//消除已经是內建模块的库
+lib-y := $(filter-out $(obj-y), $(sort $(lib-y) $(lib-m)))
+
+
+
+//将obj-y中的目录 dir 修改为 dir/modules.order赋值给modorder，将obj-m中的.o修改为.ko赋值给modorder。  
+modorder	:= $(patsubst %/,%/modules.order, $(filter %/, $(obj-y)) $(obj-m:.o=.ko))
+
+
+
+//挑选出obj-y 和 obj-m 中的纯目录部分，然后添加到subdir-y和subdir-m中。  
+__subdir-y	:= $(patsubst %/,%,$(filter %/, $(obj-y)))
+subdir-y	+= $(__subdir-y)
+
+__subdir-m	:= $(patsubst %/,%,$(filter %/, $(obj-m)))
+subdir-m	+= $(__subdir-m)
+
+
+
+obj-y 中纯目录部分则将其改名为dir/build-in.a,obj-y的其他部分则不变。  
+
+obj-y		:= $(patsubst %/, %/built-in.a, $(obj-y))
+
+将obj-m中的纯目录部分剔除掉(因为已经在上面加入到subdir-m中了)。
+obj-m		:= $(filter-out %/, $(obj-m))
+
+
+//需要被递归搜寻的子路径，带有可编译内部和外部模块的子目录。  
+subdir-ym	:= $(sort $(subdir-y) $(subdir-m))
+
+
+
+//被多次引用的模块，foo-objs,foo-y,foo-m,这些一般都是作为模块编译的依赖.o文件，并不作为具体模块
+
+
+这里的理解难点为：先将obj-y中的每个元素从 xxx.o 转换成 xxx-objs,然后再检查 $(xxx-objs)是否存在，如果存在，那么这个
+模块就即在obj-y里存在，又在xxx-objs/y/m中存在，赋值给multi-used-xxx。  
+
+
+multi-used-y := $(sort $(foreach m,$(obj-y), $(if $(strip $($(m:.o=-objs)) $($(m:.o=-y))), $(m))))
+multi-used-m := $(sort $(foreach m,$(obj-m), $(if $(strip $($(m:.o=-objs)) $($(m:.o=-y)) $($(m:.o=-m))), $(m))))
+multi-used   := $(multi-used-y) $(multi-used-m)
+
+
+仅仅是用作外部模块的目标。  
+single-used-m := $(sort $(filter-out $(multi-used-m),$(obj-m)))
+
+
+
+//obj-y中的纯目录，在上面被修改为xxx/built-in.a  在这里赋值给 subdir-obj-y
+subdir-obj-y := $(filter %/built-in.a, $(obj-y))
+
+
+
+这里的 obj-y 剔除了纯目录部分. xxx.o与xxx-objs/y同时存在时，将xxx.o 转换为 xxx-objs,xxx-y
+obj-m 同理，这些都是目标文件，而不存在目录。  
+real-obj-y := $(foreach m, $(obj-y), $(if $(strip $($(m:.o=-objs)) $($(m:.o=-y))),$($(m:.o=-objs)) $($(m:.o=-y)),$(m)))
+real-obj-m := $(foreach m, $(obj-m), $(if $(strip $($(m:.o=-objs)) $($(m:.o=-y)) $($(m:.o=-m))),$($(m:.o=-objs)) $($(m:.o=-y)) $($(m:.o=-m)),$(m)))
+
+
+检测dtb
+ifneq ($(CHECK_DTBS),)
+extra-y += $(patsubst %.dtb,%.dt.yaml, $(dtb-y))
+extra-$(CONFIG_OF_ALL_DTBS) += $(patsubst %.dtb,%.dt.yaml, $(dtb-))
+endif
+
+
+给所有变量加上路径
+extra-y		:= $(addprefix $(obj)/,$(extra-y))
+always		:= $(addprefix $(obj)/,$(always))
+targets		:= $(addprefix $(obj)/,$(targets))
+modorder	:= $(addprefix $(obj)/,$(modorder))
+obj-m		:= $(addprefix $(obj)/,$(obj-m))
+lib-y		:= $(addprefix $(obj)/,$(lib-y))
+subdir-obj-y	:= $(addprefix $(obj)/,$(subdir-obj-y))
+real-obj-y	:= $(addprefix $(obj)/,$(real-obj-y))
+real-obj-m	:= $(addprefix $(obj)/,$(real-obj-m))
+single-used-m	:= $(addprefix $(obj)/,$(single-used-m))
+multi-used-m	:= $(addprefix $(obj)/,$(multi-used-m))
+subdir-ym	:= $(addprefix $(obj)/,$(subdir-ym))
+
+
+其他部分就是flag部分，暂时不做深入探讨。  
+
+
+
+
+

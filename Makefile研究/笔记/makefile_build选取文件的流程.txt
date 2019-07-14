@@ -1,0 +1,129 @@
+需要被编译的目标文件夹将被传进来，即obj
+
+赋值给src
+
+src = obj
+
+获取需要编译的目录。  
+kbuild-dir := $(if $(filter /%,$(src)),$(src),$(srctree)/$(src))
+
+导入目标文件夹下的makefile，目前为止，仅仅是导入了目标文件夹下的单个Makefile。
+
+kbuild-file := $(if $(wildcard $(kbuild-dir)/Kbuild),$(kbuild-dir)/Kbuild,$(kbuild-dir)/Makefile)
+include $(kbuild-file)
+
+导入了Makefile，Makefile中的obj-y等等变量就赋值到当前文件中。  
+
+
+事实上，makefile.lib是对目标文件的进一步处理。   
+include scripts/Makefile.lib
+
+如果是编译主机程序，还需要包含Makefild.host
+include scripts/Makefile.host
+
+从包含的目标文件中导入
+obj-y/m
+lib-y/m
+
+
+如果存在(lib-*)
+lib-target += $(obj)/lib.a
+real-obj-y += $(obj)/lib-ksyms.o
+
+如果存在 real-obj-y或者need-buildin为1，设置build-in.a，编译完成后每个目录下都存在一个build-in.a
+builtin-target := $(obj)/built-in.a
+
+
+modorder-target := $(obj)/modules.order
+在makefile.lib中被定义。
+
+
+
+makefile.build下的默认编译目标。
+__build: $(if $(KBUILD_BUILTIN),$(builtin-target) $(lib-target) $(extra-y)) \
+	 $(if $(KBUILD_MODULES),$(obj-m) $(modorder-target)) \
+	 $(subdir-ym) $(always)
+	@:
+
+extra-y 主要是dtb相关的编译。  
+
+
+
+所有默认目标的编译流程：
+.o 文件，包括obj-m 和 obj-y 部分的模块；
+ 
+$(obj)/%.o: $(src)/%.c $(recordmcount_source) $(objtool_dep) FORCE
+	$(call cmd,force_checksrc)
+	$(call if_changed_rule,cc_o_c)
+
+define rule_cc_o_c
+	$(call cmd,checksrc)
+	$(call cmd_and_fixdep,cc_o_c)
+	$(call cmd,gen_ksymdeps)
+	$(call cmd,checkdoc)
+	$(call cmd,objtool)
+	$(call cmd,modversions_c)
+	$(call cmd,record_mcount)
+endef
+
+编译一个.o文件所执行的命令，$1 就是目标文件。
+编译文件的主要操作是：$(call cmd_and_fixdep,cc_o_c)
+其中执行了$(cmd)
+cmd_cc_o_c = $(CC) $(c_flags) -c -o $@ $<
+
+
+
+
+
+
+
+
+
+
+
+对于subdir-ym，即需要进入的子目录，是这样处理的：
+
+$(subdir-ym):
+	$(Q)$(MAKE) $(build)=$@ need-builtin=$(if $(findstring $@,$(subdir-obj-y)),1)
+	
+所以，编译完成后的所有內建目录下都带有built-in.a，而外部模块则没有。  
+由 subdir-y 和 obj-y 指定的目录都将在 makefile.lib 中被转为 sundir-ym。  
+
+
+
+$(filter-out $(PHONY), $^)
+cmd_ar_builtin = rm -f $@; $(AR) rcSTP$(KBUILD_ARFLAGS) $@ $(real-prereqs)
+
+$(builtin-target): $(real-obj-y) FORCE
+	$(call if_changed,ar_builtin)
+将所有的real-obj-y 打包，生成built-in.a。
+
+所以，编译完成后的所有內建目录下都带有built-in.a，而外部模块则没有。  
+由 subdir-y 和 obj-y 指定的目录都将在 makefile.lib 中被转为 sundir-ym。 
+
+
+$(modorder-target): $(subdir-ym) FORCE
+	$(Q)(cat /dev/null; $(modorder-cmds)) > $@
+几乎每个目录下都会有moduels.order文件	
+
+
+//lib-y	
+$(lib-target): $(lib-y) FORCE
+	$(call if_changed,ar)
+	
+	
+//lib
+cmd_export_list = $(OBJDUMP) -h $< | \
+	sed -ne '/___ksymtab/s/.*+\([^ ]*\).*/EXTERN(\1)/p' >$(ksyms-lds);\
+	rm -f $(dummy-object);\
+	echo | $(CC) $(a_flags) -c -o $(dummy-object) -x assembler -;\
+	$(LD) $(ld_flags) -r -o $@ -T $(ksyms-lds) $(dummy-object);\
+	rm $(dummy-object) $(ksyms-lds)
+
+$(obj)/lib-ksyms.o: $(lib-target) FORCE
+	$(call if_changed,export_list)
+	
+
+
+
+	

@@ -1,0 +1,67 @@
+archheaders:
+	$(Q)$(MAKE) $(build)=arch/arm/tools uapi
+
+arch相关的部分基本上都在源码根目录的arch目录下，
+
+这里截取的是arch/arm 下的archheaders
+
+
+可以看到的是：
+
+$(Q)$(MAKE) $(build)=arch/arm/tools uapi
+
+这条指令相当于
+make -f arch/arm/tools/Makefile uapi
+
+
+先找到uapi的相关信息;
+
+
+gen := arch/$(ARCH)/include/generated
+uapi := $(gen)/uapi/asm
+
+事实上，uapi是一个目录：arch/$(ARCH)/include/generated/uapi/asm/
+
+	
+uapi:	$(uapi-hdrs-y)
+	quiet_cmd_gen_mach = GEN     $@
+      cmd_gen_mach = mkdir -p $(dir $@) && \
+		     $(AWK) -f $(filter-out $(PHONY),$^) > $@
+
+uapi-hdrs-y := $(uapi)/unistd-common.h
+uapi-hdrs-y += $(uapi)/unistd-oabi.h
+uapi-hdrs-y += $(uapi)/unistd-eabi.h
+
+
+创建uapi目录。
+
+
+ 
+
+三个依赖文件的生成：
+
+syshdr := $(srctree)/$(src)/syscallhdr.sh
+sysnr := $(srctree)/$(src)/syscallnr.sh
+systbl := $(srctree)/$(src)/syscalltbl.sh
+syscall := $(srctree)/$(src)/syscall.tbl
+
+
+$(uapi)/unistd-common.h: $(syscall) $(syshdr) FORCE
+	$(call if_changed,syshdr)
+
+
+$(uapi)/unistd-oabi.h: $(syscall) $(syshdr) FORCE
+	$(call if_changed,syshdr)
+
+$(uapi)/unistd-eabi.h: $(syscall) $(syshdr) FORCE
+	$(call if_changed,syshdr)
+
+
+
+archheaders 定义了unistd-common.h、unistd-oabi.h、unistd-eabi.h的生成规则
+同时负责生成uapi/目录，uapi和kapi负责将用户头文件和内核头文件进行分离。  
+
+
+
+
+

@@ -1,0 +1,156 @@
+make xxx_config
+
+在第一次编译的时候，必须执行  make xxx_config
+否则报错。  
+
+之后，执行make时，默认会执行 make syncconfig
+
+或者执行make xxx_config都会调用到规则：
+    %config: scripts_basic outputmakefile FORCE
+	    $(Q)$(MAKE) $(build)=scripts/kconfig $@
+
+即执行：
+make -f $(srctree)/scripts/Makefile.build obj=scripts/kconfig  %config
+
+%config目标在scripts/kconfig/makefile中。  
+
+config: scripts_basic outputmakefile FORCE
+	$(Q)$(MAKE) $(build)=scripts/kconfig $@
+
+%config: scripts_basic outputmakefile FORCE
+	$(Q)$(MAKE) $(build)=scripts/kconfig $@
+
+************************************************
+PHONY += scripts_basic
+scripts_basic:
+	$(Q)$(MAKE) $(build)=scripts/basic
+	$(Q)rm -f .tmp_quiet_recordmcount
+
+最先编译了scripts/basic/Makefile,主要编译了fixdep工具。  
+hostprogs-y	:= fixdep
+always		:= $(hostprogs-y)
+在Makefile.build里面定义了 include scripts/Makefile.host，  
+*****************************************************
+
+****************************************************
+//如果srctree不是.(即当前目录)，将Makefile输出在srctree下重新生成makefile。  
+PHONY += outputmakefile
+ifneq ($(srctree),.)
+	$(Q)ln -fsn $(srctree) source
+	$(Q)$(CONFIG_SHELL) $(srctree)/scripts/mkmakefile $(srctree)
+	$(Q)test -e .gitignore || \
+	{ echo "# this is build directory, ignore it"; echo "*"; } > .gitignore
+endif
+******************************************************
+
+在第一次编译源码时，直接运行makefile，因为检测不到.config，所以报错。   
+
+必须先进行配置，配置命令为：
+make xxx_config  
+一般情况下，使用
+make xxx_defconfig
+
+会进入到makefile的。  
+%config: scripts_basic outputmakefile FORCE
+	$(Q)$(MAKE) $(build)=scripts/kconfig $@
+
+编译fixdep，如果是指定源码的方式编译。  
+
+会输出outputmakefile。  
+
+然后执行：
+make -f $(srctree)/scripts/Makefile.build obj=scripts/kconfig  xxx_defconfig
+
+就相当于：
+
+make scripts/kconfig/Makefile xxx_defconfig
+
+//使用conf命令执行Kconfig。(详情可以通过源码)
+%_defconfig: $(obj)/conf
+	$(Q)$< $(silent) --defconfig=arch/$(SRCARCH)/configs/$@ $(Kconfig)
+
+
+
+下面是make x86_64_defconfig的log信息：
+
+	make -f ./scripts/Makefile.build obj=scripts/basic
+	gcc -Wp,-MD,scripts/basic/.fixdep.d -Wall -Wmissing-prototypes -Wstrict-prototypes -O2 -fomit-frame-pointer -std=gnu89         -o scripts/basic/fixdep scripts/basic/fixdep.c   
+	rm -f .tmp_quiet_recordmcount
+	make -f ./scripts/Makefile.build obj=scripts/kconfig x86_64_defconfig
+	gcc -Wp,-MD,scripts/kconfig/.conf.o.d -Wall -Wmissing-prototypes -Wstrict-prototypes -O2 -fomit-frame-pointer -std=gnu89       -c -o scripts/kconfig/conf.o scripts/kconfig/conf.c
+	gcc -Wp,-MD,scripts/kconfig/.confdata.o.d -Wall -Wmissing-prototypes -Wstrict-prototypes -O2 -fomit-frame-pointer -std=gnu89       -c -o scripts/kconfig/confdata.o scripts/kconfig/confdata.c
+	gcc -Wp,-MD,scripts/kconfig/.expr.o.d -Wall -Wmissing-prototypes -Wstrict-prototypes -O2 -fomit-frame-pointer -std=gnu89       -c -o scripts/kconfig/expr.o scripts/kconfig/expr.c
+	flex -oscripts/kconfig/lexer.lex.c -L scripts/kconfig/lexer.l
+	bison -o/dev/null --defines=scripts/kconfig/parser.tab.h -t -l scripts/kconfig/parser.y
+	gcc -Wp,-MD,scripts/kconfig/.lexer.lex.o.d -Wall -Wmissing-prototypes -Wstrict-prototypes -O2 -fomit-frame-pointer -std=gnu89      -I ./scripts/kconfig -c -o scripts/kconfig/lexer.lex.o scripts/kconfig/lexer.lex.c
+	bison -oscripts/kconfig/parser.tab.c -t -l scripts/kconfig/parser.y
+	gcc -Wp,-MD,scripts/kconfig/.parser.tab.o.d -Wall -Wmissing-prototypes -Wstrict-prototypes -O2 -fomit-frame-pointer -std=gnu89      -I ./scripts/kconfig -c -o scripts/kconfig/parser.tab.o scripts/kconfig/parser.tab.c
+	gcc -Wp,-MD,scripts/kconfig/.preprocess.o.d -Wall -Wmissing-prototypes -Wstrict-prototypes -O2 -fomit-frame-pointer -std=gnu89       -c -o scripts/kconfig/preprocess.o scripts/kconfig/preprocess.c
+	gcc -Wp,-MD,scripts/kconfig/.symbol.o.d -Wall -Wmissing-prototypes -Wstrict-prototypes -O2 -fomit-frame-pointer -std=gnu89       -c -o scripts/kconfig/symbol.o scripts/kconfig/symbol.c
+	gcc   -o scripts/kconfig/conf scripts/kconfig/conf.o scripts/kconfig/confdata.o scripts/kconfig/expr.o scripts/kconfig/lexer.lex.o scripts/kconfig/parser.tab.o scripts/kconfig/preprocess.o scripts/kconfig/symbol.o   
+	scripts/kconfig/conf  --defconfig=arch/x86/configs/x86_64_defconfig Kconfig
+	#
+	# configuration written to .config
+	#
+
+
+
+先执行
+make -f ./scripts/Makefile.build obj=scripts/basic
+
+scripts/Makefile.build obj=scripts/basic/Makefile内容：
+	//定义两个需要编译的变量集
+	hostprogs-y	:= fixdep
+	always		:= $(hostprogs-y)
+	
+	//除fixdep之外的其他主机程序
+	$(addprefix $(obj)/,$(filter-out fixdep,$(always))): $(obj)/fixdep
+
+然后就是编译Makefile.build中的默认目标： __build 。 
+
+主要是编译 __build 中的 always 变量。  
+
+因为 hostprogs-y不为空，所以 ：include scripts/Makefile.host
+
+在makefile.host 中 fixdep 被编译。  
+
+
+host-csingle中包含
+
+$(host-csingle): $(obj)/%: $(src)/%.c FORCE
+	$(call if_changed_dep,host-csingle)
+
+quiet_cmd_host-csingle 	= HOSTCC  $@
+      cmd_host-csingle	= $(HOSTCC) $(hostc_flags) $(KBUILD_HOSTLDFLAGS) -o $@ $< \
+		$(KBUILD_HOSTLDLIBS) $(HOSTLDLIBS_$(@F))
+
+
+
+执行：
+make syncconfig 
+
+将执行：
+scripts/kconfig/conf  --syncconfig  Kconfig
+
+
+conf程序将生成一系列的文件，其中：
+
+include/config/auto.conf 文件： 所有模块的配置，类似于 XXX=y
+auto.conf.cmd 文件： 定义了一个deps_config变量，变量的值为所有需要遍历的目录下的Kconfig。  
+include/generated/autoconf.h 文件： 生成的C头文件，
+
+如果在配置中：
+XXX=y,autoconf.h中则是，#define XXX 1
+xxx=m,autoconf.h中则是，#define XXX_MODULE 1
+
+
+在conf.c的最后几行：
+
+conf_write_autoconf()
+
+函数将会生成auto.conf文件。  
+
+
+
+
+

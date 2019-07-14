@@ -1,0 +1,97 @@
+将 obj 赋值给 src
+
+默认目标是 __build  .
+
+包含include/config/auto.conf，这个文件不一定存在，如果存在，则包含，如果不存在，则不包含。
+
+包含 scripts/Kbuild.include
+
+初始化一系列变量：
+
+***
+kbuild-dir := $(if $(filter /%,$(src)),$(src),$(srctree)/$(src))
+kbuild-file := $(if $(wildcard $(kbuild-dir)/Kbuild),$(kbuild-dir)/Kbuild,$(kbuild-dir)/Makefile)
+include $(kbuild-file)
+
+kbuild-dir 等于源码当前src的位置
+kbuild-file 等于当前位置下的 Kbuild 或者 Makefile
+
+***
+
+包含 scripts/Makefile.lib
+  include scripts/Makefile.lib
+
+
+一般情况下，不会包含scripts/Makefile.host里面的内容，因为scripts/Makefile.host里面通常只包含一些
+主机上的编译脚本。  
+
+
+
+如果$(build)命令不指定目标，就执行makefile.build里的默认目标：__build
+
+KBUILD_BUILTIN 表示编译內建模块
+KBUILD_MODULES 便是编译外部模块
+
+***********************buildin target的编译********************
+
+builtin-target := $(obj)/built-in.a
+$(builtin-target): $(real-obj-y) FORCE  
+	$(call if_changed,ar_builtin)
+
+real-obj-y在makefile.lib中被定义，表示那些需要被编译的目标
+real-obj-y += $(obj)/lib-ksyms.o
+
+$(obj)/lib-ksyms.o: $(lib-target) FORCE
+	$(call if_changed,export_list)
+
+cmd_export_list = $(OBJDUMP) -h $< | \
+	sed -ne '/___ksymtab/s/.*+\([^ ]*\).*/EXTERN(\1)/p' >$(ksyms-lds);\
+	rm -f $(dummy-object);\
+	echo | $(CC) $(a_flags) -c -o $(dummy-object) -x assembler -;\
+	$(LD) $(ld_flags) -r -o $@ -T $(ksyms-lds) $(dummy-object);\
+	rm $(dummy-object) $(ksyms-lds)
+
+将执行这条命令，将所有文件打包成一个$(buildin_target)文件,即build-in.a
+cmd_ar_builtin = rm -f $@; $(AR) rcSTP$(KBUILD_ARFLAGS) $@ $(real-prereqs)
+
+**************************************************
+*********************lib-target的编译*****************************
+lib-target := $(obj)/lib.a
+$(lib-target): $(lib-y) FORCE
+	$(call if_changed,ar)
+
+//在makefile.lib中被定义
+将执行这条命令，将所有文件打包成一个lib.a文件
+cmd_ar = rm -f $@; $(AR) rcsTP$(KBUILD_ARFLAGS) $@ $(real-prereqs)
+
+******************************************************************
+**************************extra-y********************************
+在makefile.lib中被定义
+******************************************************************
+****************************obj-m********************************
+
+******************************************************************
+
+*****************************modorder-target**********************
+modorder-target := $(obj)/modules.order
+
+$(modorder-target): $(subdir-ym) FORCE
+	$(Q)(cat /dev/null; $(modorder-cmds)) > $@
+
+modorder-cmds =						\
+	$(foreach m, $(modorder),			\
+		$(if $(filter %/modules.order, $m),	\
+			cat $m;, echo kernel/$m;))
+******************************************************************
+
+
+
+__build: $(if $(KBUILD_BUILTIN),$(builtin-target) $(lib-target) $(extra-y)) \
+	 $(if $(KBUILD_MODULES),$(obj-m) $(modorder-target)) \
+	 $(subdir-ym) $(always)
+	@:
+
+
+
+
+

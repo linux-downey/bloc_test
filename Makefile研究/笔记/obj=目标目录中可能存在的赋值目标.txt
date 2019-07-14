@@ -1,0 +1,53 @@
+在根目录的各级子目录的Makefile中：
+
+源码中最常见的：
+obj-y/m  既有目录也有对应的.o文件。
+
+obj-y += xxx/
+obj-m += xxx/
+
+obj-y += xxx.o
+obj-m += xxx.o
+
+xxx-objs := yyy.o zzz.o ...
+
+
+
+通常在/lib目录下：
+lib-y := xxx.o
+lib-m := xxx.o
+
+
+
+一般就是针对主机程序。
+always ：= 
+
+
+
+需要在编译时进入的目录，
+
+subdir-y
+subdir-m
+
+值都是目录，暂时不清楚与obj-y的区别。  
+
+
+其他的就是一些编译链接过程中的flag，暂时不关注。  
+
+
+EXTRA_AFLAGS   :=
+EXTRA_CFLAGS   :=
+EXTRA_CPPFLAGS :=
+EXTRA_LDFLAGS  :=
+asflags-y  :=
+ccflags-y  :=
+cppflags-y :=
+ldflags-y  :=
+
+
+
+
+
+
+
+

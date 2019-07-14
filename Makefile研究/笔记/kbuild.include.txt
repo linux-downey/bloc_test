@@ -1,0 +1,36 @@
+主要实现了一些函数：
+
+build := -f $(srctree)/scripts/Makefile.build obj
+    $(Q)$(MAKE) $(build)=dir
+
+
+
+FORCE:
+没有依赖，没有命令，不生成目标，所以每次都会执行
+
+
+clean := -f $(srctree)/scripts/Makefile.clean obj
+用法：
+    $(Q)$(MAKE) $(clean)=dir
+
+
+modbuiltin := -f $(srctree)/scripts/Makefile.modbuiltin obj
+用法：
+    $(Q)$(MAKE) $(modbuiltin)=dir
+
+
+dtbinst := -f $(srctree)/scripts/Makefile.dtbinst obj
+用法：
+    $(Q)$(MAKE) $(dtbinst)=dir
+
+
+hdr-inst := -f $(srctree)/scripts/Makefile.headersinst obj
+用法：
+    $(Q)$(MAKE) $(hdr-inst)=dir
+
+
+real-prereqs = $(filter-out $(PHONY), $^)
+除去伪目标之后的真实依赖文件。  
+
+
+

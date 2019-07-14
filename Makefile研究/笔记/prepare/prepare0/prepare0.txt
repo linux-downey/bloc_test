@@ -1,0 +1,57 @@
+prepare0: archprepare
+	$(Q)$(MAKE) $(build)=scripts/mod
+	$(Q)$(MAKE) $(build)=.
+	
+包含了 scripts/mod/Makefile
+
+scripts/mod/Makefile:
+
+	OBJECT_FILES_NON_STANDARD := y
+
+	hostprogs-y	:= modpost mk_elfconfig
+	always		:= $(hostprogs-y) empty.o
+
+	modpost-objs	:= modpost.o file2alias.o sumversion.o
+
+	devicetable-offsets-file := devicetable-offsets.h
+
+	$(obj)/$(devicetable-offsets-file): $(obj)/devicetable-offsets.s FORCE
+		$(call filechk,offsets,__DEVICETABLE_OFFSETS_H__)
+
+	targets += $(devicetable-offsets-file) devicetable-offsets.s
+
+	# dependencies on generated files need to be listed explicitly
+
+	$(obj)/modpost.o $(obj)/file2alias.o $(obj)/sumversion.o: $(obj)/elfconfig.h
+	$(obj)/file2alias.o: $(obj)/$(devicetable-offsets-file)
+
+	quiet_cmd_elfconfig = MKELF   $@
+		  cmd_elfconfig = $(obj)/mk_elfconfig < $< > $@
+
+	$(obj)/elfconfig.h: $(obj)/empty.o $(obj)/mk_elfconfig FORCE
+		$(call if_changed,elfconfig)
+
+	targets += elfconfig.h
+
+
+这一部分主要为了编译:modpost 和 mk_elfconfig.
+
+
+
+对于 $(Q)$(MAKE) $(build)=. 
+
+包含当前目录，一般情况下，即根目录。  
+
+在Makefile.build中包含Makefile时有个规则：如果存在Kbuild则包含Kbuild而不是Makefile。  
+
+所以，包含根目录下的 Kbuild 。 
+
+这一部分将生成：
+
+include/generated/bounds.h
+
+	
+	
+	
+	
+	

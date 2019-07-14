@@ -1,0 +1,111 @@
+在编译内核的时候经常出现版本号不对，或者后面带个"+"号。  
+
+探究为什么会出现这种情况。  
+
+基于命令： make kernerrelease
+
+首先，看看kernel-version。  
+
+用以下指令来查看内核版本：
+
+make kernelverison
+
+查看kernel 的image名称：
+
+make image_name
+
+
+然后再看kernel具体的发行版：
+
+make kernerrelease
+
+kernelrelease:
+	@echo "$(KERNELVERSION)$$($(CONFIG_SHELL) $(srctree)/scripts/setlocalversion $(srctree))"
+
+//KERNELRELEASE的由来：
+//非第一次编译的时候，可以直接读取文件来确定
+KERNELRELEASE = $(shell cat include/config/kernel.release 2> /dev/null)
+
+//第一次编译的时候
+KERNELVERSION = $(VERSION)$(if $(PATCHLEVEL),.$(PATCHLEVEL)$(if $(SUBLEVEL),.$(SUBLEVEL)))$(EXTRAVERSION)
+这些变量都在主Makefile文件开头被设置。  
+
+
+//另一部分由scripts/setlocalversion文件确定
+$(srctree)/scripts/setlocalversion $(srctree))
+
+//显示git版本管理中，当前目录到git根目录的深度，如果深度为0，返回空字符串
+//返回形式：../../.....
+git rev-parse --show-cdup
+
+//返回当前head的hash值。   
+git rev-parse --verify --short HEAD
+
+//git describe指令的含义：用最近一次可访问的tag来描述当前提交。
+
+//比如，有三次提交 A -> B -> C(HEAD),对应的tag为 v0 -> (无tag) -> (无tag)。
+那么，在C处执行git describe会返回 v0-n-g$(hash)
+
+//精确匹配，只有tag完全匹配当前提交时才能被描述。
+git describe --exact-match
+
+
+
+
+//代表scm版本管理系统，不研究
+if $scm_only; then
+	if test ! -e .scmversion; then
+		res=$(scm_version)
+		echo "$res" >.scmversion
+	fi
+	exit
+fi
+
+//include/config/auto.conf必须存在，也就是说，先要经过make xxxconfig才能使用make kernelrelease。
+if test -e include/config/auto.conf; then
+	. include/config/auto.conf
+else
+	echo "Error: kernelrelease not valid - run 'make prepare' to update it" >&2
+	exit 1
+fi
+
+
+版本主要由：  
+LOCALVERTION
+CONFIG_LOCALVERSION
+来控制。  
+
+res="${res}${CONFIG_LOCALVERSION}${LOCALVERSION}"
+
+# scm version string if not at a tagged commit
+if test "$CONFIG_LOCALVERSION_AUTO" = "y"; then
+	# full scm version string
+	res="$res$(scm_version)"
+else
+	# append a plus sign if the repository is not in a clean
+	# annotated or signed tagged state (as git describe only
+	# looks at signed or annotated tags - git tag -a/-s) and
+	# LOCALVERSION= is not specified
+	if test "${LOCALVERSION+set}" != "set"; then
+		scm=$(scm_version --short)
+		res="$res${scm:++}"
+	fi
+fi
+
+当设置了CONFIG_LOCALVERSION_AUTO时，kernelrelease中可能出现 -dirty 后缀
+
+当CONFIG_LOCALVERSION_AUTO 和 LOCALVERSION没有被设置时，就调用了
+scm_version --short
+
+如果github中代码有修改且未提交，就会在kernelrelease后添加一个 "+"。  
+
+如果不想有 "+"，就设置 CONFIG_LOCALVERSION_AUTO 和 LOCALVERSION。  
+
+
+
+
+
+
+
+
+
