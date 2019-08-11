@@ -227,7 +227,10 @@ $(builtin-target): $(real-obj-y) FORCE
 ```
 
 #### if_changed解析
+首先，我们需要先了解 if_changed 这个函数的功能实现，它的定义在Makefile.include中：
+```
 
+```
 
 
 #### 第一部分
