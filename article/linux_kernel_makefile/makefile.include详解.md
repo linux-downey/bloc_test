@@ -39,6 +39,37 @@ menuconfig: scripts_basic outputmakefile FORCE
 	make -f $(srctree)/scripts/Makefile.build obj=scripts/kconfig menuconfig
 ```
 
+### 类似指令
+与 \$(build) 相类似的，还有以下的编译指令：
+
+#### $(modbuiltin)
+```
+modbuiltin := -f $(srctree)/scripts/Makefile.modbuiltin obj
+```
+
+#### $(dtbinst)
+```
+dtbinst := -f $(srctree)/scripts/Makefile.dtbinst obj
+```
+
+#### $(clean)
+```
+clean := -f $(srctree)/scripts/Makefile.clean obj
+```
+
+#### $(hdr-inst)
+```
+hdr-inst := -f $(srctree)/scripts/Makefile.headersinst obj
+```
+
+这对应的四条指令，分别对应 內建模块编译、dtb文件安装、目标清除和头文件安装。
+
+和\$(build)用法一致，都遵循这样的调用形式：
+```
+$(Q)$(MAKE) $(build)=$(dir) $(target)
+```
+至于具体的实现，各位朋友可以自行研究。
+
 ****
 
 #### make -f \$(srctree)/scripts/Makefile.build： 
@@ -114,22 +145,63 @@ vmlinux: scripts/link-vmlinux.sh autoksyms_recursive $(vmlinux-deps) FORCE
 
 调用 if_changed 函数时传入的参数为 link-vmlinux，当依赖文件有更新时，将执行 cmd_link-vmlinux 。
 
+### 同类型函数
+与$(if_changed)同类型的，还有$(if_changed_dep),$(if_changed_rule)。  
+```
+if_changed_dep = $(if $(strip $(any-prereq) $(arg-check)),$(cmd_and_fixdep),@:)
+if_changed_rule = $(if $(strip $(any-prereq) $(arg-check)),$(rule_$(1)),@:)
+```
+if_changed_dep 与 if_changed 同样执行cmd_$1,不同的是它会检查目标的依赖文件列表是否有更新。   
 
-## FORCE
-经常在makefile中能看到这样的依赖:
-```
-foo : FORCE
-    ...
-```
-虽然FORCE并不是在 Makefile.include中定义，但是有必要在通用定义中提一下.
 
-这算是makefile中的一个使用技巧，FORCE的定义是这样的：
-```
-FORCE:
-```
-是的，它是一个目标，没有依赖文件且没有命令部分，由于它没有命令生成FORCE，所以每次都会被更新。  
+需要注意的是，这里的依赖文件并非指的是规则中的依赖，而是指fixdep程序生成的 .*.o.cmd 文件。  
 
-所以它的作用就是：当FORCE作为依赖时，就导致依赖列表中每次都有FORCE依赖被更新，导致目标每次被重新编译生成。  
+而 if_changed_rule 与 if_changed 不同的是，if_changed 执行 cmd_$1,而 if_changed_rule 执行 rule_$1 指令。
+
+****  
+
+## $(filechk)
+同样，通过名称就可以看出，它的功能是检查文件，具体来说就是先操作文件，再检查文件的更新。  
+
+它的定义是这样的：
+```
+define filechk
+	$(Q)set -e;				\
+	mkdir -p $(dir $@);			\
+	{ $(filechk_$(1)); } > $@.tmp;		\
+	if [ -r $@ ] && cmp -s $@ $@.tmp; then	\
+		rm -f $@.tmp;			\
+	else					\
+		$(kecho) '  UPD     $@';	\
+		mv -f $@.tmp $@;		\
+	fi
+endef
+```
+它主要实现的操作是这样的：
+1. mkdir -p $(dir $@)：如果$@目录不存在，就创建目录，$@是编译规则中的目标部分。
+2. 执行 filechk_$(1) ,然后将执行结果保存到$@.tmp中
+3. 对比 $@.tmp 和 $@ 是否有更新，有更新就使用 $@.tmp，否则删除 $@.tmp。
+
+说白了，\$(filechk) 的作用就是执行 filechk_$@ 然后取最优的结果。  
+
+举一个 top makefile 中的例子：
+```
+filechk_kernel.release = \
+	echo "$(KERNELVERSION)$$($(CONFIG_SHELL) $(srctree)/scripts/setlocalversion $(srctree))"  
+
+include/config/kernel.release: FORCE
+	$(call filechk,kernel.release)
+```
+这部分命令的作用就是输出 kernelrelease 到 kernel.release.tmp 文件，最后对比 kernel.release 文件是否更新，kernelrelease对应内核版本。  
+
+同时，如果include/config/不存在，就创建该目录。  
+
+****   
+
+
+
+
+
 
 
 
