@@ -215,8 +215,9 @@ __build: $(if $(KBUILD_BUILTIN),$(builtin-target) $(lib-target) $(extra-y)) \
 以以往的经验来看，对于这些依赖文件，基本上都是通过一些规则生成的，我们可以继续在当前文件下寻找它们的生成过程。  
 
 
-我们将其拆开来看：
+接下来我们逐个将其拆开来看：
 
+#### builtin-target 
 builtin-target ： 在上文中可以看到，这个变量的值为：\$(obj)/built-in.a，也就是当前目录下的built-in.a文件，这个文件在源文件中自然是没有的，需要编译生成，我们在后文中寻找它的生成规则：
 
 
@@ -226,31 +227,76 @@ $(builtin-target): $(real-obj-y) FORCE
 	$(call if_changed,ar_builtin)
 ```
 
-#### if_changed解析
-首先，我们需要先了解 if_changed 这个函数的功能实现，它的定义在Makefile.include中：
+在前面的博客中有提到，\$(call if_changed,ar_builtin) 这条指令结果将是执行。 cmd_ar_builtin,然后在makefile.build中找到对应的命令：
+```
+real-prereqs = $(filter-out $(PHONY), $^)
+cmd_ar_builtin = rm -f $@; $(AR) rcSTP$(KBUILD_ARFLAGS) $@ $(real-prereqs)
+```
+不难从源码看出，cmd_ar_builtin 命令的作用就是将所有当前模块下的编译目标(即依赖文件)全部使用 ar 指令打包成 $(builtin-target),也就是 \$(obj)/built-in.a，它的依赖文件被保存在 \$(real-obj-y) 中。 
+
+****  
+
+#### lib-target
+lib-target : 同样，这个变量是在本文件中定义，它的值为：$(obj)/lib.a。  
+
+通常，只有在/lib 目录下编译静态库时才会存在这个目标，同时，我们可以在本文件中找到它的定义：
+```
+$(lib-target): $(lib-y) FORCE
+	$(call if_changed,ar)
+```  
+同样的，\$(call if_changed,ar) 最终将调用 cmd_ar 命令，找到 cmd_ar 指令的定义是这样的：
+```
+real-prereqs = $(filter-out $(PHONY), $^)
+cmd_ar = rm -f $@; $(AR) rcsTP$(KBUILD_ARFLAGS) $@ $(real-prereqs)
+```
+看来这个命令的作用也是将本模块中的目标全部打包成\$(lib-target),也就是 $(obj)/lib.a，只不过它的依赖是 \$(lib-y) 。
+
+
+#### $(extra-y)
+
+
+#### $(obj-m)
+\$(obj-m) 是所有需要编译的外部模块列表，一番搜索后并没有发现直接针对 \$(obj-m) 的编译规则，由于它是一系列的 .o 文件，所以它的编译是这样的：
+```
+$(obj)/%.o: $(src)/%.c $(recordmcount_source) $(objtool_dep) FORCE
+	$(call cmd,force_checksrc)
+	$(call if_changed_rule,cc_o_c)
+```
+与上述不同的是，这里使用的是 if_changed_rule 函数，所以继续找到 rule_cc_o_c 指令：
+```
+define rule_cc_o_c
+	$(call cmd,checksrc)
+	$(call cmd_and_fixdep,cc_o_c)
+	$(call cmd,gen_ksymdeps)
+	$(call cmd,checkdoc)
+	$(call cmd,objtool)
+	$(call cmd,modversions_c)
+	$(call cmd,record_mcount)
+endef
+```
+
+这里又涉及到了 cmd 函数，简单来说，cmd 函数其实就是执行 cmd_$1,也就是上述命令中分别执行 cmd_checksrc,cmd_gen_ksymdeps等等，其中最重要的指令就是 ： $(call cmd_and_fixdep,cc_o_c)，它对目标文件执行了 fixdep，生成依赖文件，然后执行了 cmd_cc_o_c,这个命令就是真正的编译指令:
+```
+cmd_cc_o_c = $(CC) $(c_flags) -c -o $@ $<
+```
+不难看出，这条指令就是将所有依赖文件编译成目标文件。  
+
+
+#### \$(modorder-target)
+
+modorder-target同样是在本文件中定义的，它的值为 $(obj)/modules.order，也就是每个模块下都存在这么一个 modules.orders 文件，来提供一个编译模块的列表。
+
+```
+$(modorder-target): $(subdir-ym) FORCE
+	$(Q)(cat /dev/null; $(modorder-cmds)) > $@
 ```
 
 ```
-
-
-#### 第一部分
-
+modorder-cmds =						\
+	$(foreach m, $(modorder),			\
+		$(if $(filter %/modules.order, $m),	\
+			cat $m;, echo kernel/$m;))
 ```
-$(if $(KBUILD_BUILTIN),$(builtin-target) $(lib-target) $(extra-y))
-```
-这是一个if函数，如果KBUILD_BUILTIN为真，则添加\$(builtin-target) \$(lib-target) \$(extra-y)三个目标文件，如果为假，则不执行任何命令。  
-
-
-#### 第二部分
-```
-$(if $(KBUILD_MODULES),$(obj-m) $(modorder-target))
-```
-同样的，这也是一个if函数，如果KBUILD_MODULES为真，则添加\$(obj-m) \$(modorder-target)目标文件，如果为假，则不执行任何命令。
-
-#### 第三部分
-相对而言，这一部分较简单，添加\$(subdir-ym)和\$(always)，\$(subdir-ym)是一个目录列表,记录了需要递归进入的目录(包含外部模块和內建模块)。  
-
-
 
 
 
