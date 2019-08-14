@@ -1,4 +1,4 @@
-# makefile.include详解
+# KBuild.include详解
 在整个Kbuild系统中，scripts/Makefile.include 提供了大量通用函数以及变量的定义，这些定义将被Makefile.build 、Makefile.lib 和 top makefile频繁调用，以实现相应的功能。   
 
 在研究整个Kbuild系统前，有必要先了解这些变量及函数的使用，才能更好地理解整个内核编译的过程。  

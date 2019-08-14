@@ -252,7 +252,35 @@ cmd_ar = rm -f $@; $(AR) rcsTP$(KBUILD_ARFLAGS) $@ $(real-prereqs)
 看来这个命令的作用也是将本模块中的目标全部打包成\$(lib-target),也就是 $(obj)/lib.a，只不过它的依赖是 \$(lib-y) 。
 
 
-#### $(extra-y)
+#### $(extra-y) 
+\$(extra-y) 在 makefile.lib 中被确定，主要负责 dtb 相关的编译，定义部分是这样的：
+```
+extra-y				+= $(dtb-y)
+extra-$(CONFIG_OF_ALL_DTBS)	+= $(dtb-)
+```
+在 makefile.lib 中可以找到对应的规则实现：
+```
+$(obj)/%.dtb: $(src)/%.dts $(DTC) FORCE
+	$(call if_changed_dep,dtc,dtb)
+```
+该命令调用了 cmd_dtc :
+```
+cmd_dtc = mkdir -p $(dir ${dtc-tmp}) ; \
+	$(HOSTCC) -E $(dtc_cpp_flags) -x assembler-with-cpp -o $(dtc-tmp) $< ; \
+    
+	$(DTC) -O $(2) -o $@ -b 0 \
+		$(addprefix -i,$(dir $<) $(DTC_INCLUDE)) $(DTC_FLAGS) \
+		-d $(depfile).dtc.tmp $(dtc-tmp) ; \
+
+	cat $(depfile).pre.tmp $(depfile).dtc.tmp > $(depfile)
+```
+其中，以 $(DTC) 开头的第二部分为编译 dts 文件的核心，其中:  
+$(DTC) 表示 dtc 编译器 
+$(2) 为 dtb，-O dtb 表示输出文件格式为 dtb 。
+-o $@, $@ 为目标文件，表示输出目标文件，输入文件则是对应的 $<。
+
+
+****  
 
 
 #### $(obj-m)
@@ -284,25 +312,54 @@ cmd_cc_o_c = $(CC) $(c_flags) -c -o $@ $<
 
 #### \$(modorder-target)
 
-modorder-target同样是在本文件中定义的，它的值为 $(obj)/modules.order，也就是每个模块下都存在这么一个 modules.orders 文件，来提供一个编译模块的列表。
-
+modorder-target同样是在本文件中定义的，它的值为 $(obj)/modules.order，也就是大多数目录下都存在这么一个 modules.orders 文件，来提供一个该目录下编译模块的列表。
+先找到 $(modorder-target) 的编译规则。
 ```
 $(modorder-target): $(subdir-ym) FORCE
 	$(Q)(cat /dev/null; $(modorder-cmds)) > $@
 ```
 
+然后找到 $(modorder-cmds) 的定义
 ```
 modorder-cmds =						\
 	$(foreach m, $(modorder),			\
 		$(if $(filter %/modules.order, $m),	\
 			cat $m;, echo kernel/$m;))
 ```
+从源码可以看出，该操作的目的就是将需要编译的 .ko 的模块以 kernel/$(dir)/*.ko 为名记录到 obj-y/m 指定的目录下。  
 
 
+#### $(subdir-ym)
+
+在 Makefile.lib 中，这个变量记录了所有在 obj-y/m 中指定的目录部分，同样在本文件中可以找到它的定义：
+```
+$(subdir-ym):
+	$(Q)$(MAKE) $(build)=$@ need-builtin=$(if $(findstring $@,$(subdir-obj-y)),1)
+```
+
+我觉得这是整个Makefile.build中最重要的一部分了，因为它解决了我一直以来的一个疑惑，Kbuild系统到底是以怎样的策略递归进入每个子目录中的？
+
+对于每个需要递归进入编译的目录，都对其调用：
+```
+$(Q)$(MAKE) $(build)=$@ need-builtin=$(if $(findstring $@,$(subdir-obj-y)),1)
+```
+也就是递归地进入并编译该目录下的文件，基本上，大多数子目录下的 Makefile 并非起编译作用，而只是添加文件。所以，大多数情况下，都是执行了Makefile.build 中的 __build 默认目标进行编译。所以，当我们编译某个目录下的源代码，例如 drivers/ 时，主要的步骤大概是这样的：
+1. 由top makefile 调用 $(build) 指令，此时，obj = drivers/ 
+2. 在 makefile.build 中包含drivers/Makefile，drivers/Makefile 中的内容为：添加需要编译的文件和需要递归进入的目录，赋值给obj-y/m，并没有定义编译目标，所以默认以 makefile.build 中 __build 作为编译目标。  
+3. makefile.build 包含 makefile.lib ,makefile.lib 对 drivers/Makefile 中赋值的 obj-y/m 进行处理，确定 real-obj-y/m subdir-ym 的值。
+4. 回到 makefile.build ，执行 __build 目标，编译 real-obj-y/m 等一众目标文件
+5. 执行 $(subdir-ym) 的编译，递归地进入 subdir-y/m 进行编译。
+6. 最后，直到没有目标可以递归进入，在递归返回的时候生成 built-in.a 文件，每一个目录下的 built-in.a 静态库都包含了该目录下所有子目录中的 built-in.a 和 *.o 文件 ，所以，在最后统一链接的时候，vmlinux.o 只需要链接源码根目录下的几个主要目录下的 built-in.a 即可，比如 drivers, init. 
+
+#### $(always)
+相对来说，\$(always)的出场率并不高，而且不会被统一编译，在寥寥无几的几处定义中，一般伴随着它的编译规则，这个变量中记录了所有在编译时每次都需要被编译的目标。  
 
 
+好了，关于linux内核Kbuild中 scripts/makefile.build 文件的讨论就到此为止啦，如果朋友们对于这个有什么疑问或者发现有文章中有什么错误，欢迎留言
 
+***原创博客，转载请注明出处！***
 
+祝各位早日实现项目丛中过，bug不沾身.
 
 
 
