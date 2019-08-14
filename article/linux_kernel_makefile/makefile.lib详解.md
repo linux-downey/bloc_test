@@ -63,7 +63,11 @@ lib-y := $(filter-out $(obj-y), $(sort $(lib-y) $(lib-m)))
 //将obj-y中的目录 dir 修改为 dir/modules.order赋值给modorder，将obj-m中的.o修改为.ko赋值给modorder。 
 modorder	:= $(patsubst %/,%/modules.order, $(filter %/, $(obj-y)) $(obj-m:.o=.ko))
 ```
-内核将编译的模块全部记录在modules.order文件中，以便modprobe命令在加载卸载时查询使用，当你执行modprobe加载一个模块时，内核可能会报一个模块已被加载的定义，就是通过查询这个文件实现的。  
+从 modorder 的源码定义来看，将 obj-y/m 的 %/ 提取出来并修改为 %/modules.order,比如 obj-y 中的 driver/ 变量，则将其修改为 driver/modules.order 并赋值给 modorder，同时，将所有的 obj-m 中的 .o 替换成 .ko 文件并赋值给 modorder。
+
+官方文档解析为：This file records the order in which modules appear in Makefiles. Thisis used by modprobe to deterministically resolve aliases that matchmultiple modules。
+
+内核将编译的外部模块全部记录在modules.order文件中，以便modprobe命令在加载卸载时查询使用。    
 
 **** 
 
