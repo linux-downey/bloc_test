@@ -334,9 +334,11 @@ kernelrelease:
 
 
 ### top Makefile其他部分
-除了上述提到的内容，top Makefile 当然还有一系列的东西：
-* 各个目标的定义实现，编译vmlinux依赖的大量目标，top Makefile 中包含这些目标的编译规则，这一部分将在后续博客中详解
-* 各类FLAG，GCC、LD、Makefile_FLAG 等等，这些flag作为执行参数，这一部分暂且不讨论
+相信你如果打开了 top Makefile 查看，发现其实里面还包含非常多的内容，相信我，那些东西都是一些纸老虎。  
+
+除了上述提到的内容，top Makefile 当然还有的东西：
+* 各个目标的定义实现，编译vmlinux依赖的大量目标，top Makefile 中包含这些目标的编译规则，这一部分将占据 top Makefile 的大量篇幅，事实上我们只需要顺着 vmlinux 的编译规则各个击破就可以了，并没有太多理解上的难点。当然，在下一篇文章我们我们就是要解决这个问题。    
+* 各类FLAG，GCC、LD、Makefile_FLAG 等等，这些flag作为执行参数，这一部分我们暂不讨论，不影响我们对 Kbuild 的整体把握
 * help 信息，执行make help 返回的帮助信息。
 
 

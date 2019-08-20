@@ -2,11 +2,38 @@
 在这一章节中，我们将迎来整个 kbuild 系统的重点：vmlinux 的编译生成流程。
 
 ## 编译的开始
+
+### 模块的编译
+
 当我们执行直接键入 make 时，根据 Makefile 的规则，默认执行的目标就是 top Makefile 第一个有效目标，即 all，随后，all的定义如下：
 ```
 all: vmlinux
 ```
-all 依赖于 vmlinux ，它就是整个内核编译的核心所在。    
+all 依赖于 vmlinux ，它就是整个内核编译的核心所在，事实上除了默认的 make 不仅编译了vmlinux ，同时也将所有在配置阶段选为 "m" 的模块进行了编译，将其编译成 .ko 目标文件，并将其记录到各子目录下的 modules.order 文件中，在 top Makefile中是这样的处理的：
+```
+ifneq ($(filter all _all modules,$(MAKECMDGOALS)),)
+  KBUILD_MODULES := 1
+endif
+
+ifeq ($(MAKECMDGOALS),)
+  KBUILD_MODULES := 1
+endif
+export KBUILD_MODULES
+```
+当执行 make all 、make _all 、make modules 或者不指定目标时，KBUILD_MODULES 值被置为1.  
+
+这个变量在 scripts/Makefile.build的默认目标 __build 中被使用到：
+```
+__build: $(if $(KBUILD_BUILTIN),$(builtin-target) $(lib-target) $(extra-y)) \
+	 $(if $(KBUILD_MODULES),$(obj-m) $(modorder-target)) \
+	 $(subdir-ym) $(always)
+	@:
+```
+当 \$(KBUILD_MODULES) 为1时，将编译所有由 obj-m 指定的对象和 $(modorder-target)指定的对象。  
+
+*** 
+
+### vmlinux的编译
 
 鉴于整个 vmlinux 编译流程较为复杂，我们先梳理它的框架，以便对其编译过程有一个基本的认识：
 
