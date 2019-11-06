@@ -37,7 +37,7 @@
 这样的代码是缺乏美感的，看起来像是有大量的冗余代码，但是似乎又想不到更好的方法。  
 
 驱动工程师解决不了的问题，不代表 linux 系统设计者不能解决，linus 在随后的版本中，添加了自动管理内核资源的接口，目的是解决资源回收的问题。这一类接口有如下特点：
-* 接口的命名方式就是在现有的内核资源申请函数前添加 devm_ 前缀，devm 即可译为 device manage，例如传统的申请内核内存接口 kmalloc() 对应的 devm_kmalloc(),使用后者的接口，无需在注销的时候调用kfree() 来释放资源。  
+* 接口的命名方式就是在现有的内核资源申请函数前添加 devm_ 前缀，devm 即可译为 device manage，例如传统的申请内核内存接口 kmalloc() 对应的 devm_kmalloc(),使用后者的接口，无需在注销的时候调用其对应的 kfree() 来释放资源。  
 * 接口资源的释放是自动的，完全不需要驱动调用者的额外操作
 * 接口是与相应驱动的 device 绑定的，它的实现原理也是基于 device 。
 
@@ -142,15 +142,16 @@ devm_watchdog_register_device()
 
 
 
-## 
-从上文中我们了解了devm_ 机制的历史以及由来，并且知道了如何使用它。  
+## devm_ 接口的实现原理
+
+从上文中我们了解了 devm_ 接口的历史形成，并且知道了如何使用它。  
 
 知道怎么用，就更应该知道为什么这么用？它的实现原理是怎样的？作为一名优秀的工程师，应该无时不刻保持着对事物内在运行原理的好奇心。  
 
 接下来，我们以 devm_clk_get() 为例，就来进一步解析 devm 机制的原理。  
 
 ## 源码分析
-devm_clk_get():  
+linux下开发最大的好处就是可以直接从源码分析，以下是 devm_clk_get()的源码:  
 
 ```
 static void devm_clk_release(struct device *dev, void *res)
@@ -172,18 +173,53 @@ struct clk *devm_clk_get(struct device *dev, const char *id)
 }
 
 ```
-上述就是精简之后的 devm_clk_get() 的函数原型，主要包括三部分：
-* devres_alloc：这一个函数调用主要是申请设备管理资源，下文详解。
-* clk = clk_get():正如上文中所说，devm_clk_get() 仅仅是在clk_get()的基础上添加了一个资源管理部分，其本质还是实现 clk_get() 函数的内容
+上述就是精简之后的 devm_clk_get() 的函数原型，主要包括三部分：  
+* devres_alloc：这一个函数调用主要是申请设备管理资源，下文详解。  
+* clk = clk_get():正如上文中所说，devm_clk_get() 仅仅是在clk_get()的基础上添加了一个资源管理部分，其本质还是实现 clk_get() 函数的内容  
 * devres_add():将资源添加到 device 中  
 
 看到这里就有两个问题：
-1. clk_get() 函数是从系统中获取资源，对应释放的应该也是返回的 struct clk 结构体，为什么这里还要再次申请资源？
+1. clk_get() 函数是从系统中获取资源，对应释放的应该也是返回的 struct clk 结构体，为什么这里还要再次申请资源？  
 2. 第三部分是将资源添加到 device 中，那资源的自动释放是在哪里做的呢?
 
-带着这两个疑问，我们接着往下看：
+带着这两个问题我们往下看。  
 
-### struct devres 管理资源
+
+### 资源的添加
+为了理解方便，我们先讲解资源的添加部分，添加的细节部分我们暂时放到后面。  
+
+对于上述的第一个问题很好解释，当开发者从系统申请了资源之后，系统内部进行资源分配，然后通常是返回一个指针，开发者需要保存这些系统返回的资源，而开发者如果需要统一管理这些资源，自然是需要将这些资源以某种形式组织起来，比如链表、树形结构之类的，这算是一种额外开销，自然需要申请额外的内存。   
+
+且对于每一类资源而言，它的释放方式是不一样的，所以也要将释放的回调函数管理起来，这些都是需要额外的空间。  
+
+对于整个释放流程，猜测是这样的：device 将所有资源以及资源相关的释放函数以一定的形式管理起来，然后在特定的时候通过 device 索引到这些资源，调用其对应的 release 函数，就实现了资源的释放。  
+
+接下来看源代码中的添加资源部分，struct devres 是专门用于保存系统资源的结构体 ：
+
+```
+static void add_dr(struct device *dev, struct devres_node *node)
+{
+    ...
+	list_add_tail(&node->entry, &dev->devres_head);
+}
+
+void devres_add(struct device *dev, void *res)
+{
+	struct devres *dr = container_of(res, struct devres, data);
+	add_dr(dev, &dr->node);
+    ...
+}
+
+devres_add(dev, ptr);
+```
+
+添加资源管理到 device 也正如上文中描述的那样，将 struct devres 结构中的链表节点挂在 device->devres_head 链表头节点，所有的资源都被链接到 device->devres_head 链表上，在取的时候也是直接在这个链表上进行遍历。  
+
+对内核有一定了解的朋友都知道，struct device 结构是 linux 内核中设备管理的基础，每一个设备都包含一个 device 结构，在内核中以树形结构(总线为根节点)存在。  
+
+
+### struct devres 管理资源的实现细节  
+
 先深入资源申请部分，跟踪函数的调用：
 
 ```
@@ -210,10 +246,9 @@ void * devres_alloc_node(dr_release_t release, size_t size, gfp_t gfp, int nid)
 * 第一：申请内存的 size 不是 size(struct devres),因为我们平常为一个结构体申请内存一般是申请刚好能装下这个结构体的空间，也就是指定 sizeof(struct devres).
 * 第二：这里返回是 dr->data ,而不是 dr 结构体。
 
-
 既然是申请了 struct devres *dr，有必要看看 struct devres 的定义：
-```
 
+```
 struct devres_node {
 	struct list_head		entry;
 	dr_release_t			release;
@@ -225,11 +260,13 @@ struct devres {
 	unsigned long long		data[];	/* guarantee ull alignment */
 };
 ```
-从 struct devres 部分的定义可以看到，其中包含一个 struct devres_node结构体，以及一个没有定义长度的数组，实际上这就是传说中的零长数组。  
+从 struct devres 部分的定义可以看到，其中包含一个 struct devres_node 结构体，以及一个没有定义长度的数组，实际上这就是传说中的零长数组。  
 
 而 struct devres_node 部分则是一个链表节点和一个 release 函数指针，这一部分不难猜测：在一个 device 中，申请的资源可能不止一个，那么这些资源由链表的形式进行管理，而链表头则放在 device 结构体中，这样每一个需要管理的资源都可以直接由 device 结构索引并管理了，而在需要释放的时候，就调用相对应的 release 函数。   
 
-内核资源的组织形式大概是了解了，就是通过链表来实现，那么还有一个问题：向内核申请的资源是各种各样的形式，如何存放这部分资源呢？在当前的 clk 中，申请的内核资源为 struct clk* 类型的，也就是一个指针类型，释放的时候调用 clk_put() 就可以了。  
+内核资源的组织形式大概是了解了，就是通过链表来实现，那么还有一个问题：向内核申请的资源是各种各样的形式，如何存放这部分资源呢？   
+
+比如：在当前的 clk 中，申请的内核资源为 struct clk* 类型的，也就是一个指针类型，释放的时候调用 clk_put() ，传入这个内核返回的指针资源即可。  
 
 但是对于其他的，例如 irq 部分的，释放接口是这样的：
 
@@ -241,9 +278,13 @@ free_irq(irq, dev_id);
 
 对于这种情况，很多朋友瞬间想到一种解决方案：使用 void* 指针，它可以处理这种情况。那么，void* 到底能不能解决这个问题呢？  
 
-答案是，不行！不知道你还记不记得 linux 的面相对象机制，以 container_of() 宏为核心机制的面相对象的结构体组织形式，使得一些关键的基础数据结构得以嵌入到其他结构体中，以基础数据结构反向获取属主(暂且这么说，A中包含基础数据结构B，A为属主)结构体的数据。如果你足够细心，就会发现所有嵌入的基础数据结构都是定义为示例，而非指针，如果定义指针，是不能反向获取属主。
+答案是，不行！不知道你还记不记得 linux 的面相对象机制，以 container_of() 宏为核心机制的面相对象的结构体组织形式，使得一些关键的基础数据结构得以嵌入到其他结构体中，以基础数据结构反向获取属主(暂且这么说，A中包含基础数据结构B，A为属主)结构体的数据。  
 
-这时候 零长数组 就派上用场了，也就是上述的 
+如果你足够细心，就会发现所有嵌入的基础数据结构都是定义为实例，而非指针，如果定义指针，是不能反向获取属主的(关于 container_of 可以参考我的另一篇博客：[linux 内核container_of实现](http://www.downeyboy.com/2019/03/16/linux-container_of/)。 
+
+
+这时候 零长数组 就派上用场了，也就是源码中的 
+
 
 ```
 unsigned long long		data[];
@@ -253,59 +294,31 @@ unsigned long long		data[];
 
 这也解答了上述提出的一个问题：
 
-```
-申请内存的 size 不是 size(struct devres)，而是传入的参数 size。
-```
-答案就是，用户在调用 devm_ 系列函数的时候，将需要保存的系统资源大小传递给函数，在申请资源的时候就申请相应 size 的资源总量，资源多于 struct devres_node 的部分由 data 去访问。  
+**申请内存的 size 不是 size(struct devres)，而是传入的参数 size。**
+
+答案就是，用户在调用 devm_ 系列函数的时候，将需要保存的系统资源大小传递给函数，在申请资源的时候就申请相应 size 的资源总量，资源多于 struct devres_node 的部分就由 data 部分来处理。      
+
 例如，假设一个 devm_ 接口，在释放资源时需要用到额外的三个指针大小的数据空间，申请部分就是这样的：
 
 ```
 src = kmalloc(sizeof(devres_node)+3*sizeof(int*),...)
 ```
 
-而额外的数据则由 data[0],data[1],data[2]来访问。  
-
-
-### devres_add(dev, ptr)
-资源创建过后，当然是要加到对应的 device 中，才能起到由 device 进行资源管理的作用。  
-
-```
-static void add_dr(struct device *dev, struct devres_node *node)
-{
-    ...
-	list_add_tail(&node->entry, &dev->devres_head);
-}
-
-void devres_add(struct device *dev, void *res)
-{
-	struct devres *dr = container_of(res, struct devres, data);
-	add_dr(dev, &dr->node);
-    ...
-}
-
-devres_add(dev, ptr);
-```
-
-添加资源管理到 device 也正如上文中描述的那样，通过资源也就是零长数组 data 反向获取 struct devres结构体，然后将 struct devres_node 中的链表节点挂在 device->devres_head 链表头节点。  
+多申请三个指针的内存空间，而额外的数据则由 data[0],data[1],data[2]来访问，是不是很有意思，将数组当成一个确定地址的指针使用。当然这是 GCC 编译器的扩展功能，其他编译器不一定支持。      
 
 
 ## 资源的释放
 将资源添加 device 中算是完成了资源管理中非常重要的一部分。但是，别忘了 devm_ 机制的初衷是什么，是系统自动管理内核资源的申请释放。在传统的内核中，申请早就已经存在，而自动释放才是重点。  
 
-那新版本的接口到底是怎么实现资源的自动释放的呢？
+那新版本的接口到底是怎么实现资源的自动释放的呢？  
 
-至少从上文中可以了解到，我们已经把 device 申请的系统资源绑定在 device 上并且可以索引，然后根据传入的 release 函数释放资源，那么，到底在什么时候这个资源会被释放呢？  
+至少从上文中可以了解到，我们已经把 device 申请的系统资源绑定在 device 上并且可以索引，然后根据传入的 release 函数释放资源，那么，到底在什么时候这个资源会被释放呢？在这里不妨自己可以思考一下再往下看。    
 
-我们可以了解的是，linux 内核中，所有的设备资源都是和 device 结构绑定在一起的，当设备被创建的时候，部分设备资源就已经被创建。  
+既然申请和释放是相反的两个操作，那么有相当一部分资源的申请发生在 device 和 driver attach 成功的时候。
 
-那么，反过来想，在设备 device 被注销的时候就需要释放所有的资源，这个思路是没有错的，所以在调用类似 i2c_unregister_device、input_unregister_device 肯定有设备资源的注册行为，也就会调用上文中提到的 struct devres 中的 release 接口释放资源。  
+通常是在驱动的 device 和 driver 匹配的时候调用 driver 部分的 probe 函数，然后在 probe 函数中申请资源，比如 devm_clk_get 申请时钟资源，devm_irq_request 申请中断资源。  
 
-除了在 device 被创建时申请资源以外，还有另一种情况，比如 devm_clk_get()、dev_request_irq(),通常这种接口是在 device 和 driver 匹配成功之后
-
-在 probe 函数中调用，同样反过来想，在 probe 失败的时候或者删除 device/driver 部分导致 detect 的时候将要释放这一部分资源。
-
-可以参考源码总线匹配函数，当匹配失败时，其中匹配失败时，将调用释放资源函数：
-
+那么，相反的，匹配成功申请资源，匹配失败的时候自然就是释放资源，内核源码中，控制匹配的总线函数为 really_probe()。
 
 ```
 static int really_probe(struct device *dev, struct device_driver *drv)
@@ -352,40 +365,44 @@ static int release_nodes(struct device *dev, struct list_head *first,
 
 不出所料，就是依次获取 devres 结构体，然后通过执行 devres_node.release() 函数，以 dr->data 为参数。你应该还记得，data 就是存放资源的零长数组，而 release 函数也就是我们在注册时传递进去的回调函数，负责释放资源。到这里，一切都清晰了。  
 
+除了 probe 失败的情况，最常见的应该就是我们在 exit 函数中所实现的 unregister 类型函数了，当我们卸载模块时，同样会导致模块对应资源的释放，调用路径是这样的：
 
-
+```
 device_unregister
-put_device
-在drivers/base/core.c中。
+    -> put_device 
+        -> kobject_put
+            -> kref_put -> kobject_release
+                -> kobject_cleanup()
+                    -> struct kobj_type *t = get_ktype(kobj)
+                    -> t->release(kobj);
 
-static void device_release(struct kobject *kobj)
-{
-	/*
-	 * Some platform devices are driven without driver attached
-	 * and managed resources may have been acquired.  Make sure
-	 * all resources are released.
-	 *
-	 * Drivers still can add resources into device after device
-	 * is deleted but alive, so release devres here to avoid
-	 * possible memory leak.
-	 */
-	devres_release_all(dev);
+```
+通过调用 kobj 关联的 release 函数，而这个 release 函数则被定义在 device 初始化时，
 
-	kfree(p);
-}
-
+```
 static struct kobj_type device_ktype = {
 	.release	= device_release,
 	.sysfs_ops	= &dev_sysfs_ops,
 	.namespace	= device_namespace,
 };
 
+static void device_release(struct kobject *kobj)
+{
+    ...
+	devres_release_all(dev);
+    ...
+}
 
-这个ktype 被 device_initialize()调用，也就是创建device的时候
-device_register()
+void device_initialize(struct device *dev)
+{
+    ...
+    kobject_init(&dev->kobj, &device_ktype);
+    ...
+}
+```
+也就是，在 device 被创建时，传递进一个 device_release 回调函数，这个回调函数中包含 devres_release_all，也正是上述提到的资源释放函数，在 device 被注销的时候调用，也就实现了资源的释放。  
 
 
-
-
+## 总结
 
 
