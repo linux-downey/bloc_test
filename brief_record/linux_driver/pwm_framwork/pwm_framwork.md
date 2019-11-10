@@ -35,6 +35,9 @@ pwm1: pwm@30660000 {
 	};
 
 
+所有的 pwm_chip 都被连接在 pwm_chips 链表头上，
+
+
 //pwm 对应的回调函数
 	struct pwm_ops {
 		int (*request)(struct pwm_chip *chip, struct pwm_device *pwm);
