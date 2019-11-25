@@ -96,9 +96,35 @@ static inline void *dev_get_drvdata(const struct device *dev)
 尽管 C 语言不支持 C++ 的面向对象语法，但是在内核中，面向对象的思想随处可见，下面我们来看看面向对象的三大要点在linux内核中的实现。
 
 ### 封装
+封装，即隐藏对象的属性和实现细节，仅对外公开接口，控制在程序中属性的读和修改的访问级别。  
+
+那么，内核中使用 C 语言中是怎么实现封装的呢？  
+
+答案是：将结构体的定义放在 .c 文件中，将结构体的声明放在 .h 文件中，这种非常规做法非常少见。  
+
+它达到了什么样的效果呢？外部文件包含该结构体声明的 .h 文件，仅仅是一个声明，比如 struct cls;struct device;导致外部文件无法访问内部的数据，因为它并不知道被声明的结构体的内部组成，只能使用该 .h 文件提供的函数接口来操作该结构体。  
+
+如果要探究这种做法的原理，需要从两个角度来探究：
+* 这种非常规做法是否能正常地通过编译链接？
+* 为什么外部文件只能通过 .h 声明的函数接口进行访问而不能直接访问结构体内的成员。
+
+这两个问题都需要从编译的角度来看，首先，一个你需要了解的基本编译知识是：程序是分离编译的，也就是说，每个 .c 文件在编译阶段都只与它包含的文件(一般是 .h 文件)进行结合，而不会与其他 .c 文件发生任何关系。  
+
+对于只有声明而找不到定义的对象，编译器的做法是做一个标记，把问题的处理提交给下一步：链接，在程序链接的过程中负责将所有的定义与声明进行匹配。  
+
+所以，对于引用了该 .h 文件的外部文件而言，使用对应的 struct cls(在 .h 中声明的结构体名) **指针**，至少在编译阶段是没有问题的，由于 .c 文件也将被编译，所以在链接阶段也是可以找到对应定义而链接成功的。  
+
+为什么强调是被声明的结构体的指针，而不能是结构体的实例对象呢？  
+
+假设 struct cls 被声明在 class.h 中，main.c 包含了class.h.对于 main.c 而言，看到的就是一个非常简单的声明，在编译 main.c 的时候压根就不知道  struct cls 的内容是什么，其实重点也并非在于一定要知道 struct cls 具体有些什么。而是因为如果声明的是实例，摆在面前的最大问题就是怎么给这个结构体分配空间，对于 main.c 来说是确定不了的，所以无法实现，而指针就不一样，它的大小是确定的。  
+
+这也回答了上述的第二个问题：为什么外部文件不能访问结构体内的成员，也是因为对于 main.c 而言，只知道有 struct cls 这么个东西，尽管程序员知道，struct cls 中包含了 value 成员，但是对于 main.c 来说，你都没声明(只声明结构体，没声明及饿哦固体成员)，自然是不认的，这跟函数的调用一样，如果你不声明就在外部调用函数，同样也会报错。  
 
 
+我们来看下面的例子,该示例由三个文件组成，供各位参考以及动手实验：
 
+main.c:
+```
   1 #include "class_file.h"
   2 
   3 
@@ -110,11 +136,11 @@ static inline void *dev_get_drvdata(const struct device *dev)
   9 
  10         cls_free(cls);
  11 }
+```
 
-
-1 #include "class_file.h"
-  2 
-  3 
+class_file.c:
+```
+  3 #include "class_file.h"
   4 
   5 struct cls{
   6         int value;
@@ -131,8 +157,11 @@ static inline void *dev_get_drvdata(const struct device *dev)
  17 {
  18         free(cls);
  19 }
+```
 
- 1 #include <stdio.h>
+class_file.h
+```
+  1 #include <stdio.h>
   2 #include <stdlib.h>
   3 
   4 struct cls;
@@ -140,7 +169,24 @@ static inline void *dev_get_drvdata(const struct device *dev)
   6 void cls_init(struct cls* cls);
   7 void cls_free(struct cls* cls);
   8 
+```
 
+该示例中，结构体 struct cls 被定义在 class_file.c 中，操作结构体内部成员的接口也由 class_file.c 提供，由 class_file.h 文件声明，在 main.c 中，只能使用 class_file.c 提供的接口来操作 struct cls 结构体。  
+
+你可以试试，如果在 main.c 中定义 struct cls cls 而不是 struct cls *cls，再编译将会发生什么？  
+
+或者是试试将第8行：
+
+```
+printf("cls->value = %d\n",cls->value);
+```
+
+的注释取消，再编译将会发生什么？
+
+动手试试能帮你加深理解。
+
+
+## 继承
 
 
 
