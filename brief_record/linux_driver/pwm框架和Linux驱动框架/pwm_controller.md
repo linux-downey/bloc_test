@@ -52,6 +52,104 @@ struct pwm_chip {
 
 
 ## controller 的注册
-对应设备树的节点描述，就会存在对应的 driver 将这些资源注册到系统中，以备 consumer 的使用。
+对应设备树的节点描述，就会存在对应的 driver 将这些资源注册到系统中，并提供接口。  
+
+根据设备树中的 compatible 属性，找到对应驱动，然后从 probe 函数进行分析：
+
+```
+struct ehrpwm_pwm_chip {
+	struct pwm_chip chip;
+	void __iomem *mmio_base;
+	...
+};
+
+static int ehrpwm_pwm_probe(struct platform_device *pdev)
+{
+	...
+	struct ehrpwm_pwm_chip *pc;
+	pc = devm_kzalloc(&pdev->dev, sizeof(*pc), GFP_KERNEL);
+
+	clk = devm_clk_get(&pdev->dev, "fck");
+	clk_prepare(clk);
 
 
+	struct pwm_chip *chip;
+	pc->chip.dev = &pdev->dev;
+	pc->chip.ops = &ehrpwm_pwm_ops;
+	pc->chip.of_xlate = of_pwm_xlate_with_flags;
+	pc->chip.of_pwm_n_cells = 3;
+	pc->chip.base = -1;
+	pc->chip.npwm = NUM_PWM_CHANNEL;
+	r = platform_get_resource(pdev, IORESOURCE_MEM, 0);
+	pc->mmio_base = devm_ioremap_resource(&pdev->dev, r);
+	pwmchip_add(&pc->chip);
+	
+	platform_set_drvdata(pdev, pc);
+}
+```
+
+如代码所示，整个 controller 的注册可以分为三个部分：
+* 第一个部分：从设备树中解析出时钟输入，pwm 的输出是依赖于时钟的，对于 pwm 的输出控制可以转化为对时钟的 enable 或 disable。
+* 第二个部分：构造一个 pwm_chip 结构体，并注册到系统中，构造的过程包括设置回调函数、设置设备树解析函数、设置当前 pwm controller 所提供的 pwm device 通道数，以及获取寄存器基地址。
+* 第三个部分：填充一个自定义的结构体 struct ehrpwm_pwm_chip *pc; ，结构体包含该 controller 所有相关的数据，然后将其绑定在 deivce 中。  
+
+接下来主要是对后两个部分进行详细的分析。
+
+### struct pwm_device
+讨论 pwmchip_add 函数之前，我们有必要来了解一下另一个结构体：struct pwm_device:
+```
+struct pwm_device {
+	const char *label;                  //设备名
+	unsigned long flags;               
+	unsigned int hwpwm;                 //硬件设备号，表示 pwm 设备在当前控制器中的编号
+	unsigned int pwm;                   //pwm编号，表示 pwm 在所有 pwm 设备中的编号
+	struct pwm_chip *chip;              // pwm 所属的 pwm_chip ，也就是 pwm 控制器
+	void *chip_data;                   // pwm 的私有数据
+	struct pwm_args args;              //保存的参数
+	struct pwm_state state;            //pwm 的状态，该状态包括 period 、dutycycle、极性
+};
+```
+通常，按照内核中的命名习惯，chip 本意为芯片，可指代一个外设，也可以看成一个外设控制器，所以在内核中 xxx_chip 通常表示一个控制器，例如 gpio_chip,irq_chip 等。  
+
+而 device 意为设备，即表示一个具体的设备，所以 pwm_device 结构体描述的是某一路具体的设备，主要包括 pwm 设备名、编号、所属的硬件控制器、以及私有数据等等。
+
+### pwmchip_add()
+接下来再解析pwmchip_add 这个核心的函数：从函数名可以看出，这个函数的作用就是将驱动填充的 pwmchip 注册到系统中，
+	
+```
+int pwmchip_add_with_polarity(struct pwm_chip *chip,enum pwm_polarity polarity)
+{
+	struct pwm_device *pwm;
+	ret = alloc_pwms(chip->base, chip->npwm);
+	chip->base = ret;
+
+	for (i = 0; i < chip->npwm; i++) {
+		pwm = &chip->pwms[i];
+
+		pwm->chip = chip;
+		pwm->pwm = chip->base + i;
+		pwm->hwpwm = i;
+		pwm->state.polarity = polarity;
+
+		if (chip->ops->get_state)
+			chip->ops->get_state(chip, pwm, &pwm->state);
+
+		radix_tree_insert(&pwm_tree, pwm->pwm, pwm);
+	}
+
+	bitmap_set(allocated_pwms, chip->base, chip->npwm);
+
+	INIT_LIST_HEAD(&chip->list);
+	list_add(&chip->list, &pwm_chips);
+}
+
+int pwmchip_add(struct pwm_chip *chip)
+{
+	return pwmchip_add_with_polarity(chip, PWM_POLARITY_NORMAL);
+}
+
+```
+pwmchip_add 函数直接调用 pwmchip_add_with_polarity，pwmchip_add_with_polarity 中主要做了两件事：
+* 根据 pwm_chip 提供的 npwm 参数，申请相应数量的 pwm_device 结构，并填充它们。  
+* 从 pwm 设备管理位图中找出一片空闲的区域，存放当前需要加入的 pwm device。  
+* 
