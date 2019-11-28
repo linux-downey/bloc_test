@@ -96,7 +96,7 @@ static int ehrpwm_pwm_probe(struct platform_device *pdev)
 接下来主要是对后两个部分进行详细的分析。
 
 ### struct pwm_device
-讨论 pwmchip_add 函数之前，我们有必要来了解一下另一个结构体：struct pwm_device:
+讨论 pwmchip_add(pwm controller的注册) 函数之前，我们有必要来了解一下另一个结构体：struct pwm_device:
 ```
 struct pwm_device {
 	const char *label;                  //设备名
@@ -141,6 +141,8 @@ int pwmchip_add_with_polarity(struct pwm_chip *chip,enum pwm_polarity polarity)
 
 	INIT_LIST_HEAD(&chip->list);
 	list_add(&chip->list, &pwm_chips);
+
+	pwmchip_sysfs_export(chip);
 }
 
 int pwmchip_add(struct pwm_chip *chip)
@@ -152,4 +154,11 @@ int pwmchip_add(struct pwm_chip *chip)
 pwmchip_add 函数直接调用 pwmchip_add_with_polarity，pwmchip_add_with_polarity 中主要做了两件事：
 * 根据 pwm_chip 提供的 npwm 参数，申请相应数量的 pwm_device 结构，并填充它们。  
 * 从 pwm 设备管理位图中找出一片空闲的区域，存放当前需要加入的 pwm device。  
-* 
+* 将 pwm_device 添加到系统中,系统对 pwm_device 的管理有两种：位图和基数树，consumer 可以通过这两种结构进行索引，另外，由于 pwm_device 和 pwm_chip 也是相关联的，所以也可以通过 pwm_chip 获取到需要操作的 pwm_device,毕竟在使用的时候，是通过操作 pwm_device 来操作 pwm 的输出的。  
+
+
+在 pwmchip_add 函数的最后，使用 pwmchip_sysfs_export() 函数将 pwm 设备的操作导出到 /sys 用户空间，关于接口的导出，我们在下一章进行详细地讨论。  
+
+
+
+
