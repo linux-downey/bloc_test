@@ -265,3 +265,105 @@ static int handle_create(const char *nodename, umode_t mode, kuid_t uid,
 ```
 功夫不负有心人，在 handle_create 中，我们终于看到了一丝曙光，vfs_mknod，这个函数看起来就是我们想要找到的 mknod函数，同时，在 handle_create 中，还看到了 struct dentry 的构建，这是创建一个目录缓存，说明该函数正在创建一个文件节点。  
 
+继续往前，进入到 vfs_mknod() 中，查看它的源代码实现：
+
+```
+int vfs_mknod(struct inode *dir, struct dentry *dentry, umode_t mode, dev_t dev)
+{
+	int error = may_create(dir, dentry);
+	...
+	error = dir->i_op->mknod(dir, dentry, mode, dev);
+	...
+	if (!error)
+		fsnotify_create(dir, dentry);
+	return error;
+}
+```
+
+在 vfs_mknode 中，重点需要关注的是 dir->i_op->mknod() 这个回调函数的执行，这个回调函数是在文件系统注册时被注册，几乎所有的文件系统注册都会实现这个回调函数,以jffs2为例：
+```
+void init_special_inode(struct inode *inode, umode_t mode, dev_t rdev)
+{
+	inode->i_mode = mode;
+	if (S_ISCHR(mode)) {
+		inode->i_fop = &def_chr_fops;
+		inode->i_rdev = rdev;
+	} 
+	...
+}
+
+static int jffs2_mknod (struct inode *dir_i, struct dentry *dentry, umode_t mode, dev_t rdev)
+{
+	...
+	init_special_inode(inode, inode->i_mode, rdev);
+	...
+}
+
+.mknod = jffs2_mknod；
+```
+mknod 回调函数调用了 init_special_inode ，在该函数中，将创建的文件节点的 i_fops 赋值为 def_chr_fops；
+
+而 def_chr_fops 被定义在 fs/char_dev.c 中，一切又回到了字符设备驱动文件中，接下来自然是查看 def_chr_fops 的定义：
+
+```
+static int chrdev_open(struct inode *inode, struct file *filp)
+{
+	const struct file_operations *fops;
+	struct cdev *p;
+	struct cdev *new = NULL;
+	int ret = 0;
+
+	spin_lock(&cdev_lock);
+	p = inode->i_cdev;
+	if (!p) {
+		struct kobject *kobj;
+		int idx;
+		kobj = kobj_lookup(cdev_map, inode->i_rdev, &idx);
+
+		new = container_of(kobj, struct cdev, kobj);
+
+		p = inode->i_cdev;
+		if (!p) {
+			inode->i_cdev = p = new;
+			list_add(&inode->i_devices, &p->list);
+			new = NULL;
+		} else if (!cdev_get(p))
+			ret = -ENXIO;
+	} 
+
+	fops = fops_get(p->ops);
+
+	replace_fops(filp, fops);
+	if (filp->f_op->open) {
+		ret = filp->f_op->open(inode, filp);
+		if (ret)
+			goto out_cdev_put;
+	}
+
+	return 0;
+
+}
+
+const struct file_operations def_chr_fops = {
+	.open = chrdev_open,
+	.llseek = noop_llseek,
+};
+```
+
+在字符设备的通用 fops 中，就定义了一个 open 函数，而 open 函数的实现主要就是：
+* 根据该字符设备的设备号，获取对应的 struct cdev 结构体
+* 将通用 fops 替换为对应设备号的 cdev 的 fops ，所以，当我们 open 一个设备节点时，并非直接调用到了对应设备节点的 open，而是调用了 char_dev 的通用 open 接口，通过该 open 接口将真正的 fops 结构替换到设备节点上，之后调用 fops->read 和 fops->write 就是直接调用的关系了。整个调用链路还是非常长的。
+
+
+## dev 的查找过程
+在通用 char_dev 的 open 函数中，是通过设备号来查找对应的 cdev，那么就有必要深究以下到底是怎么查找的，其主要的函数就是 kobj_lookup():
+
+```
+
+```
+
+
+
+
+
+
