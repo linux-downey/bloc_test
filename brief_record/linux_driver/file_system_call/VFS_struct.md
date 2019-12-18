@@ -155,7 +155,6 @@ __register_chrdev_region(unsigned int major, unsigned int baseminor,
 		}
 		major = ret;
 	}
-    
 
 }
 
@@ -163,10 +162,5 @@ __register_chrdev_region(unsigned int major, unsigned int baseminor,
 
 
 
-## cdev_init 和 cdev_add
-
-
-
-drivers/base/devtmpfs.c
 
 

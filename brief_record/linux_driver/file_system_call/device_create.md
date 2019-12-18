@@ -356,12 +356,64 @@ const struct file_operations def_chr_fops = {
 
 
 ## dev 的查找过程
-在通用 char_dev 的 open 函数中，是通过设备号来查找对应的 cdev，那么就有必要深究以下到底是怎么查找的，其主要的函数就是 kobj_lookup():
+在通用 char_dev 的 open 函数中，是通过设备号来查找对应的 cdev，那么就有必要深究以下到底是怎么查找的，其主要的函数就是 kobj_lookup(cdev_map, inode->i_rdev, &idx):
+对于 Linux 中的 xxx_lookup() 函数，都是在某个集合中查找对应的数据，以参数为索引，所以这里也不例外。  
+第一个参数为 cdev_map，在 cdev_add 函数中，就是将需要添加的 cdev 添加到 cdev_map 中，这是属于 char_dev.c 的全局静态数组。
+第二个参数为 inode->i_rdev,这是一个 dev_t 类型的变量，也就是需要查找的目标的设备号，不难想到，这个函数就是通过设备号查找到对应的 kobj，然后再根据 kobj 反向定位到包含该 kobj 的 cdev 结构体。  
+第三个参数为查找对象在数据对象数组中的索引，根据传入的 &idx 可以知道，这是一个返回值而不是一个传入值。
+```
+struct kobject *kobj_lookup(struct kobj_map *domain, dev_t dev, int *index)
+{
+	struct kobject *kobj;
+	struct probe *p;
+	unsigned long best = ~0UL;
 
+retry:
+	for (p = domain->probes[MAJOR(dev) % 255]; p; p = p->next) {
+		struct kobject *(*probe)(dev_t, int *, void *);
+		struct module *owner;
+		void *data;
+
+		if (p->dev > dev || p->dev + p->range - 1 < dev)
+			continue;
+		if (p->range - 1 >= best)
+			break;
+		if (!try_module_get(p->owner))
+			continue;
+		owner = p->owner;
+		data = p->data;
+		probe = p->get;
+		best = p->range - 1;
+		*index = dev - p->dev;
+		if (p->lock && p->lock(dev, data) < 0) {
+			module_put(owner);
+			continue;
+		}
+
+		kobj = probe(dev, index, data);
+
+		module_put(owner);
+		if (kobj)
+			return kobj;
+		goto retry;
+}
 ```
 
-```
+在源代码中，在 cdev_map 的 probes 成员中轮询查找，将其中每一项的 dev(dev_t 类型) 与当前传入的 dev 进行对比，因为一个设备可能包括多个连续的次设备号，所以使用 'p->dev+p>range -1' 来处理这种情况。  
 
+然后，调用 cdev 注册时的 get 回调函数，传入dev、index、data 参数来获取对应的 kobj 结构，由于 kobj 函数被直接包含在 cdev 中，所以可以直接通过 container 函数获取到对应的 cdev。
+
+```
+static int chrdev_open(struct inode *inode, struct file *filp)
+{
+	...
+	struct cdev *new = NULL;
+	new = container_of(kobj, struct cdev, kobj);
+	...
+}
+
+```
+既然在 chrdev_open() 中找到了需要操作的 cdev，如上文所说，就是替换 cdev->fops 为当前的 fops 了。
 
 
 
