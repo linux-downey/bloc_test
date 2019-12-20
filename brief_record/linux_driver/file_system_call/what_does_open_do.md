@@ -266,3 +266,82 @@ struct filename {
 
 在文件打开操作的预处理中，主要是针对标志位和文件路径做一些过滤处理再传入到内核，对于需要特殊处理的部分做相应操作。  
 
+
+## 文件打开操作
+文件的打开包含两个部分：
+* 从系统中获取空闲的 fd
+* 构建并返回一个 struct file 结构
+
+```
+int __alloc_fd(struct files_struct *files,
+	       unsigned start, unsigned end, unsigned flags)
+{
+	unsigned int fd;
+	int error;
+	struct fdtable *fdt;
+
+repeat:
+	fdt = files_fdtable(files);
+	fd = start;
+	if (fd < files->next_fd)
+		fd = files->next_fd;
+
+	if (fd < fdt->max_fds)
+		fd = find_next_fd(fdt, fd);
+
+	error = expand_files(files, fd);
+	if (error < 0)
+		goto out;
+
+	if (error)
+		goto repeat;
+
+	if (start <= files->next_fd)
+		files->next_fd = fd + 1;
+
+	__set_open_fd(fd, fdt);
+	if (flags & O_CLOEXEC)
+		__set_close_on_exec(fd, fdt);
+	else
+		__clear_close_on_exec(fd, fdt);
+	error = fd;
+#if 1
+	if (rcu_access_pointer(fdt->fd[fd]) != NULL) {
+		printk(KERN_WARNING "alloc_fd: slot %d not NULL!\n", fd);
+		rcu_assign_pointer(fdt->fd[fd], NULL);
+	}
+#endif
+
+out:
+	return error;
+}
+
+int get_unused_fd_flags(unsigned flags)
+{
+	return __alloc_fd(current->files, 0, rlimit(RLIMIT_NOFILE), flags);
+}
+```
+
+在内核中，对于一个文件的描述是 struct file 结构，而应用程序中操作一个文件则是通过 fd，那么问题来了：fd 是怎么和 struct file 相关联的？  
+
+答案在 current 中，在上文中提到，current 是描述当前进程的结构体。
+```
+struct task_struct{
+	...
+	struct files_struct	 *files;
+}
+
+struct files_struct {
+	struct fdtable __rcu *fdt;
+}
+struct fdtable {
+	struct file __rcu **fd;
+}
+
+```
+在上述的结构体内容中， current->files->fdt->fd 是一个结构体指针数组，该数组中的每一个成员都是 struct file* 结构，而在用户空间使用的 fd 就代表着该数组的下标。  
+
+所以，fd 和 struct file 之间的关系就是：一个是数组索引、一个是其索引对应的数组成员
+
+
+
