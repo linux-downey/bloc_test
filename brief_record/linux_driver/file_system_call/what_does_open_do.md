@@ -267,11 +267,11 @@ struct filename {
 在文件打开操作的预处理中，主要是针对标志位和文件路径做一些过滤处理再传入到内核，对于需要特殊处理的部分做相应操作。  
 
 
-## 文件打开操作
+## 文件打开核心操作
 文件的打开包含两个部分：
 * 从系统中获取空闲的 fd
 * 构建并返回一个 struct file 结构
-
+* 将 fd 和 struct file 绑定。
 ```
 int __alloc_fd(struct files_struct *files,
 	       unsigned start, unsigned end, unsigned flags)
@@ -339,9 +339,39 @@ struct fdtable {
 }
 
 ```
-在上述的结构体内容中， current->files->fdt->fd 是一个结构体指针数组，该数组中的每一个成员都是 struct file* 结构，而在用户空间使用的 fd 就代表着该数组的下标。  
+在上述的结构体内容中， current->files->fdt->fd 是一个结构体指针数组，该数组中的每一个成员都是 struct file* 结构，而在用户空间使用的 fd 就代表着该数组的下标。也就是，fd 为 0 的文件(标准输入)对应着 current->files->fdt->fd[0],该 struct file 结构描述内核中的标准输入。
 
-所以，fd 和 struct file 之间的关系就是：一个是数组索引、一个是其索引对应的数组成员
+所以，fd 和 struct file 之间的关系就是：一个是struct file fd[]的数组索引、一个是其索引对应的数组成员。  
 
+所以，内核中使用 __alloc_fd 寻找一个未被占用的 fd 并返回也比较简单，在 fdt 中寻找未被占用的的空间即可，并将其标记为已使用。当然，该函数还包含一些必要的错误处理，比如文件超出上限。  
+
+
+
+真正的打开操作为 do_filp_open 函数，该函数为文件打开的执行函数：
+
+```
+struct file *do_filp_open(int dfd, struct filename *pathname,
+		const struct open_flags *op)
+{
+	struct nameidata nd;
+	int flags = op->lookup_flags;
+	struct file *filp;
+
+	set_nameidata(&nd, dfd, pathname);
+	filp = path_openat(&nd, op, flags | LOOKUP_RCU);
+	if (unlikely(filp == ERR_PTR(-ECHILD)))
+		filp = path_openat(&nd, op, flags);
+	if (unlikely(filp == ERR_PTR(-ESTALE)))
+		filp = path_openat(&nd, op, flags | LOOKUP_REVAL);
+	restore_nameidata();
+	return filp;
+}
+```
+对于该函数而言，主要负责将用户传入的 filename 转换为内核中的目录寻址方式：即 struct dentry 和 struct inode，对于设备驱动而言，再根据找到的 inode 调用对应的 inode->fops->open 函数。  
+
+由于这个函数实现的复杂性，将专门以一个章节来描述 do_filp_open 函数的具体实现。  
+
+
+在文件打开工作的最后，就是将用户空间的 fd fd_install
 
 
