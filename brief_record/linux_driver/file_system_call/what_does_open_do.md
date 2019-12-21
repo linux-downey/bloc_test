@@ -372,6 +372,28 @@ struct file *do_filp_open(int dfd, struct filename *pathname,
 由于这个函数实现的复杂性，将专门以一个章节来描述 do_filp_open 函数的具体实现。  
 
 
-在文件打开工作的最后，就是将用户空间的 fd fd_install
+在文件打开工作的最后，就是将用户空间的 fd 与内核空间的 struct file 结构进行绑定，该工作由 fd_install 进行处理。  
+
+
+```
+void fd_install(unsigned int fd, struct file *file)
+{
+	__fd_install(current->files, fd, file);
+}
+
+void __fd_install(struct files_struct *files, unsigned int fd,
+		struct file *file)
+{
+	...
+	struct fdtable *fdt;
+
+	fdt = rcu_dereference_sched(files->fdt);
+	rcu_assign_pointer(fdt->fd[fd], file);
+	...
+}
+
+```
+也就是将 current->files->fdt->fd[fd] 设置为传入的 struct file 结构。  
+
 
 
