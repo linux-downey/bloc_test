@@ -253,8 +253,65 @@ OK:
 该函数的实现传入两个参数，第一个参数 name 表示文件路径，第二个参数 struct nameidata *nd 也就是描述该文件信息的参数集。  
 
 该函数的实现如下：
-* 调用 may_lookup() 检查打开权限，只有操作权限通过才能进行下一步动作。
-* 进入 for(;;)死循环中，
-* 
-* 
-* 
+调用 may_lookup() 检查打开权限，只有操作权限通过才能进行下一步动作。
+
+进入 for(;;)死循环中，以路径中的 / 为分隔，每次取出一个部分，即一个目录名，对于每个中间目录，调用  walk_component(nd, WALK_FOLLOW)，其中，WALK_FOLLOW 持续跟踪路径到最后的文件。  
+
+
+
+比如，对于 /home/user/test.txt ,取出 / ，对其调用 walk_component(nd, WALK_FOLLOW)，该函数将匹配并找到下一级目录的 dentry，然后对下一级目录同样调用 walk_component(nd, WALK_FOLLOW)，直到找到目标文件的 dentry。  
+
+下面是 walk_component 函数的源码实现：
+```C
+static int walk_component(struct nameidata *nd, int flags)
+{
+	struct path path;
+	struct inode *inode;
+	unsigned seq;
+	int err;
+
+	if (unlikely(nd->last_type != LAST_NORM)) {
+		err = handle_dots(nd, nd->last_type);
+		if (!(flags & WALK_MORE) && nd->depth)
+			put_link(nd);
+		return err;
+	}
+	err = lookup_fast(nd, &path, &inode, &seq);
+	if (unlikely(err <= 0)) {
+		if (err < 0)
+			return err;
+		path.dentry = lookup_slow(&nd->last, nd->path.dentry,
+					  nd->flags);
+		if (IS_ERR(path.dentry))
+			return PTR_ERR(path.dentry);
+
+		path.mnt = nd->path.mnt;
+		err = follow_managed(&path, nd);
+		if (unlikely(err < 0))
+			return err;
+
+		if (unlikely(d_is_negative(path.dentry))) {
+			path_to_nameidata(&path, nd);
+			return -ENOENT;
+		}
+
+		seq = 0;	/* we are already out of RCU mode */
+		inode = d_backing_inode(path.dentry);
+	}
+
+	return step_into(nd, &path, flags, inode, seq);
+}
+```
+其中，nd->last_type 为下级文件的标志位，这是一个枚举值，LAST_NORM 表示正常文件或目录，还有 LAST_DOT LAST_DOTDOT ，表示为 . 和 ..，linux 中，. 表示当前目录，而 .. 表示上级目录。  
+
+调用 lookup_fast，这个函数尝试从 dentry 缓存中找到下一级 dentry 目录项，找到的目录项给 nd->path.dentry 赋值。  
+
+但是，并非所有的文件在系统启动时都生成了对应的 dentry，通常是在需要的时候生成，然后缓存在系统中以便后续使用。  
+
+当系统内没有对应的 dentry 时，lookup_fast 将执行失败，转而执行 lookup_slow 和 follow_managed，其中 lookup_slow 负责创建新的 dentry，而 follow_managed 负责设置 dentry。调用这两个函数，对应的 dentry 就创建好了，并保存在内存中，下次使用时无需再次创建，可以直接使用。  
+
+
+找到了 dentry 之后，可以直接通过 dentry->d_inode 获取对应的 inode 节点。  
+
+
+
