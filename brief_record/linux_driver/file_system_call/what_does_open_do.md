@@ -393,7 +393,7 @@ void __fd_install(struct files_struct *files, unsigned int fd,
 }
 
 ```
-也就是将 current->files->fdt->fd[fd] 设置为传入的 struct file 结构。  
+也就是将 current->files->fdt->fd[fd] 设置为传入的 struct file 结构。    
 
 
 
