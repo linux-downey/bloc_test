@@ -78,12 +78,130 @@ spi 设备子节点总，该 rtc 节点将被解析为 struct spi_device 结构�
 
 ds1302 的 probe 源码如下：
 ```C
+static int ds1302_probe(struct spi_device *spi)
+{
+	struct rtc_device	*rtc;
+	u8		addr;
+	u8		buf[4];
+	int		status;
+
+    ...
+	addr = RTC_ADDR_CTRL << 1 | RTC_CMD_READ;
+	status = spi_write_then_read(spi, &addr, sizeof(addr), buf, 1);
+	if (status < 0) {
+		dev_err(&spi->dev, "control register read error %d\n",
+				status);
+		return status;
+	}
+	
+	spi_set_drvdata(spi, spi);
+
+	rtc = devm_rtc_device_register(&spi->dev, "ds1302",
+			&ds1302_rtc_ops, THIS_MODULE);
+	if (IS_ERR(rtc)) {
+		status = PTR_ERR(rtc);
+		dev_err(&spi->dev, "error %d registering rtc\n", status);
+		return status;
+	}
+
+	return 0;
+}
+
+```
+为了专注于框架的分析，省略去对设备的框架无关操作：主要是检查当前设备支持的 spi 属性是否和设备树提供的匹配，同时对 ds1302 做一些初始化的操作。  
+
+可以看到，ds1302 是基于 spi 的 RTC 驱动，因为在设备树中作为 spi controller 节点，所以被解析成 struct spi_device 结构，当需要进行 spi 的读写时，直接调用 spi 相关 api，将 struct spi_device 结构传入即可完成数据的传输。因为在 spi 设备树节点中，已经指定了需要使用的 spi 控制器、传输速率、传输模式等。  
+
+这里我们需要特别关注的是：devm_rtc_device_register()，这是 RTC 驱动的关键部分：将一个 RTC 结构注册到内核中。   
+
+注册成功之后，将会在 /sys/class 目录下生成驱动相关操作文件，以及在 /dev/ 下生成相应的设备文件，通常是 /dev/rtcn。在用户空间就可以通过这些接口对 RTC 进行读写操作。  
+
+在函数 devm_rtc_device_register(&spi->dev, "ds1302",&ds1302_rtc_ops, THIS_MODULE) 中，它的函数原型是这样的：
+```C
+struct rtc_device *devm_rtc_device_register(struct device *dev,
+					                    const char *name,
+					                    const struct rtc_class_ops *ops,
+					                    struct module *owner)
 ```
 
+共传入四个参数：
+* dev:这是一个 struct device 类型的参数，这个参数是针对内核的资源管理，主要是传递给内核资源的自动回收机制，并不针对 RTC 的注册。  
+* name:RTC 的名字，事实上，这个名字并没有被用在内核中，而是仅仅在 debug 的过程使用，当驱动导出用户操作文件到 /sys/ 目录下或者 /dev/ 下的设备文件名是以 /dev/rtcn 命名，又或者以driger.name 命名，通常是 rtc-ds1302。  
+* ops：这个就是我们非常熟悉的 ops 类函数集，按照过往的经验，它就是 RTC 设备读写的回调函数集了，当用户操作该 rtc 设备时，就会调用到该函数集中对应的函数。  
+* owner：指定当前驱动的属主，在 insmod 的时候进行绑定，主要用于模块的引用计数，从而控制模块的加载卸载。  
+
+
+既然说到回调函数，自然是要看看 RTC 的回调函数集：
+```
+struct rtc_class_ops {
+	int (*ioctl)(struct device *, unsigned int, unsigned long);
+	int (*read_time)(struct device *, struct rtc_time *);
+	int (*set_time)(struct device *, struct rtc_time *);
+	int (*read_alarm)(struct device *, struct rtc_wkalrm *);
+	int (*set_alarm)(struct device *, struct rtc_wkalrm *);
+	int (*proc)(struct device *, struct seq_file *);
+	int (*set_mmss64)(struct device *, time64_t secs);
+	int (*set_mmss)(struct device *, unsigned long secs);
+	int (*read_callback)(struct device *, int data);
+	int (*alarm_irq_enable)(struct device *, unsigned int enabled);
+	int (*read_offset)(struct device *, long *offset);
+	int (*set_offset)(struct device *, long offset);
+	void (*power_off_program)(struct device *);
+};
+```
+整个回调函数集内核不少，主要分为三类：
+* RTC 的基本操作，包括读(read)、写(set)、读回调、关机指令等。
+* 闹钟的读(read)、写(set),因为某些 RTC 设备还支持闹钟功能，甚至还有一些带有中断引脚，将 RTC 的中断引脚连接到 CPU 的 IO 上，就可以实现中断通知功能
+* readd/set offset:这两个函数主要针对于带有存储器的 RTC 设备，设置读写偏移地址。  
+
+
+对于 ds1302 而言，功能实现非常简单，就是简单的读写：
+```C
+static int ds1302_rtc_set_time(struct device *dev, struct rtc_time *time)
+{
+	struct spi_device	*spi = dev_get_drvdata(dev);
+	u8		buf[1 + RTC_CLCK_LEN];
+	u8		*bp = buf;
+	int		status;
+
+	/* Enable writing */
+	bp = buf;
+	...
+
+	status = spi_write_then_read(spi, buf, 2,
+			NULL, 0);
+    ...
+
+	return spi_write_then_read(spi, buf, sizeof(buf),
+			NULL, 0);
+}
+
+static int ds1302_rtc_get_time(struct device *dev, struct rtc_time *time)
+{
+	struct spi_device	*spi = dev_get_drvdata(dev);
+	u8		addr = RTC_CLCK_BURST << 1 | RTC_CMD_READ;
+	u8		buf[RTC_CLCK_LEN - 1];
+	int		status;
+    ...
+	status = spi_write_then_read(spi, &addr, sizeof(addr),
+			buf, sizeof(buf));
+    ...
+	return rtc_valid_tm(time);
+}
+
+static const struct rtc_class_ops ds1302_rtc_ops = {
+	.read_time	= ds1302_rtc_get_time,
+	.set_time	= ds1302_rtc_set_time,
+};
+```
+
+两个读写函数也没有什么特别的，读函数就是通过 spi 总线将数据从 RTC 设备中读出来，放到传入的指针参数处。而写函数就是将用户传入的 struct rtc_time 结构的时间参数通过 SPI 对 RTC 设备进行对应的设置。  
 
 
 
-1、rtc 分为好几种，内部rtc(直接连到总线上，比如ds1612)，外部rtc(spi,i2c，比如ds1307)，在驱动程序设计上的区别。
+
+
+
 2、devm_rtc_device_register：传入的三个参数
 3、rtc_device_register 的调用：
     rtc_allocate_device：
