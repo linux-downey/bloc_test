@@ -1,0 +1,109 @@
+对于 input 设备的设备命名，从0往上递增，递增的值采用静态变量，同时使用 atomic_t 修饰。  
+
+必须先 input_allocate_device
+
+
+input_register_device()
+{
+	如果 EV_ABS 被设置，但是 abs->absinfo 没有设置，注册失败
+	
+	如果 devres_managed 被设置为1，加入设备资源管理系统。
+	
+	所有添加到系统中的 input device 都将被链接到一个链表中。
+	list_add_tail(&dev->node, &input_dev_list);  
+	
+	对于内核中的每一个handler，被链接到 input_handler_list中，然后让 dev 进行链接
+	list_for_each_entry(handler, &input_handler_list, node)
+		input_attach_handler(dev, handler);
+		
+	
+}
+
+
+
+
+
+整个 input device 在 drivers/input/input.c 中被初始化。  
+
+static int __init input_init(void)
+{
+	int err;
+
+	err = class_register(&input_class);
+
+	err = input_proc_init();
+
+	err = register_chrdev_region(MKDEV(INPUT_MAJOR, 0),
+				     INPUT_MAX_CHAR_DEVICES, "input");
+
+	return 0;
+}
+
+
+
+在 evdev 中，将 handler 链接到 input_handler_list 中。
+遍历整个 input dev ，进行匹配。
+int input_register_handler(struct input_handler *handler)
+{
+	struct input_dev *dev;
+	int error;
+
+	error = mutex_lock_interruptible(&input_mutex);
+	if (error)
+		return error;
+
+	INIT_LIST_HEAD(&handler->h_list);
+
+	list_add_tail(&handler->node, &input_handler_list);
+
+	list_for_each_entry(dev, &input_dev_list, node)
+		input_attach_handler(dev, handler);
+
+	input_wakeup_procfs_readers();
+
+	mutex_unlock(&input_mutex);
+	return 0;
+}
+
+
+evdev 和 cdev 进行绑定
+
+open函数中设置一个 client
+
+在 event 文件的 open 函数中，获取evdev，client->evdev = evdev
+
+evdev_attach_client(evdev, client);
+将 client 加到 evdev 的的 client_list 中。
+
+handle 被加入到 dev->h_list 中。
+
+一个handle是一个 handler与dev绑定的结果。handle 与 evdev 互相包含，handle.private=evdev,evdev中存在handle结构。
+connect中input_register_handle(),将 handle 链接到 dev->h_list 中
+
+
+判断对应的 evdev 是否有事件，evdev->exist
+
+
+用户上传用 
+input_envet();
+input_sync();
+
+void input_event(struct input_dev *dev,
+		 unsigned int type, unsigned int code, int value)
+
+input_sync 也是调用 input_event函数，只是传入的 type 是 EV_SYN，code 是 SYN_REPORT,value = 0
+
+input_dev 中有一个 struct input_value *vals;
+input_event 时就是将传入的 type/code/value 赋值给 input_dev->vals[input_dev->vals_num++]
+
+
+
+input_pass_values
+	input_to_handler
+		handler_events
+		handler_event
+			//只有使用 open 打开对应的 event 文件时，client才会被添加到evdev->client_list 中。
+			list_for_each_entry_rcu(client, &evdev->client_list, node)
+				evdev_pass_values(client, vals, count, ev_time);
+					__pass_event()  讲数据放在 client中，读取的时候就是从 client中读取
+						
