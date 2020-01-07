@@ -101,9 +101,10 @@ input_register_device(gpio_dev);
 static int input_attach_handler(struct input_dev *dev, struct input_handler *handler)
 {
 	const struct input_device_id *id;
-
+	//匹配部分
 	id = input_match_device(handler, dev);
 
+	//连接部分
 	error = handler->connect(handler, dev, id);
 
 	return error;
@@ -170,4 +171,28 @@ match 中的另一部分为判断 (!handler->match || handler->match(handler, de
 
 
 ## handler->connect()
-在 input_attach_handler 中，除了匹配(match)，还有另一部分：连接(connect)。连接的源码直接是调用所注册 handler 的 .connect 成员.
+在 input_attach_handler 中，除了匹配(match)，还有另一部分：连接(connect)。连接的源码直接是调用所注册 handler->connect 成员.   
+
+以下是注册 evdev 的 handler 部分源码：
+```
+static int evdev_connect(struct input_handler *handler, struct input_dev *dev,
+			 const struct input_device_id *id)
+{
+	struct evdev *evdev;
+	...
+	dev_set_name(&evdev->dev, "event%d", dev_no);
+
+	evdev->handle.dev = input_get_device(dev);
+	evdev->handle.name = dev_name(&evdev->dev);
+	evdev->handle.handler = handler;
+	evdev->handle.private = evdev;
+	...
+
+	return 0;
+}
+```
+
+在 connect 函数中根据 handler 和 dev 创建了一个 handle 结构并赋值，在后续的上报处理部分就由该结构进行处理。  
+
+
+
