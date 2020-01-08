@@ -186,13 +186,44 @@ static int evdev_connect(struct input_handler *handler, struct input_dev *dev,
 	evdev->handle.name = dev_name(&evdev->dev);
 	evdev->handle.handler = handler;
 	evdev->handle.private = evdev;
+
+	error = input_register_handle(&evdev->handle);
 	...
 
 	return 0;
 }
 ```
 
-在 connect 函数中根据 handler 和 dev 创建了一个 handle 结构并赋值，在后续的上报处理部分就由该结构进行处理。  
+
+在 connect 函数中根据 handler 和 dev 创建了一个 handle 结构并赋值，同时将该 handle 注册到系统中，具体的注册行为如下：
+
+```
+int input_register_handle(struct input_handle *handle)
+{
+	struct input_handler *handler = handle->handler;
+	struct input_dev *dev = handle->dev;
+	int error;
+
+	//根据 handler->filter 是否设置决定将 handle 链接到 dev->h_list 中的位置。
+	if (handler->filter)
+		list_add_rcu(&handle->d_node, &dev->h_list);
+	else
+		list_add_tail_rcu(&handle->d_node, &dev->h_list);
+
+	//将 handle 链接到 handler->h_list 中
+	list_add_tail_rcu(&handle->h_node, &handler->h_list);
+
+	//调用 handler->start 回调函数.
+	if (handler->start)
+		handler->start(handle);
+
+	return 0;
+}
+```
+
+所以,注册 handle 到系统中就是建立 handle 与 dev/handler 之间的连接关系,方便需要的时候进行索引.  
+
+同时,调用 handler->start ,进行一些早期的初始化工作.  
 
 
 

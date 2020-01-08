@@ -88,7 +88,72 @@ module_init(evdev_init);
 
 上一章中提到，每一次添加 dev 或者 handler 到系统中，都将触发系统的匹配，当匹配上时，将会调用 handler->connect 接口，这个接口除了构建一个 handle 之外，同时也负责创建设备节点。   
 
-在 connect 函数中创建设备节点，
+```
+
+struct evdev {
+    ...
+	struct input_handle handle;
+	struct list_head client_list;
+	struct device dev;
+	struct cdev cdev;
+    ...
+};
+
+static int evdev_connect(struct input_handler *handler, struct input_dev *dev,
+			 const struct input_device_id *id)
+{
+	struct evdev *evdev;
+    int minor;
+    
+    ...
+
+    minor = input_get_new_minor(EVDEV_MINOR_BASE, EVDEV_MINORS, true);
+
+    evdev->dev.devt = MKDEV(INPUT_MAJOR, minor);
+	evdev->dev.class = &input_class;
+	evdev->dev.parent = &dev->dev;
+	evdev->dev.release = evdev_free;
+	device_initialize(&evdev->dev);
+
+	cdev_init(&evdev->cdev, &evdev_fops);
+
+	error = cdev_device_add(&evdev->cdev, &evdev->dev);
+
+    ...
+
+}
+```
+
+在 connect 函数中，申请了一个 struct evdev 类型的结构体，这个结构体中包含了 handle、struct cdev 类型的 dev，其中 struct cdev 就是构建字符设备的核心结构体。  
+
+在上述函数中，首先从 input 子系统中申请一个空闲的次设备号，由此得出设备号，再赋值 class，设置 parent 等。  
+
+接着，调用熟悉的 cdev_init 和 cdev_device_add 接口,在 /dev 和 /sys 目录下创建设备接口.  
+
+其中值得关注的就是 struct file_operations 类型的 evdev_fops.这个结构体中的回调函数直接对应着用户对设备接口的访问:
+
+```
+static const struct file_operations evdev_fops = {
+	.owner		= THIS_MODULE,
+	.read		= evdev_read,
+	.write		= evdev_write,
+	.poll		= evdev_poll,
+	.open		= evdev_open,
+	.release	= evdev_release,
+	.unlocked_ioctl	= evdev_ioctl,
+#ifdef CONFIG_COMPAT
+	.compat_ioctl	= evdev_ioctl_compat,
+#endif
+	.fasync		= evdev_fasync,
+	.flush		= evdev_flush,
+	.llseek		= no_llseek,
+};
+```
+其中包括 .open/.read/.write/.poll/ 等操作接口. 对应着用户对设备(例如 /dev/input/event1)的打开/读/写等操作.  
+
+
+
+
 
 
 
