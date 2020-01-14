@@ -1,7 +1,158 @@
 # linux 等待队列
 在 linux 中，进程的调度都是由内核来完成，而在内核中，控制进程调度使用得最频繁的接口莫过于等待队列了。  
 
-它使用一个链表来管理进程，
+
+## 等待资源的方式
+当一个进程需要请求某项资源而无法满足要求时，通常需要等待该资源才能继续运行，而等待资源一般分两种方式：轮询和睡眠。  
+
+在不同情况下使用这两种方式本质上都是出于效率的考量，在常规的印象中，睡眠等待肯定是比轮询效率更高，因为它的在等待的过程中将系统资源让给其他进程在运行。从宏观上来讲，这个说法是正确的，但是情况往往比单纯的想象要复杂。  
+
+### 轮询
+首先，中断中不能睡眠，它并不涉及到任何进程的上下文，进程的睡眠唤醒在中断中也就无从说起。  
+
+同时，事实上并不是在所有情况下睡眠都比轮询要好，当等待的资源可以确认在很短的事件内返回时，可以使用轮询机制。通常，这个很短的事件通常要比一次系统的进程调度开销要小，在这种情况下，调度一次进程倒不如占着 CPU 就地等待，虽然这种实现看起来不够优美。这种实现的典型代表就是内核中的 spinlock，自旋锁。  
+
+### 睡眠
+进程向内核请求资源导致睡眠的情况也有多种，比较典型的场景是作用于同步和数据请求。  
+
+信号量、互斥锁这一类的，专门用于进程之间的协调与同步。   
+
+话说回来，Linux 内核是一个服务层，向用户空间提供系统服务，所以更多的需求通常是一些数据 IO 的交互，比如最常见的阻塞型 read、write 接口与内核的交互，通常这一类
+接口的数据同步在内核中由等待队列来实现。  
+
+
+## 等待队列  
+等待队列的底层实现是链表，需要初始化一个链表头，然后将需要等待资源的进程挂在这个链表中。  
+
+当我们排队买奶茶的时候，店家(生产者)的生产速度跟不上请求的速度，于是每一个想要买奶茶的人先到前台领号，找个地方坐下等。当店家做好一杯之后，广播中响起了叫号声，每个手持号码的人将自己的号和广播中的叫号对比，如果不是自己的，继续低头玩手机或者做其他事，如果是自己的号，就到柜台领奶茶，将小票扔到垃圾桶。  
+
+有时候你会发现这个世界是多么的奇妙，等待队列的机制居然和买奶茶几乎一样，当新进来的请求资源进程过多导致当前的资源无法满足时，维护一个等待队列，所有进程在这个链表上注册并带着唤醒条件等待。当系统生产出一份等待队列中进程需要的资源时，就将整个队列中的进程临时唤醒，每个唤醒的进程查看这份资源是不是自己的，如果是，就从等待队列中退出，心满意足地带着获取到的资源进行下一步动作。如果不是，那就继续睡眠，接着等。  
+
+
+## 进程的运行与休眠
+每一个进程都被标记为多种状态，抛开那些繁杂的细节，我们真正关心的就是两种状态：
+* 可运行状态
+* 非可运行状态
+
+内核维护一个就绪队列，所有处于可运行状态的进程都在该队列中等待进程的调度，系统会根据调度策略来选取下一个可以投入运行的进程，而一个进程独占CPU运行太长时间通常是不可能的，一个进程处于可运行状态表示它将在不久的将来(通常是接下来的数次调度中，ms级别)将会被投入运行。  
+
+非可运行状态通常就是睡眠，或者退出。一个进程状态的切换只需要两个简单的接口：
+
+```C
+set_current_state(TASK_INTERRUPTIBLE);
+schedule()
+```
+TASK_INTERRUPTIBLE 表示可接收信号的休眠状态，这个参数表示需要设置的进程状态，设置状态可以是其他值，这些值在 include/linux/sched.h中定义，有 TASK_RUNNING/TASK_INTERRUPTIBLE/TASK_UNINTERRUPTIBLE 等，分别代表着进程不同的状态。  
+
+而 schedule 函数将启动系统调度器，由系统根据具体的调度算法在就绪队列中选择合适的进程运行。  
+
+但是，如果直接这样进行进程的调度，并不利于进程的管理，等待队列本质上就是在其基础上进行封装，加上一个由链表操作为核心的管理层。  
+
+## 等待队列接口
+
+### 等待队列头
+等待队列头的结构体为 struct wait_queue_head：
+
+```C
+struct wait_queue_head {
+	spinlock_t		lock;
+	struct list_head	head;
+};
+```
+和普通链表节点不一样的是，等待队列头和节点是两个不同的结构，等待队列头结点包含两个成员：自旋锁和链表节点。其中，自旋锁主要是防止多进程同时操作该链表时产生竞态而导致数据混乱。  
+
+### 等待队列节点
+等待队列节点的结构体由 struct wait_queue_entry 来描述：
+
+```C
+struct wait_queue_entry {
+	unsigned int		flags;
+	void			*private;
+	wait_queue_func_t	func;
+	struct list_head	entry;
+};
+```
+节点由四个成员组成
+* flags：表示当前节点的状态，也就是需要设置的进程状态，也可能是状态组合。
+* private：私有数据成员，通常用来保存进程的进程控制块，也就是一个进程的 task_struct 结构。
+* func：对应的唤醒函数，回调函数，在系统唤醒该节点对应的进程时被调用。
+* entry：链表节点，用于挂在链表中。  
+
+### 加入等待队列接口
+常用的将进程加入等待队列的函数调用实现主要有以下几个函数：
+* wait_event(wq_head, condition):将当前运行进程加入到等待队列 wq_head 中，并设置 condition 条件，当系统唤醒该进程时，必须同时满足 condition 为 true，进程才会继续执行。
+* wait_event_timeout(wq_head, condition, timeout)：在 wait_event 的基础上设置超时时间，当超过 timeout 而 condition 不为 true 时也会唤醒该进程，并继续运行。  
+* wait_event_interruptible(wq_head, condition)：在 wait_event 的基础上响应信号的处理，即使在睡眠状态，当该进程有信号传来时，响应信号并处理。
+* wait_event_interruptible_timeout(wq_head, condition, timeout)：在 wait_event 的基础上增加超时和信号处理响应。  
+
+### 唤醒等待队列接口
+常见的唤醒等待队列接口实现主要有以下几个函数：
+wake_up(x)：传入的参数 x 为当前等待队列头节点，唤醒队列上因为调用 wait_event 接口陷入休眠的进程。
+wake_up_all(x):传入的参数 x 为当前等待队列头节点，唤醒队列上因为调用 wait_event_interruptible 接口陷入休眠的进程。
+wake_up_interruptible(x):唤醒等待队列上所有的进程。
+
+
+
+```C
+//××××××××××××××××××××××××××××××××唤醒函数所做的事情×××××××××××××××
+//唤醒每个等待队列上的进程，并从等待队列中删除
+int default_wake_function(wait_queue_entry_t *curr, unsigned mode, int wake_flags,
+			  void *key)
+{
+	return try_to_wake_up(curr->private, mode, wake_flags);
+}
+
+
+int autoremove_wake_function(struct wait_queue_entry *wq_entry, unsigned mode, int sync, void *key)
+{
+	int ret = default_wake_function(wq_entry, mode, sync, key);
+
+	if (ret)
+		list_del_init(&wq_entry->entry);
+	return ret;
+}
+
+```
+
+```C
+
+static inline int signal_pending_state(long state, struct task_struct *p)
+{
+	if (!(state & (TASK_INTERRUPTIBLE | TASK_WAKEKILL)))
+		return 0;
+	//没有信号处理的时候走这个分支。  
+	if (!signal_pending(p))
+		return 0;
+	//有信号处理的时候走这个分支。  
+	return (state & TASK_INTERRUPTIBLE) || __fatal_signal_pending(p);
+}
+
+long prepare_to_wait_event(struct wait_queue_head *wq_head, struct wait_queue_entry *wq_entry, int state)
+{
+	unsigned long flags;
+	long ret = 0;
+	//轮询检查是否有信号要处理，如果没有，返回0，如果有，返回1
+	if (unlikely(signal_pending_state(state, current))) {
+		
+		list_del_init(&wq_entry->entry);
+		//进而返回错误码，通知上层跳出进程睡眠，被唤醒
+		ret = -ERESTARTSYS;
+		
+	}
+	//否则，将当前节点添加到等待队列中，并设置进程状态为用户传入的设置状态。 
+	else {
+		if (list_empty(&wq_entry->entry)) {
+			if (wq_entry->flags & WQ_FLAG_EXCLUSIVE)
+				__add_wait_queue_entry_tail(wq_head, wq_entry);
+			else
+				__add_wait_queue(wq_head, wq_entry);
+		}
+		set_current_state(state);
+	}
+
+	return ret;
+}
+```
 
 ```C
 #define ___wait_event(wq_head, condition, state, exclusive, ret, cmd)		\
@@ -11,8 +162,11 @@
 	long __ret = ret;	/* explicit shadow */				\
 										\
     //初始化 wait_entry 节点，故名思义，就是 wait_queue 中的节点
+	//设置flag、设置当前进程task_struct 为private，设置唤醒的回调函数，在需要唤醒时调用，wq_entry->func = autoremove_wake_function;
+
 	init_wait_entry(&__wq_entry, exclusive ? WQ_FLAG_EXCLUSIVE : 0);	\
-	for (;;) {								\
+	for (;;) {	
+		//准备进入等待队列							\
 		long __int = prepare_to_wait_event(&wq_head, &__wq_entry, state);\
 										\
 		if (condition)							\
@@ -67,6 +221,7 @@ __out:	__ret;									\
 
 //调用 ___wait_event
 //传入的参数中 TASK_UNINTERRUPTIBLE、schedule_timeout(__ret) 需要关注
+//
 
 #define __wait_event_timeout(wq_head, condition, timeout)			\
 	___wait_event(wq_head, ___wait_cond_timeout(condition),			\
@@ -91,5 +246,74 @@ __out:	__ret;									\
 
 
 
+
+
+```C
+
+signed long __sched schedule_timeout(signed long timeout)
+{
+	struct timer_list timer;
+	unsigned long expire;
+
+	switch (timeout)
+	{
+	case MAX_SCHEDULE_TIMEOUT:
+		/*
+		 * These two special cases are useful to be comfortable
+		 * in the caller. Nothing more. We could take
+		 * MAX_SCHEDULE_TIMEOUT from one of the negative value
+		 * but I' d like to return a valid offset (>=0) to allow
+		 * the caller to do everything it want with the retval.
+		 */
+		schedule();
+		goto out;
+	default:
+		/*
+		 * Another bit of PARANOID. Note that the retval will be
+		 * 0 since no piece of kernel is supposed to do a check
+		 * for a negative retval of schedule_timeout() (since it
+		 * should never happens anyway). You just have the printk()
+		 * that will tell you if something is gone wrong and where.
+		 */
+		if (timeout < 0) {
+			printk(KERN_ERR "schedule_timeout: wrong timeout "
+				"value %lx\n", timeout);
+			dump_stack();
+			current->state = TASK_RUNNING;
+			goto out;
+		}
+	}
+
+	expire = timeout + jiffies;
+
+	setup_timer_on_stack(&timer, process_timeout, (unsigned long)current);
+	__mod_timer(&timer, expire, false);
+	schedule();
+	del_singleshot_timer_sync(&timer);
+
+	/* Remove the timer from the object tracker */
+	destroy_timer_on_stack(&timer);
+
+	timeout = expire - jiffies;
+
+ out:
+	return timeout < 0 ? 0 : timeout;
+}
+
+
+#define __wait_event_timeout(wq_head, condition, timeout)			\
+	___wait_event(wq_head, ___wait_cond_timeout(condition),			\
+		      TASK_UNINTERRUPTIBLE, 0, timeout,				\
+		      __ret = schedule_timeout(__ret))
+
+#define wait_event_timeout(wq_head, condition, timeout)				\
+({										\
+	long __ret = timeout;							\
+	might_sleep();								\
+	if (!___wait_cond_timeout(condition))					\
+		__ret = __wait_event_timeout(wq_head, condition, timeout);	\
+	__ret;									\
+})
+```
 
 
