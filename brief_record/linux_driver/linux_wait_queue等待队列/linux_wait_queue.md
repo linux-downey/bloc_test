@@ -83,15 +83,222 @@ struct wait_queue_entry {
 * wait_event(wq_head, condition):将当前运行进程加入到等待队列 wq_head 中，并设置 condition 条件，当系统唤醒该进程时，必须同时满足 condition 为 true，进程才会继续执行。
 * wait_event_timeout(wq_head, condition, timeout)：在 wait_event 的基础上设置超时时间，当超过 timeout 而 condition 不为 true 时也会唤醒该进程，并继续运行。  
 * wait_event_interruptible(wq_head, condition)：在 wait_event 的基础上响应信号的处理，即使在睡眠状态，当该进程有信号传来时，响应信号并处理。
-* wait_event_interruptible_timeout(wq_head, condition, timeout)：在 wait_event 的基础上增加超时和信号处理响应。  
+* wait_event_interruptible_timeout(wq_head, condition, timeout)：在 wait_event 的基础上增加超时和信号处理响应，也就是在接收到信号之后，唤醒进程并去处理。  
 
 ### 唤醒等待队列接口
 常见的唤醒等待队列接口实现主要有以下几个函数：
 wake_up(x)：传入的参数 x 为当前等待队列头节点，唤醒队列上因为调用 wait_event 接口陷入休眠的进程。
 wake_up_all(x):唤醒等待队列上所有的进程。
-wake_up_interruptible(x):传入的参数 x 为当前等待队列头节点，唤醒队列上因为调用 wait_event_interruptible 接口陷入休眠的进程。
+wake_up_interruptible(x):传入的参数 x 为当前等待队列头节点，唤醒队列上因为调用 wait_event_interruptible 接口陷入休眠的进程。  
 
 
+### 等待队列示例
+讲解完接口的使用，自然是需要编写一个对应的驱动程序才能加深对接口的理解，下面是一个等待队列的示例：
+
+```
+#include <linux/init.h>
+#include <linux/module.h>
+#include <linux/device.h>
+#include <linux/kernel.h>
+#include <linux/fs.h>
+#include <linux/uaccess.h>
+#include <linux/cdev.h>
+#include <linux/wait.h>
+#include <linux/slab.h>
+#include <linux/timer.h>
+
+MODULE_AUTHOR("Downey");
+MODULE_LICENSE("GPL");
+
+int majorNumber;
+dev_t dev_id;
+struct cdev basic_cdev;
+struct class *basic_class;
+struct device *basic_device;
+
+struct wait_queue_head wq;
+
+struct basic_struct{
+        struct timer_list timer;
+        int flag;
+};
+int flag = 0;
+static const char *CLASS_NAME = "basic_class";
+static const char *DEVICE_NAME = "basic_demo";
+
+
+void timer_cb(unsigned long data)
+{
+
+    printk("timer_callback\n");
+    struct basic_struct *basic = (struct basic_struct*)data;
+    if(NULL == basic) {
+        printk("basic = null!\n");
+
+        return;
+    }
+	//flag 被设置为唤醒的 condition，在这里置位1。
+    flag = 1;
+	//定时回调函数，唤醒队列上所有进程
+    wake_up(&wq);
+}
+
+static int basic_open(struct inode *node, struct file *file)
+{
+    printk("open!\n");
+    struct basic_struct *basic = kmalloc(sizeof(struct basic_struct),GFP_KERNEL);
+    if(IS_ERR(basic))
+        return -ENOMEM;
+    flag = 0;
+
+    init_timer(&basic->timer);
+    basic->timer.function = timer_cb;
+    basic->timer.expires = jiffies + 3 * HZ;
+    basic->timer.data = (unsigned long)basic;
+    add_timer(&basic->timer);
+
+
+    file->private_data = basic;
+
+    return 0;
+}
+
+static ssize_t basic_read(struct file *file,char *buf, size_t len,loff_t *offset)
+{
+
+    struct basic_struct *basic = (struct basic_struct*)file->private_data;
+    if(flag != 1){
+            printk("wait for flag!\n");
+			//调用 wait_event 等待 flag 被置1。
+            wait_event(wq,flag);
+            if(1 == flag){
+                flag = 0;
+                printk("wait for flag over!\n");
+            }
+    }
+    return 0;
+}
+
+static ssize_t basic_write(struct file *file,const char *buf,size_t len,loff_t *offset)
+{
+    return len;
+}
+
+static int basic_release(struct inode *node,struct file *file)
+{
+    printk("close!\n");
+    struct basic_struct *basic = (struct basic_struct*)file->private_data;
+
+    del_timer(&basic->timer);
+    kfree(basic);
+    return 0;
+}
+
+static struct file_operations file_oprts =
+{
+    .open = basic_open,
+    .read = basic_read,
+    .write = basic_write,
+    .release = basic_release,
+};
+
+
+static int __init basic_init(void)
+{
+    int ret;
+    printk(KERN_ALERT "Driver init\r\n");
+    ret = alloc_chrdev_region(&dev_id,0,2,DEVICE_NAME);
+    if(ret){
+
+        printk(KERN_ALERT "Alloc chrdev region failed!!\r\n");
+        return -ENOMEM;
+    }
+    majorNumber = MAJOR(dev_id);
+    cdev_init(&basic_cdev,&file_oprts);
+    ret = cdev_add(&basic_cdev,dev_id,2);
+
+    basic_class = class_create(THIS_MODULE,CLASS_NAME);
+    basic_device = device_create(basic_class,NULL,MKDEV(majorNumber,0),NULL,DEVICE_NAME);
+    printk(KERN_INFO "major = %d,mino = %d\n",MAJOR(dev_id),MINOR(dev_id));
+    printk(KERN_ALERT "Basic device init success!!\r\n");
+
+    init_waitqueue_head(&wq);
+    return 0;
+}
+
+static void __exit basic_exit(void)
+{
+    device_destroy(basic_class,MKDEV(majorNumber,0));
+    class_unregister(basic_class);
+    class_destroy(basic_class);
+    cdev_del(&basic_cdev);
+    unregister_chrdev_region(dev_id,2);
+}
+
+module_init(basic_init);
+module_exit(basic_exit);
+
+```
+在该示例中，演示了下列的流程：
+* 在 /dev/ 目录下创建一个设备节点，名为 /dev/basic_demo
+* 在 open 函数中创建一个定时器，在启动后 3s 到时，并执行回调函数，该回调函数将 flag 置1，并唤醒队列.
+* 在 read 函数中调用 wait_event() condition 为 flag ，即如果要唤醒该进程，就需要调用 wake_up() 系列函数同时 flag 为 1。
+
+有一个细节部分需要注意的是，对每一个进程，对应一个单独的 open 函数，也就是每个进程在访问时都会使用一个独立的定时器。   
+
+而 flag 和等待队列头是全局变量，事实上，通常情况下，除了等待队列头，每个进程都应该单独有一份数据，包括它的condition，而这里把 condition(flag)设置为全局变量只是为了提供示例的说明效果，继续见下文。  
+
+### 实验现象和方法
+编译并加载该内核，输出调试信息：
+
+```
+Jan 15 15:15:48 : [ 2630.572425] Driver init
+Jan 15 15:15:48 : [ 2630.580785] major = 241,mino = 0
+Jan 15 15:15:48 : [ 2630.580801] Basic device init success!
+```
+
+使用 cat 指令读取文件, cat /dev/basic_demo ,输出为:
+
+```
+Jan 15 15:18:24 : [ 2786.343255] open!
+Jan 15 15:18:24 : [ 2786.343355] wait for flag!
+
+Jan 15 15:18:27 : [ 2789.536545] timer_callback
+Jan 15 15:18:27 : [ 2789.536687] wait for flag over!
+Jan 15 15:18:27 : [ 2789.536853] close!
+```
+可以看到，open 到 close 的过程间隔了 3s，也就是定时回调被调用时，用户进程才得以返回，否则终端显示的 cat /dev/basic_demo 就一直处于阻塞状态。   
+
+
+编写内核驱动的时候，我们一定要注意一个问题，就是你编写的代码是服务程序，通常会存在多个用户进程访问该驱动，所以，我们就同时打开两个终端，先后每个终端先后调用 cat /dev/basic_demo，它的输出是这样的：
+
+
+```
+//终端1打开
+Jan 15 15:24:37 : [ 3159.672634] open!
+Jan 15 15:24:37 : [ 3159.672736] wait for flag!
+//终端2打开
+Jan 15 15:24:40 : [ 3162.072924] open!
+Jan 15 15:24:40 : [ 3162.073026] wait for flag!
+
+//终端1唤醒
+Jan 15 15:24:40 : [ 3162.814158] timer_callback
+Jan 15 15:24:40 : [ 3162.814297] wait for flag over!
+Jan 15 15:24:40 : [ 3162.814469] close!
+//终端2唤醒
+Jan 15 15:24:43 : [ 3165.118344] timer_callback
+Jan 15 15:24:43 : [ 3165.118489] wait for flag over!
+Jan 15 15:24:43 : [ 3165.118646] close!
+
+```
+结果也在预料之内，因为打开了两个终端，所以会创建两个定时器，执行两次定时回调函数，但是这里有个问题：两个进程都在同一个等待队列上进行睡眠，而且 condition 也是同一个(flag)，为什么每一次唤醒都只唤醒了一个？  
+
+事实上，在上面的示例中，理论上进入到定时回调函数中时，wake_up 将会先后唤醒两个进程，同时将 flag 置1，但是在 basic_read 函数中，唤醒第一个进程之后又将 flag 置为 0，所以导致第二个进程被唤醒之后又因为 condition 为 false 又进入睡眠。   
+
+如果你将 basic_read 中的 flag = 0 这条语句去掉，会发现两个进程将会在第一个定时回调中都被唤醒。  
+
+
+同时，你也可以修改上面的驱动程序，将上述的 wait_event 修改为 wait_event_interruptible ,
 
 
 
