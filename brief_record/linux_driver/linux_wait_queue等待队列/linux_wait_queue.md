@@ -88,8 +88,11 @@ struct wait_queue_entry {
 ### 唤醒等待队列接口
 常见的唤醒等待队列接口实现主要有以下几个函数：
 wake_up(x)：传入的参数 x 为当前等待队列头节点，唤醒队列上因为调用 wait_event 接口陷入休眠的进程。
-wake_up_all(x):传入的参数 x 为当前等待队列头节点，唤醒队列上因为调用 wait_event_interruptible 接口陷入休眠的进程。
-wake_up_interruptible(x):唤醒等待队列上所有的进程。
+wake_up_all(x):唤醒等待队列上所有的进程。
+wake_up_interruptible(x):传入的参数 x 为当前等待队列头节点，唤醒队列上因为调用 wait_event_interruptible 接口陷入休眠的进程。
+
+
+
 
 
 
