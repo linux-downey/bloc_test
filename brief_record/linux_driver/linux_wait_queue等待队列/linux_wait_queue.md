@@ -298,8 +298,18 @@ Jan 15 15:24:43 : [ 3165.118646] close!
 如果你将 basic_read 中的 flag = 0 这条语句去掉，会发现两个进程将会在第一个定时回调中都被唤醒。  
 
 
-同时，你也可以修改上面的驱动程序，将上述的 wait_event 修改为 wait_event_interruptible ,
+同时，你也可以修改上面的驱动程序，将上述的 wait_event 修改为 wait_event_interruptible ,通过重新编译加载之后，同样在应用层调用 cat /dev/basic_demo，终端显示如下：
+```
+Jan 15 15:24:37 : [ 3159.672634] open!
+Jan 15 15:24:37 : [ 3159.672736] wait for flag!
 
+Jan 15 15:24:40 : [ 3162.814158] timer_callback
+``` 
+等待 3s 之后，进入了定时回调函数，但是进程并没有被唤醒，因为 wake_up 并不能唤醒 wait_event_interruptible 睡眠的进程，此时只能在终端键入 CTRL+C 来结束这个进程。  
+
+但是如果你使用 wait_event 将进程放在等待队列，而使用 wake_up_interruptible 来唤醒，你会发现你不仅不能唤醒进程，连 CTRL+C 也没反应，因为 wait_event 设置的睡眠是无法接受信号的。   
+
+wake_up_all 则可以唤醒等待队列上所有的进程。  
 
 
 

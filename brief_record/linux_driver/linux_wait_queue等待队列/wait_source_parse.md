@@ -107,7 +107,7 @@ wait_event_timeout 接口允许设置一个超时事件，如果等待超过超�
 ({										\
 	__label__ __out;							\
 	struct wait_queue_entry __wq_entry;					\
-	long __ret = ret;	/* explicit shadow */				\
+	long __ret = ret;	        				\
 										\
 	init_wait_entry(&__wq_entry, exclusive ? WQ_FLAG_EXCLUSIVE : 0);	\
 	for (;;) {								\
@@ -127,6 +127,105 @@ wait_event_timeout 接口允许设置一个超时事件，如果等待超过超�
 __out:	__ret;									\
 })
 ```
+
+这个接口同样是以宏的方式实现的，它的实现总共包含三个部分：
+* 由 init_wait_entry/finish_wait 两个接口对接入链表的 entry 进行管理，分别负责初始化和注销。
+* prepare_to_wait_event：进入睡眠的准备工作
+* 执行真正的睡眠函数：cmd，这是传入的参数，对于 wait_event 就是简单的 schedule(),对于 wait_event_timeout 执行的是 schedule_timeout(timeout)   
+
+
+###　entry 的初始化
+在前文中有提到：等待队列的组织形式为链表，而我们整个对于等待队列的操作都只涉及到等待队列头，事实上每个睡眠在等待队列上的进程都有对应的节点结构体，只是这个节点被系统的接口隐藏了。  
+
+init_wait_entry 用于初始化一个节点：
+
+```
+struct wait_queue_entry {
+	unsigned int		flags;
+	void			*private;
+	wait_queue_func_t	func;
+	struct list_head	entry;
+};
+
+void init_wait_entry(struct wait_queue_entry *wq_entry, int flags)
+{
+	wq_entry->flags = flags;
+	wq_entry->private = current;
+	wq_entry->func = autoremove_wake_function;
+	INIT_LIST_HEAD(&wq_entry->entry);
+}
+```
+
+该函数就是初始化等待队列节点的四个成员：
+
+flags 通常为0，表示不指定特定进程的操作。
+
+值得特别注意的是 private 和 func 这两个成员， private 被赋值为当前进程的 task_struct 指针，在唤醒或者睡眠的时候需要设置进程状态，这时候需要这个指针。
+
+而 func 被赋值为 autoremove_wake_function，这个函数是系统提供的一个唤醒实现函数，它负责唤醒进程，当然，这是个回调函数，在后续适当的时候会被调用。  
+ 
+整个 wait_event 操作被包含在一个死循环中，也就是说，即使当前进程被唤醒，如果 condition 部位 true，又会循环进入睡眠，当进程被唤醒同时 condition 为真时，才会跳出循环。  
+
+就执行到 finish_wait，从名字可以看出，这个接口主要负责执行收尾工作：
+
+```
+unsigned long flags;
+
+	__set_current_state(TASK_RUNNING);
+	
+	if (!list_empty_careful(&wq_entry->entry)) {
+		spin_lock_irqsave(&wq_head->lock, flags);
+		list_del_init(&wq_entry->entry);
+		spin_unlock_irqrestore(&wq_head->lock, flags);
+	}
+```
+它的实现比较清晰，就是设置当前进程状态为就绪态(TASK_RUNNING)，将该节点从等待队列中删除。  
+
+### 睡眠的准备阶段
+睡眠的准备阶段由 prepare_to_wait_event 接口实现：
+
+```C
+long prepare_to_wait_event(struct wait_queue_head *wq_head, struct wait_queue_entry *wq_entry, int state)
+{
+	unsigned long flags;
+	long ret = 0;
+
+	spin_lock_irqsave(&wq_head->lock, flags);
+	if (unlikely(signal_pending_state(state, current))) {
+		list_del_init(&wq_entry->entry);
+		ret = -ERESTARTSYS;
+	} else {
+		if (list_empty(&wq_entry->entry)) {
+			if (wq_entry->flags & WQ_FLAG_EXCLUSIVE)
+				__add_wait_queue_entry_tail(wq_head, wq_entry);
+			else
+				__add_wait_queue(wq_head, wq_entry);
+		}
+		set_current_state(state);
+	}
+	spin_unlock_irqrestore(&wq_head->lock, flags);
+
+	return ret;
+}
+```
+signal_pending_state 函数负责检查当前进程是否有信号需要处理，如果有信号就返回真，这种情况下会删除等待队列节点， prepare_to_wait_event 函数返回 -ERESTARTSYS，继续执行下面的代码：
+
+```
+if (___wait_is_interruptible(state) && __int) {			\
+			__ret = __int;						\
+			goto __out;						\
+		}
+__out:	__ret;
+```
+___wait_is_interruptible 接口主要是检测用户传入的 state 是否为 TASK_INTERRUPTIBLE 或者 TASK_KILLABLE，如果是，返回真，如果同时 prepare_to_wait_event 返回值不为0(表示收到信号)，就跳出循环，进程就得以继续向下运行，就是我们通常理解的唤醒。  
+
+上文中有提到 wait_event_interruptible 接口就是传入的 TASK_INTERRUPTIBLE 进程状态。  
+
+
+
+
+
+
 
 
 
