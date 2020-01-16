@@ -221,8 +221,53 @@ ___wait_is_interruptible 接口主要是检测用户传入的 state 是否为 TA
 
 上文中有提到 wait_event_interruptible 接口就是传入的 TASK_INTERRUPTIBLE 进程状态。  
 
+事实上，在调用完 ___wait_is_interruptible 之后，如果条件不满足，就会陷入睡眠，但是进程在发送信号时会将目标进程唤醒，所以当该进程被唤醒时，又会从死循环从头执行，从而检测到信号退出睡眠。  
 
 
+上面说的是信号处理的情况，但是对于 wait_event 、wait_event_timeout 的睡眠方式，或者是 wait_event_interruptible 没有接收到信号的情况下 ，将会直接跳过信号处理的部分，将当前节点链接到等待队列头中，并调用 set_current_state 将进程设置成对应的状态：不可中断睡眠或者可中断睡眠。  
+
+### 进入睡眠
+当 ___wait_is_interruptible(state) && __int 条件为假时(需要同时满足可中断睡眠且接收到信号才为真)，执行下一条：cmd。
+
+cmd 是一个宏参数，除了 wait_event_timeout 另两种类型传入的是 schedule(),就是简单的执行切换进程的工作，将由调度器选择合适的进程运行，当前进程在前文的准备睡眠工作中已经被设置了对应的睡眠状态。  
+
+wait_event_timeout 传入的 cmd 参数为：__ret = schedule_timeout(__ret),而 __ret 原为用户传入的 timeout 参数。  
+
+源码实现如下：
+
+```
+static void process_timeout(unsigned long __data)
+{
+	wake_up_process((struct task_struct *)__data);
+}
+
+signed long __sched schedule_timeout(signed long timeout)
+{
+	struct timer_list timer;
+	unsigned long expire;
+
+	//特殊处理
+
+	expire = timeout + jiffies;
+
+	setup_timer_on_stack(&timer, process_timeout, (unsigned long)current);
+	__mod_timer(&timer, expire, false);
+	schedule();
+	del_singleshot_timer_sync(&timer);
+
+	destroy_timer_on_stack(&timer);
+
+	timeout = expire - jiffies;
+
+ out:
+	return timeout < 0 ? 0 : timeout;
+}
+```
+timeout 以 jiffies 为单位，schedule_timeout 这个接口的实现并不复杂，设置一个定时器，然后进入睡眠。在定时回调函数中调用 wake_up_process 接口来唤醒进程。  
+
+因为内核中的定时器由内核管理，与任何进程都没有关系，所以进程进入睡眠之后定时器依旧可以触发。  
+
+而 wake_up_process 是内核中常用的唤醒指定进程/内核线程的接口
 
 
 
