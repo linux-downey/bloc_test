@@ -253,6 +253,8 @@ signed long __sched schedule_timeout(signed long timeout)
 	setup_timer_on_stack(&timer, process_timeout, (unsigned long)current);
 	__mod_timer(&timer, expire, false);
 	schedule();
+
+	//睡眠断点
 	del_singleshot_timer_sync(&timer);
 
 	destroy_timer_on_stack(&timer);
@@ -267,10 +269,178 @@ timeout 以 jiffies 为单位，schedule_timeout 这个接口的实现并不复�
 
 因为内核中的定时器由内核管理，与任何进程都没有关系，所以进程进入睡眠之后定时器依旧可以触发。  
 
-而 wake_up_process 是内核中常用的唤醒指定进程/内核线程的接口
+而 wake_up_process 是内核中常用的唤醒指定进程/内核线程的接口，当程序执行到 schedule 时，由于在 prepare_to_wait_event 中设置进程状态为 TASK_UNINTERRUPTIBLE，该进程就进入到了不可中断的睡眠状态。   
+
+当定时器超时并调用回调函数时，进程被唤醒，继续在睡眠的断点处执行，将删除定时器，此时的 expire - jiffies 等于 0 ，所以该函数返回 0 。
+
+再回过头来看整个 ___wait_event 的实现：
+
+```
+#define ___wait_event(wq_head, condition, state, exclusive, ret, cmd)		\
+({										\
+	__label__ __out;							\
+	struct wait_queue_entry __wq_entry;					\
+	long __ret = ret;	/* explicit shadow */				\
+										\
+	init_wait_entry(&__wq_entry, exclusive ? WQ_FLAG_EXCLUSIVE : 0);	\
+	for (;;) {								\
+		long __int = prepare_to_wait_event(&wq_head, &__wq_entry, state);\
+										\
+		//调用 ___wait_event 的父宏传入的是 ___wait_cond_timeout(condition)，为了讲解的清晰起见，我将这里的 condition 替换成了 ___wait_cond_timeout(condition)，毕竟宏的处理就是文本替换。  
+		if (___wait_cond_timeout(condition))				\
+			break;							\
+										\
+		if (___wait_is_interruptible(state) && __int) {			\
+			__ret = __int;						\
+			goto __out;						\
+		}								\
+										\
+		//cmd;
+		__ret = schedule_timeout(__ret)						\
+	}									\
+	finish_wait(&wq_head, &__wq_entry);					\
+__out:	__ret;									\
+})
+```
+在定时器超时的情况下，schedule_timeout 返回 0 并赋值给 __ret，此时因为程序流程还处于死循环中，重复 foor(;;)中的内容，我们看到第二部分 ___wait_cond_timeout(condition)  
+
+```
+#define ___wait_cond_timeout(condition)						\
+({										\
+	bool __cond = (condition);						\
+	if (__cond && !__ret)							\
+		__ret = 1;							\
+	__cond || !__ret;							\
+})
+```
+__ret 的的值为 0 ，所以该宏的返回值为 1 ，
+
+```
+if (___wait_cond_timeout(condition))				\
+			break;	
+```
+这条判断语句成立，break 退出循环，执行 finish_wait，也就是当前进程被唤醒，继续执行唤醒之后的程序。  
+
+这就是整个 wait_event_timeout 超时唤醒的流程。  
+
+## 小结
+对比 wait_event、wait_event_timeout、wait_event_interruptible 三个接口的实现，它们有以下特点：
+
+三个接口最后都是调用 ___wait_event 接口，只是传入的参数不同，wait_event 、wait_event_timeout 传入的进程状态(state)为 TASK_UNINTERRUPTIBLE,表示在睡眠过程中不处理信号，
+
+而 wait_event_interruptible 传入的进程状态为 TASK_INTERRUPTIBLE，因为信号发送接口会唤醒进程，所以将执行到 ___wait_event->prepare_to_wait_event->signal_pending_state 来处理信号，并唤醒进程。  
+
+wait_event_timeout 传入一个 timeout 参数，将会执行 schedule_timeout 来处理超时情况，超时即返回。  
 
 
+## 伪唤醒和真唤醒
+可以从源代码中看出，___wait_event 的实现由一个死循环构成，也就是说：即使当前睡眠的进程被唤醒，它也会在死循环中继续执行，除非满足某些特定的条件，调用 break 或者 goto 跳出循环。   
 
+伪唤醒和真唤醒是博主自创的词，伪唤醒指的是该进程从睡眠状态中由于各种原因被唤醒，但是仍旧在循环中继续执行 prepare_to_wait_event、___wait_is_interruptible、schedule，再次进入睡眠，比较典型的就是  wait_event 接口对信号的处理，信号发送函数的确会将该进程唤醒，但是又会因条件不足再次陷入睡眠。
+
+真唤醒就是进程满足了某些条件，最常见的就是 condition 为真，或者 wait_event_timeout 中超时，又或者是 wait_event_interruptible 接收到信号。   
+
+内核中最常用的唤醒等待队列上进程的接口是 ：wake_up,wake_up_interruptible,wake_up_all。这三个接口的作用在上一章有解释，这里就不再赘述，我们主要来看看它们的源代码实现。  
+
+## wake_up 系列函数
+最常见的 wake_up 系列函数有三个：wake_up,wake_up_interruptible,wake_up_all.  
+
+wake_up 系列函数以等待队列头为参数，实现正如其名：唤醒等待队列上的进程，但是根据上文中对于 wait_event 系列函数的分析，调用 wake_up 唤醒等待队列上的进程，并不一定就代表那些进程会被真正唤醒，很可能因为条件不满足又陷入睡眠。   
+
+我们来看看 wake_up 的实现：
+
+```
+#define TASK_NORMAL			(TASK_INTERRUPTIBLE | TASK_UNINTERRUPTIBLE)
+
+#define wake_up(x)			__wake_up(x, TASK_NORMAL, 1, NULL)
+#define wake_up_all(x)			__wake_up(x, TASK_NORMAL, 0, NULL)
+#define wake_up_interruptible(x)	__wake_up(x, TASK_INTERRUPTIBLE, 1, NULL)
+```
+
+事实上，如果不涉及到独占进程的使用，即使用上文中提到的 wait_event 系列接口，wake_up 和 wake_up_all 两个接口所起到的作用是一致的。   
+
+而 wake_up_interruptible 只能唤醒由 wait_event_interruptible 接口进入睡眠的进程。  
+
+这三个函数都是调用了 __wake_up 接口：
+
+```
+
+void __wake_up(struct wait_queue_head *wq_head, unsigned int mode,
+			int nr_exclusive, void *key)
+{
+	__wake_up_common_lock(wq_head, mode, nr_exclusive, 0, key);
+}
+
+static void __wake_up_common_lock(struct wait_queue_head *wq_head, unsigned int mode,
+			int nr_exclusive, int wake_flags, void *key)
+{
+	unsigned long flags;
+	wait_queue_entry_t bookmark;
+	```
+	nr_exclusive = __wake_up_common(wq_head, mode, nr_exclusive, wake_flags, key, &bookmark);
+	```
+}
+
+static int __wake_up_common(struct wait_queue_head *wq_head, unsigned int mode,
+			int nr_exclusive, int wake_flags, void *key,
+			wait_queue_entry_t *bookmark)
+{
+	...
+	list_for_each_entry_safe_from(curr, next, &wq_head->head, entry) {
+		unsigned flags = curr->flags;
+		int ret;
+		...
+		ret = curr->func(curr, mode, wake_flags, key);
+		...
+	}
+}
+
+```
+根据源码可以看到：__wake_up 调用 __wake_up_common_lock，接着调用 __wake_up_common。  
+
+在 __wake_up_common 中，对等待队列中的每一个节点成员，调用唤醒回调函数，也就是进程在使用 wait_event 函数时系统传入的回调函数(在 ___wait_event->init_wait_entry 函数中被赋值)：
+
+```
+void init_wait_entry(struct wait_queue_entry *wq_entry, int flags)
+{
+	wq_entry->flags = flags;
+	wq_entry->private = current;
+	wq_entry->func = autoremove_wake_function;
+	INIT_LIST_HEAD(&wq_entry->entry);
+}
+```
+
+我们继续看这个唤醒回调函数 autoremove_wake_function：
+
+```
+int autoremove_wake_function(struct wait_queue_entry *wq_entry, unsigned mode, int sync, void *key)
+{
+	int ret = default_wake_function(wq_entry, mode, sync, key);
+}
+int default_wake_function(wait_queue_entry_t *curr, unsigned mode, int wake_flags,
+			  void *key)
+{
+	return try_to_wake_up(curr->private, mode, wake_flags);
+}
+
+```
+try_to_wake_up 函数接口将唤醒指定的进程，在 try_to_wake_up 怎么区分需要唤醒的函数呢？
+
+```
+static int
+try_to_wake_up(struct task_struct *p, unsigned int state, int wake_flags)
+{
+	...
+	if (!(p->state & state))
+		goto out;
+	...
+}
+```
+其中，p 是传入的需要唤醒的目标进程的 task_struct，在使用 wait_event 系列函数时，我们根据不同的接口分别设置了 p->state=TASK_INTERRUPTIBLE 或者 p->state=TASK_UNINTERRUPTIBLE，在调用该唤醒函数的时候，也根据 wake_up 或者 wake_up_interruptible 传入不同的 state，只有两个 state 相匹配才会进行唤醒。  
+
+所以，wake_up_interruptible 无法唤醒被设置为 TASK_INTERRUPTIBLE 的进程，而 wake_up(_all) 传入的是 TASK_NORMAL 即 (TASK_INTERRUPTIBLE | TASK_UNINTERRUPTIBLE)，所以都可以唤醒。  
+
+至于唤醒之后能不能真正让进程跳出循环向下执行，可以参考上文中对 wait_event 系列接口的实现。  
 
 
 
