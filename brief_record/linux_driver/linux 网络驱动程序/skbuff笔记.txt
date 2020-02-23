@@ -1,0 +1,37 @@
+struct sk_buff 贯穿整个网络协议栈，所有数据都在这个 buf 中处理。
+
+struct sk_buff		*next;
+struct sk_buff		*prev;  //两个链表结构
+
+void			(*destructor)(struct sk_buff *skb);  //解构函数
+
+unsigned int		len,                   //总长度,data 和 tail 之间的长度。
+				data_len;                  //数据长度，数据包含头部
+__u16			mac_len,                   //mac 长度
+				hdr_len;                   //头部长度
+
+__be16			protocol;                  
+__u16			transport_header;         //传输层头部地址
+__u16			network_header;           //网络层头部地址
+__u16			mac_header;               //mac 头部
+
+sk_buff_data_t		tail;                 //数据尾部
+sk_buff_data_t		end;                  //结束部分，也是 share_info的起始地址
+unsigned char		*head,                //skb 的头部
+			*data;                        //数据首地址
+unsigned int		truesize;             //skb 总占用的size
+ 
+refcount_t		users;                    //引用计数
+
+.
+
+
+
+
+struct skb_shared_info{
+}
+
+
+
+
+

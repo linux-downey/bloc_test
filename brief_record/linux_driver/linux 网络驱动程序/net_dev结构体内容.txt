@@ -1,0 +1,136 @@
+所有的 net_device 被添加到 struct net init_net.dev_base_head 链表上，
+一个
+该 init_net 在 net/core/net_namespace.c 中定义。
+
+net_device 通过 dev_net(net_dev) 获取 init_net.
+
+在注册的时候，也在 register_netdevice->list_netdevice->list_add_tail_rcu(&dev->dev_list, &net->dev_base_head); 将链表添加到该全局链表上。
+
+
+struct net_device:
+	char			name[IFNAMSIZ];  //名称
+	struct hlist_node	name_hlist;  //名称的 hash 链表
+	unsigned long		mem_end;     //设备所用共享内存终止地址
+	unsigned long		mem_start;   //设备所用共享内存起始地址,一般在驱动中使用，设备和内核尽心交互时使用，高层不关心这些字段。
+	unsigned long		base_addr;   //外设起始地址
+
+	netdev_features_t	features;    //接口标志位，一个 64 位的掩码，
+	
+	struct net_device_stats	stats;   //数据包传输状态，通常关心这几个成员：
+										unsigned long	rx_packets;
+										unsigned long	tx_packets;
+										unsigned long	rx_bytes;
+										unsigned long	tx_bytes;
+										unsigned long	rx_errors;
+										unsigned long	tx_errors;
+										unsigned long	rx_dropped;
+										unsigned long	tx_dropped;
+										这是个传统接口。
+	ndo_get_stats64 上一个成员被这个函数所代替，即实现 ops->ndo_get_stats64 函数。三个都存在时，以这个会调用这个。
+	ndo_get_stats  如果没有定义 ndo_get_stats64 就用这个 
+		如果都没定义，就直接使用 dev->stats.tx_packets.
+	
+	unsigned char		broadcast[MAX_ADDR_LEN];
+	
+	
+	ethtool_ops :https://www.ibm.com/developerworks/cn/linux/1304_wangjy_ethtools/index.html
+	
+	netdev_ops : 数据操作的 ops
+	
+	header_ops：当发生头部的操作时，将会被调用。
+	
+	ifindex
+	独一无二的ID
+	
+	if_port 
+	接口使用的端口类型
+	端口类型指物理上的网络连接线端口：BNC/RJ45/RJ48 等，这些接口不同就需要不同的配置。
+	
+	flag
+	gflag  
+	priv_flags
+	设备功能以及标识，这些标识在使用 ifconfig 指令的时候，UP/LOOPBACK/RUNNING 等都属于 flag。
+	gflag基本不用了，priv_flags 主要用于用户不可见的一些标识
+	
+	feature 
+	另一组标识位，
+	
+	mtu
+	表示最大的传输单位，设备能处理帧的最大尺寸。
+	
+	type 
+	设备所属类型，include/linux/if_arp.h 包含可能类型的完整列表
+	
+	hard_header_len
+	设备头的大小
+	
+	broadcast[]
+	链路层的广播地址
+	
+	dev_addr[]
+	链路层地址
+	addr_len
+	链路层地址长度，eth 是6个字节，即 mac 地址
+	
+	promiscuity
+	混杂模式
+	
+	promiscuity
+	混杂模式计数器，当不为零时表示处于混杂模式，接收所有局域网的包。
+	
+	
+	
+	state
+	发送队列的标识，调用 net_if_stop_queue 的时候就是设置这个值。
+	
+	reg_state
+	设备的注册状态
+	
+	trans_start 
+	最近的一个针传输启动的时间，以 jiffies 为单位，传输前会设置这个值。
+	
+	last_rx 
+	最后一个封包到达的时间，不用于任何特殊目的，作为保留
+	
+	xmit_lock
+	xmit_lock_owner
+	调用 xmit 函数的时候会被加锁，xmit 的调用串行化，xmit_lock_owner表示拥有锁的 CPU ID。
+
+	atalk_ptr
+	ip_ptr
+	dn_ptr
+	ip6_ptr
+	ec_ptr
+	ax25ptr
+	指向特定协议的专用数据结构
+	
+	struct list_head	dev_list;
+	struct list_head	napi_list;
+	添加到全局链表中。
+	
+	name_hlist
+	index_hlist
+	添加到hash表中。
+	
+	
+	qdisc
+	管理报文的入口和出口队列
+	tx_queue_len
+	队列的长度
+	
+	unsigned int		num_tx_queues;
+	unsigned int		real_num_tx_queues;
+	队列数目
+	
+	pcpu_refcnt
+	计数引用
+	
+	napi
+	用到的 net_device 结构
+	
+	
+
+使用 stop_queue 的原因是，考虑到网卡没有足够的内存，不允许上面的进程再 push 数据到网卡中，当网卡中的内存大于一个包的量时，再打开。
+是基于网卡的内存而不是基于主机的内存。
+
+	

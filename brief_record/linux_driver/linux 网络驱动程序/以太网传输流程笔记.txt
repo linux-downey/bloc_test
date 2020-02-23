@@ -1,0 +1,34 @@
+﻿传输流程：如何从上层传递过来的
+dev_queue_xmit(skb): 
+	__dev_queue_xmit(skb,priv_data): 从 skb 中获取 net_device,dev = skb->dev.
+		qdisc_pkt_len_init() 初始化一个 qdisc，qdisc 													是数据收发的队列，如果物理网卡支持队列的形式，所有发送的数据都会被发送大队列中，由队列决定数据该什么时候被发送，主要是用作数据的流控。
+		物理网卡的队列被抽象为 struct netdev_queue 结构。
+		netdev_pick_tx()：选择发送数据的队列
+							
+		__dev_xmit_skb：如果有设置队列 tx->qdisc->enqueue 函数，表示使用队列的方式发送数据，
+			sch_direct_xmit：
+				dev_hard_start_xmit：先判断队列是否被off，该函数就会调用 net_dev -> ops ->start_hard_xmit();
+		dev_hard_start_xmit:如果没有设置队列的情况下，且 netif_xmit_stopped 不为假，就直接调用发送程序。
+				
+		如果 queue 被 stop，就会调用 dev_requeue_skb 将 skb 重新添加到 skb 列表中。
+	__dev_xmit_skb
+
+
+数据发送调用到 start_hard_xmit 的流程，
+netif_stop_queue 可以停止上层往下面传输数据。
+
+
+
+
+
+mac 数据头是什么时候添加的？
+从 header 函数被调用开始查。
+网卡是如何选择的？
+通常是通过发送队列进行发送，而不是直接发送。
+
+
+
+
+
+
+

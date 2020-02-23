@@ -1,0 +1,78 @@
+贯穿整个L2 L3 L4。
+从 L4 往下走时，不断地加头
+从 L2 往上走时，并不会删除头，只会移动 data 指针。
+
+
+
+一般情况下，任何引起内核数据结构改变的选项，都不适合编译成一个模块。
+Qos 相关
+#ifdef CONFIG_NET_SCHED
+	__u32 tc_index;
+#ifdef CONFIG_NET_CLS_ACT
+	__u32 tc_verd;
+	__u32 tc_classid;
+#endif
+#endif
+
+
+struct sock *sk；
+指向拥有该缓冲区的套接字的 sock 数据结构，当数据在本地产生或者正由本地进程接收时，这个指针指向套接字。当缓冲区只是被转发时，该指针就是 NULL。
+
+unsigned len；
+缓冲区中数据区块的大小，主要包括缓冲区的数据以及一些片段的数据，当缓冲区从一个网络分层移往下一个网络分层的时候，其值就会变化，因为在协议栈中往上移动的时候报头就会被丢弃。len也会随之变化。
+
+unsigned int data_len;
+data_len 只计算片段中的大小。
+
+mac_len  
+Mac报头的大小。
+
+atomic_t users；
+用户引用计数
+
+truesize
+当前缓冲区总的大小，包含 sk_buff 的本身。
+
+struct timeval stamp；
+通常只对一个已接受的封包才有意义，用于表示封包何时被接收，或者有时用于表示封包预定传输时间。netif_rx 会调用 net_timestamp 设置。
+
+struct  net_device dev;
+该缓冲区对应的 net_device 设备。
+
+struct net_device *input_dev;
+该包对应的接收设备。
+
+struct dst_entry dst;
+该结构体由路由子系统控制。
+
+cb[] 
+控制缓冲区，私有信息的存储空间
+
+csum
+ip_summed
+表示校验和的部分
+
+cloned
+当该标志位为1时，表示这是另一个 sk_buff 的克隆。
+
+pkt_type 
+L2 层的数据类型
+	PACKET_HOST
+	PACKET_BROADCAST
+	PACKET_MULTICAST
+	PACKET_OTHERHOST
+	..
+
+priority
+Qos 字段
+
+protocol
+在 L2 中进行处理，但是这是上一层的协议类型，表示上一层需要以什么协议来处理这个包
+通常是 ETHE_P_IP
+
+nf开头的都是 netfilter 部分，只有在内核支持的时候才会被添加。
+
+tc开头的都是流量控制部分
+
+
+

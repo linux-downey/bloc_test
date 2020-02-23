@@ -1,0 +1,189 @@
+硬件上的问题：
+1、底层通信由  mac 和 phy 组成，mac 属于链路层，负责数据的处理，phy 属于物理层，负责数据的收发。
+2、一块网卡可能是 mac+phy，也可能就是单独的 mac，在 imx6 中，mac 被集成在 CPU 里面，没有 phy，所以加了一个 phy，使用 mdio 接口。
+
+数据流程：CPU 的 PCI 接口接 mac，mac 通过 MII/RMII(mdio) 接口接 phy，phy 负责物理的数据收发。
+
+phy 会接一个网络调节器，网络调节器的作用主要是负责电平转换。
+
+
+对于 mac 和 phy 独立的情况，mac 的驱动方式还是差不多，但是需要通过 mdio 的方式对 phy 进行配置，在收发数据的时候同样还是直接操作寄存器就行。至于 mac 和 phy 和数据交互是标准实现，只要往 mac 寄存器里写数据，最后数据就会被发出去。  
+
+
+
+接收到的数据构造成一个 sk_buf
+
+head 表示整个内存的开头，而 end 表示整个内存的结尾。
+
+
+data 表示数据部分的开头。
+tail 表示数据部分的结尾。
+len 表示数据长度+协议头长度。
+truesize 表示整个 skbuf 的空间，包括元数据。
+
+
+transport_header 传输层头部
+network_header   IP层头部
+mac_header       链路层头部
+
+
+
+
+
+接收到的数据中包含一个完整的网络包。
+
+
+需要发送的数据传递到当前驱动中也是一个 sk_buf
+
+
+
+skb_put 源码：
+void *skb_put(struct sk_buff *skb, unsigned int len)
+{
+	void *tmp = skb_tail_pointer(skb);
+	SKB_LINEAR_ASSERT(skb);
+	skb->tail += len;
+	skb->len  += len;
+	if (unlikely(skb->tail > skb->end))
+		skb_over_panic(skb, len, __builtin_return_address(0));
+	return tmp;
+}
+这个函数只是将 tail 往后移，并增加 len，先扩大空间，为后续的放进数据做准备。
+返回的指针就是移动之前的 tail，可以使用 memcpy 往这个地址 copy 数据。
+
+
+skb_push 源码：
+void *skb_push(struct sk_buff *skb, unsigned int len)
+{
+	skb->data -= len;
+	skb->len  += len;
+	if (unlikely(skb->data<skb->head))
+		skb_under_panic(skb, len, __builtin_return_address(0));
+	return skb->data;
+}
+把 data 上移，主要是为了操作 header，利用返回值将 header copy 到现在的 data 处。
+
+
+
+skb_pull 源码：
+void *skb_pull(struct sk_buff *skb, unsigned int len)
+{
+	return skb_pull_inline(skb, len);
+}
+static inline void *__skb_pull(struct sk_buff *skb, unsigned int len)
+{
+	skb->len -= len;
+	BUG_ON(skb->len < skb->data_len);
+	return skb->data += len;
+}
+static inline void *skb_pull_inline(struct sk_buff *skb, unsigned int len)
+{
+	return unlikely(len > skb->len) ? NULL : __skb_pull(skb, len);
+}
+减少 len，将 data 下移，将会删除头部。
+
+
+
+
+在发送数据的时候，skb结构是这样的：
+	
+	head
+	.... -> head room
+	mac header
+	ip header
+	tcp/udp header
+	data
+	...  -> tail room
+	end
+
+所以接收回来的数据也是这个形式的数据包。
+把接收回来的数据填充到 skb_put 返回的指针之中。
+调用 eth_type_trans 指定协议号，再提交。
+
+
+
+netdev_alloc_skb 调用 __netdev_alloc_skb 
+
+__netdev_alloc_skb 包含两个部分：
+如果len 太长，调用 __alloc_skb
+否则 page_frag_alloc 数据，调用 __build_skb.
+
+
+__build_skb：
+
+
+	赋值：head = data = tial
+			end = tail+size
+	mac_header = ~0U
+	transport_header = ~0U
+
+data 好像是单独申请的，待验证。
+
+
+skb share info 就是 skb 的 end 指针。
+skb_shinfo 函数。
+
+调用 netif_rx 函数将数据提交到 ip 层。
+netif_rx 将直接调用 netif_rx_internal 
+
+
+
+net_device 部分：
+
+#define alloc_netdev(sizeof_priv, name, name_assign_type, setup) \
+	alloc_netdev_mqs(sizeof_priv, name, name_assign_type, setup, 1, 1)
+
+
+struct net_device *alloc_etherdev_mqs(int sizeof_priv, unsigned int txqs,
+					    unsigned int rxqs);
+#define alloc_etherdev(sizeof_priv) alloc_etherdev_mq(sizeof_priv, 1)
+#define alloc_etherdev_mq(sizeof_priv, count) alloc_etherdev_mqs(sizeof_priv, count, count)
+
+
+/drivers/net/ethernet/eth.c:
+
+void ether_setup(struct net_device *dev)
+{
+	dev->header_ops		= &eth_header_ops;
+	dev->type		= ARPHRD_ETHER;
+	dev->hard_header_len 	= ETH_HLEN;
+	dev->min_header_len	= ETH_HLEN;
+	dev->mtu		= ETH_DATA_LEN;
+	dev->min_mtu		= ETH_MIN_MTU;
+	dev->max_mtu		= ETH_DATA_LEN;
+	dev->addr_len		= ETH_ALEN;
+	dev->tx_queue_len	= DEFAULT_TX_QUEUE_LEN;
+	dev->flags		= IFF_BROADCAST|IFF_MULTICAST;
+	dev->priv_flags		|= IFF_TX_SKB_SHARING;
+
+	eth_broadcast_addr(dev->broadcast); //就是设置广播地址为 0xffffffffffff。mac地址
+
+}
+
+alloc_netdev_mqs(sizeof_priv, "eth%d", NET_NAME_UNKNOWN,
+				ether_setup, txqs, rxqs);
+
+txqs 和 rxqs，接收和发送队列都被设置成 1.
+
+
+
+
+
+<7>[  903.953026] vnet start xmit!!!!
+<7>[  903.953068] skb->len = 590
+<7>[  903.953087] skb->data_len = 0
+<7>[  903.953103] skb->mac_len = 0
+<7>[  903.953117] skb->hdr_len = 0
+<7>[  903.953134] skb->protocol = 8
+<7>[  903.953151] skb->network_header = 0x10
+<7>[  903.953166] skb->transport_header = 0x24
+<7>[  903.953182] skb->mac_header = 0x2
+<7>[  903.953198] skb->head = 89242800
+<7>[  903.953213] skb->end = 89242b40
+<7>[  903.953229] skb->data = 89242802
+<7>[  903.953244] skb->tail = 89242a50
+<7>[  903.953259] skb->truesize = 1216
+
+
+
+
