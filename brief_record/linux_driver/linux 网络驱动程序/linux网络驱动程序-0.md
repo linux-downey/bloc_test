@@ -1,4 +1,4 @@
-# linux 网卡驱动程序 - 0
+# linux 网卡驱动程序 - 0 硬件以及设备树配置
 一说到网卡驱动程序，脑海中不自觉就蹦出了各种网络的概念，从而牵扯出那些复杂的网络模型、各种层级的协议，让人望而生畏。  
 
 事实上，linux中的网卡驱动程序并不难，至少没有想象中的难。  
@@ -71,30 +71,52 @@ davicom,no-eeprom:对于很多网卡，会在网卡中集成一个 i2c 接口的
 reset-gpios：复位引脚，通过控制该引脚的高低电平来控制 dm9000 的上电和掉电，硬件设计相关。  
 vcc-supply：供电，同样是硬件设计相关。
 
-dm9000 是集成型网卡，事实上，对于不集成 phy 的网卡，设备树的节点的各项属性也几乎一致，了解设备树的朋友都知道，在设备树中，可以定义一些非标准的，只与特定硬件相关的参数，比如这里的 reg 属性，由于 dm9000 的特殊性，需要用两组参数来指定外设操作地址，而其他的网卡可能只需要提供一个外设基地址和 size ，这些就是根据硬件的特性来决定的，对于其他的网卡，这里就不再一一举例了。
+了解设备树的朋友都知道，在设备树中，可以定义一些非标准的，只与特定硬件相关的参数，比如这里的 reg 属性，由于 dm9000 的特殊性，需要用两组参数来指定外设操作地址，而其他的网卡可能只需要提供一个外设基地址和 size ，这些就是根据硬件的特性来决定的，对于其他的集成网卡，这里就不再一一举例了。
 
-## 网卡在网络模型中的位置
-尽管不想引入复杂的概念，但还是不得不介绍 OSI 网络七层模型。
+dm9000 是集成型网卡，事实上，对于不集成 phy 的网卡，需要在设备树中同时指定使用的 mac 控制器和 PHY，mac 和 phy 需要在设备树中同时指定，因为通常 phy 也是需要对应的设备驱动程序的。  
 
-!()[]TODO
+对于非集成的网卡，通常 mac 控制器的设备树节点设置和集成式的差不多，只不过通常会在子节点中添加对应的 phy 节点，我们来看下面的例子：
 
-在这里，我们需要重点关注的是网络模型中的最后两层：数据链路层和物理层，这两层也就是网卡所在的网络分层。
+```
+ethernet{
+        pinctrl-names = "default";
+        pinctrl-0 = <&pinctrl_enet2>;
+        phy-mode = "rmii";
+        phy-handle = <&ethphy1>;
+        phy-reset-gpios = <&gpio5 6 GPIO_ACTIVE_LOW>;
+        phy-reset-duration = <26>;
+        status = "okay";
 
-数据链路层：提供介质访问和链路管理，官方的说法总是严谨且又晦涩的，如果你不了解也不想完全了解数据链路层的具体内容，对于网络驱动程序的编写而言，你可以简单的记成：数据链路层的作用就是负责通过 IP 地址找到目标的硬件，并把数据发给目标硬件。  
+        mdio {
+                #address-cells = <1>;
+                #size-cells = <0>;
+
+                ethphy0: ethernet-phy@0 {
+                        compatible = "ethernet-phy-ieee802.3-c22";
+                        smsc,disable-energy-detect;
+                        reg = <0>;
+                };
+                ethphy1: ethernet-phy@1 {
+                        compatible = "ethernet-phy-ieee802.3-c22";
+                        smsc,disable-energy-detect;
+                        reg = <1>;
+                };
+        };
+};
+
+```
+在该以太网节点中，指定了 mac 和 phy 的交互协议为 rmii，与其他设备节点不一样的是，phy 的 compatible 属性是固定的，通常是 ethernet-phy-ieee802.3-c22 和 const: ethernet-phy-ieee802.3-c45 这两种，或者是 ^ethernet-phy-idxx.xx,它会匹配固定的驱动程序以实现标准的数据传输功能。  
+
+mii 的管理接口通过 mdio 总线，所以 phy 节点的定义在 mdio bus 的子节点下，在驱动中通过 mdio 的方式进行数据配置。  
+
+关于设备树的更多配置资料可以参考[官方文档-phy](https://github.com/torvalds/linux/blob/master/Documentation/devicetree/bindings/net/ethernet-phy.yaml),[官方文档-mac](https://github.com/torvalds/linux/blob/master/Documentation/devicetree/bindings/net/ethernet-controller.yaml).
 
 
 
 
-## 网卡的
 
 
 
-
-
-
-
-
-正如我们了解的协议模型也好、内核驱动开发也好，都是基于模块化的概念进行设计，即软件上的分层。层次化的模型让我们得以专注地处理本层的事务，只需要
 
 
 
