@@ -60,7 +60,7 @@ struct sk_buff *netdev_alloc_skb(struct net_device *dev, unsigned int len,gfp_t 
 ```
 该接口通过 kmem_cache_alloc 向内核缓存申请一片内存，可以通过 gfp_mask 掩码来指定内存申请的 flag。 
 
-严格地来说 sk buff 算是一片格式化的内存，kmem cache 机制是针对特定申请/释放非常频繁的设备，产生一片专用的内存区域，在释放的过程中并不是真正地释放，而是缓存下来等待下一次的申请。使用 kmem_cache_alloc 申请的内存虽然没有特定的划分，但是该片内存中的数据格式就是按照 sk buff 的格式存在的。  
+
 
 完成 sk buff 的申请之后，接下来将接收到的数据 copy 到 sk buff 中，使用 memcpy 接口即可，将数据 copy 到 skb->data 部分。  
 

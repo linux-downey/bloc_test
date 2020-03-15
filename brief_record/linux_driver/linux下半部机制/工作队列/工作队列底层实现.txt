@@ -1,0 +1,116 @@
+workqueue_init_early 直接在 start_kernel 中被调用
+
+
+另一个的调用路径。
+start_kernel
+	rest_init
+		kernel_init
+			kernel_init_freeable
+				workqueue_init
+
+
+
+
+
+workqueue:官方文档
+
+使用 ps -ef | grep "kworker*" 就可以查看到系统中所有的工作队列线程。 
+
+kworker/0:0-eve 
+kworker/0:0H-kb
+kworker/1:1-rcu
+kworker/u256:0-
+
+带 H 的是优先级很高的
+/ 后面的第一个字符是 CPU 号码，如果是 u 就表示这是 unbound 类型的 worker。
+
+u256 中的 256 表示 work_pool 的 ID
+
+
+工作线程被称为 worker
+工作队列被称为 workqueue
+工作任务被称为 work_struct 
+
+//工作池
+struct worker_pool {}
+
+
+NR_STD_WORKER_POOLS 的值为 2 ，表示每个 CPU 的 pool 为两个。
+
+static DEFINE_PER_CPU_SHARED_ALIGNED(struct worker_pool [NR_STD_WORKER_POOLS], cpu_worker_pools);
+
+
+workqueue.c中：early_init：
+设置 CPU mask，这个 cpu_possible_mask 在  linux/include/linux/cpumask.h 中定义
+cpu_possible_mask 在 boot 阶段被指定.
+struct cpumask 是一个位图.  
+
+cpumask_copy(wq_unbound_cpumask, cpu_possible_mask);
+
+
+//创建一个高速缓存，对象为 pwq_cache
+pwq_cache = kmem_cache_create("pool_workqueue", sizeof(struct pool_workqueue), __alignof__(struct pool_workqueue), (0x00040000UL),
+
+pool 在当前文件中静态定义的。
+//每个 CPU 初始化两个work pool,一个高优先级一个低优先级
+for_each_cpu 
+	for_each_cpu_worker_pool(pool, cpu)  
+		//workqueue_attrs主要包含三个：nice-优先级，cpumask-CPU的掩码，no_numa-true表示没有numa架构，false表示有numa节点。
+		//为 attrs 分配空间、初始化各种链表、锁、定时器。
+		init_worker_pool，
+		pool->cpu = cpu;
+		//一个的nice值为0，一个nice值为-20，-20的为高优先级
+		pool->attrs->nice = std_nice[i++];
+		//设置 node 节点
+		pool->node = cpu_to_node(cpu);
+		//设置 pool 的唯一 id
+		worker_pool_assign_id(pool)
+
+//初始化一个 unbound work queue attrs 和一个 ordered work queue attrs	
+unbound_std_wq_attrs[i] = attrs;
+ordered_wq_attrs[i] = attrs;
+
+
+__alloc_workqueue_key
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+新建的任务默认在 unbound 上运行。
+
+__queue_work 实现：
+	如果是 unbound 类型的，选择一个 CPU 执行，一般情况下，如果当前 CPU 被加入到 unbound CPU 中，就选中了当前的CPU。
+	获取当前 CPU 的 pwq，struct pool_workqueue
+	
+	最终调用 insert_work(pwq, work, worklist, work_flags);
+		set_work_pwq(work, pwq, extra_flags); //设置 work 的 pwq
+		将 work 挂到 worklist 中。
+			wake_up_worker(pool);         //  从指定的 workpool 上找到第一个睡眠的 worker，并唤醒，从 pool->idle_list 中找。
+				struct worker *worker = first_idle_worker(pool);
+				if (likely(worker))
+					wake_up_process(worker->task); //唤醒线程
+	
+	
+
+
+
+
+
+
+
+
+
+
+

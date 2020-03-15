@@ -85,6 +85,8 @@ static inline void *skb_pull_inline(struct sk_buff *skb, unsigned int len)
 
 
 
+
+
 在发送数据的时候，skb结构是这样的：
 	
 	head

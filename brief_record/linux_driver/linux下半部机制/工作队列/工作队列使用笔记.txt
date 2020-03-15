@@ -1,0 +1,124 @@
+
+中断：中断上下文
+软中断：中断上下文
+内核定时器：原子上下文
+工作队列：进程上下文
+
+
+在 work_queue 初始化的时候一共初始化了几个成员：
+* system_wq：默认的系统 workqueue thread ，
+* system_long_wq：
+* system_highpri_wq：这是高优先级的 workqueue thread
+针对每个 CPU 
+* system_long_wq：
+
+* system_freezable_wq：可被冻结的
+* system_power_efficient_wq：
+* system_freezable_power_efficient_wq
+
+* system_unbound_wq：未绑定的，和 CPU 无关的。
+
+
+#define DECLARE_WORK(n, f)						\
+	struct work_struct n = __WORK_INITIALIZER(n, f)
+	
+
+#define __WORK_INITIALIZER(n, f) {					\
+	.data = WORK_DATA_STATIC_INIT(),				\     .data 设置为 (WORK_STRUCT_NO_POOL | WORK_STRUCT_STATIC)
+	.entry	= { &(n).entry, &(n).entry },				\ pre 和 next 都指向当前 list
+	.func = (f),							\             设置 function
+	__WORK_INIT_LOCKDEP_MAP(#n, &(n))				\
+	}
+
+#define WORK_DATA_STATIC_INIT()	\
+	ATOMIC_LONG_INIT((unsigned long)(WORK_STRUCT_NO_POOL | WORK_STRUCT_STATIC))
+
+
+
+struct work_struct {
+	atomic_long_t data;       //状态 flag 和挂入 workqueue 的信息。
+	struct list_head entry;   //链表节点
+	work_func_t func;         //实现函数
+#ifdef CONFIG_LOCKDEP
+	struct lockdep_map lockdep_map;
+#endif
+};
+
+CONFIG_LOCKDEP 是内核一个选项，对应 lockdep 模块，该模块专门用于检测内核中的死锁问题。  
+
+
+#define INIT_WORK(_work, _func)						\
+	__INIT_WORK((_work), (_func), 0)
+	
+#define __INIT_WORK(_work, _func, _onstack)				\
+	do {								\
+		__init_work((_work), _onstack);				\
+		(_work)->data = (atomic_long_t) WORK_DATA_INIT();	\
+		INIT_LIST_HEAD(&(_work)->entry);			\
+		(_work)->func = (_func);				\
+	} while (0)
+#endif
+
+
+
+schedule_work 直接调用 queue_work 程序，
+
+
+
+queue_work(system_wq, work)，queue_work 使用 system_wq 参数。  system_wq 在 init 函数中被定义： system_wq = alloc_workqueue("events", 0, 0);
+
+struct workqueue_struct：表示一个工作队列的队列。
+
+static inline bool queue_work(struct workqueue_struct *wq,
+			      struct work_struct *work)
+{
+	//使用 WORK_CPU_UNBOUND 这个 CPU，值为 1，通常在 SMP 中使用。  
+	return queue_work_on(WORK_CPU_UNBOUND, wq, work);
+}
+
+
+bool queue_work_on(int cpu, struct workqueue_struct *wq,
+		   struct work_struct *work)
+{
+	bool ret = false;
+	unsigned long flags;
+
+	local_irq_save(flags);
+
+	if (!test_and_set_bit(WORK_STRUCT_PENDING_BIT, work_data_bits(work))) {
+		__queue_work(cpu, wq, work);
+		ret = true;
+	}
+
+	local_irq_restore(flags);
+	return ret;
+}
+
+主要看看 __queue_work 的实现，这个有点麻烦。  
+
+
+
+
+
+
+
+
+
+
+delay work：
+
+	struct delayed_work {
+		struct work_struct work;  //workqueue成员
+		struct timer_list timer;  //内核定时器
+
+		/* target workqueue and CPU ->timer uses to queue ->work */
+		struct workqueue_struct *wq;
+		int cpu;
+	};
+
+
+	#define DECLARE_DELAYED_WORK(n, f)					\
+		struct delayed_work n = __DELAYED_WORK_INITIALIZER(n, f, 0)
+
+	
+	

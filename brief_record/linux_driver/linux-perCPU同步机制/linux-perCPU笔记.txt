@@ -1,0 +1,56 @@
+DECLARE_PER_CPU
+
+#ifndef PER_CPU_BASE_SECTION
+#ifdef CONFIG_SMP
+#define PER_CPU_BASE_SECTION ".data..percpu"
+#else
+#define PER_CPU_BASE_SECTION ".data"
+#endif
+#endif
+
+extern __attribute__((section(".data..percpu" ""))) __typeof__(struct cpuinfo_arm) cpu_data
+
+
+//一般情况下，这两个接口成对出现。
+get_cpu_var(var)
+put_cpu_var(var)
+
+__get_cpu_var。
+
+
+#define __my_cpu_offset per_cpu_offset(raw_smp_processor_id())
+
+#define per_cpu_offset(x) (__per_cpu_offset[x])
+#ifndef __per_cpu_offset
+extern unsigned long __per_cpu_offset[NR_CPUS];
+
+pcpu_base_addr 在 mm/percpu.c 中被定义，表示 percpu 的基地址。
+
+
+//初始化部分
+void __init setup_per_cpu_areas(void)
+
+
+
+delta = (unsigned long)pcpu_base_addr - (unsigned long)__per_cpu_start;
+	for_each_possible_cpu(cpu)
+		__per_cpu_offset[cpu] = delta + pcpu_unit_offsets[cpu];
+		
+	
+this_cpu_ptr 获取 percpu 变量基地址
+raw_smp_processor_id()  获取当前 cpu id
+
+	
+		
+int __init pcpu_setup_first_chunk(const struct pcpu_alloc_info *ai,
+				  void *base_addr)
+				  
+pcpu_base_addr 在该函数中被赋值。
+
+
+
+percpu 数据会被放在一个系统地址，然后 percpu 内存中也会有一块对应的。
+
+
+
+val   地址为 2d004
