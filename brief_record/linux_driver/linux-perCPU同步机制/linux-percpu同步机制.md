@@ -127,9 +127,8 @@ typedef struct cpumask { DECLARE_BITMAP(bits, NR_CPUS); } cpumask_t;
 对于 CPU 的掩码分为多种，分别有 __cpu_possible_mask、__cpu_online_mask、__cpu_present_mask、__cpu_active_mask，其掩码所描述的功能从字面就可以看出，值得一提的是，当 CPU 支持热插拔时，__cpu_possible_mask 的值为 ~0。如果你对 CPU 的掩码有兴趣，可以在 linux/cpumask.h 中查看所有的类型，也可以在驱动中将其打印出来与当前系统作对比。  
 
 
+
+
+
 ## 示例代码
-## 中断的支持
-
-
-
 
