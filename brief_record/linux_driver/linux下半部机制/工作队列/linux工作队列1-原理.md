@@ -102,6 +102,8 @@ struct workqueue_struct {
 
 ```
 
+
+
 ### pool_workqueue
 
 ```C
@@ -127,55 +129,71 @@ struct pool_workqueue {
 
 ```
 struct worker_pool {
-	spinlock_t		lock;		/* the pool lock */
-	int			cpu;		/* I: the associated cpu */
-	int			node;		/* I: the associated node ID */
-	int			id;		/* I: pool ID */
-	unsigned int		flags;		/* X: flags */
+	spinlock_t		lock;		//该 worker_pool 的自旋锁
+	int			cpu;		    //该 worker_pool 对应的 cpu
+	int			node;		    //对应的 numa node
+	int			id;		        //当前的 pool ID.
+	unsigned int		flags;	//标志位
 
-	unsigned long		watchdog_ts;	/* L: watchdog timestamp */
+	unsigned long		watchdog_ts;	//看门狗，主要用作超时检测
 
-	struct list_head	worklist;	/* L: list of pending works */
-	int			nr_workers;	/* L: total number of workers */
+	struct list_head	worklist;	  //核心的链表结构，当 work 添加到队列中时，实际上就是添加到了当前的链表节点上。
+	int			nr_workers;	          //当前 worker pool 上工作的数量
 
-	/* nr_idle includes the ones off idle_list for rebinding */
-	int			nr_idle;	/* L: currently idle ones */
+	
+	int			nr_idle;	    //休眠状态下的数量
 
-	struct list_head	idle_list;	/* X: list of idle workers */
-	struct timer_list	idle_timer;	/* L: worker idle timeout */
-	struct timer_list	mayday_timer;	/* L: SOS timer for workers */
+	struct list_head	idle_list;	//链表，记录所有处于 idle 的 worker。
+	struct timer_list	idle_timer;	  //内核定时器用于记录 idle worker 的超时
+	struct timer_list	mayday_timer;	// SOS timer
 
-	/* a workers is either on busy_hash or idle_list, or the manager */
-	DECLARE_HASHTABLE(busy_hash, BUSY_WORKER_HASH_ORDER);
-						/* L: hash of busy workers */
+	DECLARE_HASHTABLE(busy_hash, BUSY_WORKER_HASH_ORDER);  //记录正运行的 worker
 
-	/* see manage_workers() for details on the two manager mutexes */
-	struct worker		*manager;	/* L: purely informational */
-	struct mutex		attach_mutex;	/* attach/detach exclusion */
-	struct list_head	workers;	/* A: attached workers */
-	struct completion	*detach_completion; /* all workers detached */
+	struct worker		*manager;	// 管理线程
+	struct list_head	workers;	// 当前 worker pool 上的 worker 线程。
+	struct completion	*detach_completion;  //管理所有 worker 的 detach
 
-	struct ida		worker_ida;	/* worker IDs for task name */
 
-	struct workqueue_attrs	*attrs;		/* I: worker attributes */
-	struct hlist_node	hash_node;	/* PL: unbound_pool_hash node */
-	int			refcnt;		/* PL: refcnt for unbound pools */
-
-	/*
-	 * The current concurrency level.  As it's likely to be accessed
-	 * from other CPUs during try_to_wake_up(), put it in a separate
-	 * cacheline.
-	 */
-	atomic_t		nr_running ____cacheline_aligned_in_smp;
-
-	/*
-	 * Destruction of pool is sched-RCU protected to allow dereferences
-	 * from get_work_pool().
-	 */
-	struct rcu_head		rcu;
+	struct workqueue_attrs	*attrs;		// worker 的属性
+	int			refcnt;		//引用计数
 } ____cacheline_aligned_in_smp;
 ```
 
+
+### worker
+
+```C
+struct worker {
+	
+	union {
+		struct list_head	entry;    // 如果当前 worker 处于 idle 状态，就使用这个节点链接到 worker_pool 的 idle 链表
+		struct hlist_node	hentry;	  // 如果当前 worker 处于 busy 状态，就使用这个节点链接到 worker_pool 的 busy_hash 中。
+	};
+
+	struct work_struct	*current_work;	//当前需要执行的 worker
+	work_func_t		current_func;	    //当前执行 worker 的函数
+	struct pool_workqueue	*current_pwq;  //当前 worker 对应的 pwq
+
+	struct list_head	scheduled;	   
+
+	
+
+	struct task_struct	*task;		// 内核线程对应的 task_struct 结构
+	struct worker_pool	*pool;		// 该 worker 对应的 worker_pool
+						
+
+	unsigned long		last_active;	//上一个活动 worker 时设置的 timestamp
+	unsigned int		flags;		//运行标志位
+	int			id;		 //worker id 
+
+	char			desc[WORKER_DESC_LEN]; // work 的描述信息，主要是在 debug 时使用
+
+	struct workqueue_struct	*rescue_wq;	 // 针对 rescue 使用的 workqueue。  
+};
+```
+
+
+在这一章节中，我们主要讲解了五个核心的结构体以及他们之间的关系，理清楚了这些关键的数据结构，我们再来一步步解析 workqueue 的实现流程。
 
 
 
