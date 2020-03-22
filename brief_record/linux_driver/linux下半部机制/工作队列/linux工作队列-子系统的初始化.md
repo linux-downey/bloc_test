@@ -294,7 +294,7 @@ struct workqueue_struct *__alloc_workqueue_key(const char *fmt,unsigned int flag
 但是实际上内核中大部分驱动程序的实现都使用了这个标志位。  
 
 
-## 将 wq 链接到全局链表中
+## 申请 pwm 并绑定
 这一部分由函数 ： alloc_and_link_pwqs 完成，
 
 
@@ -324,7 +324,6 @@ static int alloc_and_link_pwqs(struct workqueue_struct *wq)
 		return 0;
 	} else if (wq->flags & __WQ_ORDERED) {
 		ret = apply_workqueue_attrs(wq, ordered_wq_attrs[highpri]);
-		/* there should only be single pwq for ordering guarantee */
 		WARN(!ret && (wq->pwqs.next != &wq->dfl_pwq->pwqs_node ||
 			      wq->pwqs.prev != &wq->dfl_pwq->pwqs_node),
 		     "ordering guarantee broken for workqueue %s\n", wq->name);
@@ -334,6 +333,28 @@ static int alloc_and_link_pwqs(struct workqueue_struct *wq)
 	}
 }
 ```
+
+该函数主要包括两个部分：
+* 针对非 unbound 类型的 wq，对每个 CPU 申请一个 pwq 结构，如果设置了 WQ_HIGHPRI(高优先级) 标志位，则将其与 percpu 的高优先级 worker_pool 进行绑定，否则与普通的 worker_pool 进行绑定，worker_pool 的创建在上文中有相应介绍。  
+
+	初始化和绑定的过程也比较简单，主要是以下几个部分：
+	* 设置 pwq->pool 为当前 CPU 的 worker_pool，设置 pwq->wq 为当前被创建的 work_queue_struct.
+	* 初始化各种链表头、引用计数置为 1
+	* 将 pwq->pwqs_node 链接到 wq->pwqs 中，建立索引关系。  
+
+* 针对 unbound 类型的 wq，只需要设置属性即可。  
+
+
+
+## 小结
+
+第一阶段的初始化主要的工作是：
+* 为每个 CPU 创建两个工作队列，同时创建两个 unbound 类型的工作队列。  
+* 内核启动时默认创建多个对应不同属性的工作队列，在创建工作队列的过程中，同时会创建 percpu 类型的 pool_workqueue,主要工作就是将工作队列与 percpu 的 worker_pool 进行连接。  
+
+需要注意区分的是：worker_pool 和 pwq 是 percpu 类型的，而 workqueue_struct 并非 percpu 类型的。   
+
+从目前的源码实现来看，CPU 数量为 n 时，创建一个工作队列的同时会创建 n 个 pwq ，n 个 pwq 会将 n 个 worker_pool 连接到这一个工作队列中，如果创建的是高优先级的工作队列，就会连接高优先级的 worker_pool，反之亦然。    
 
 
 
