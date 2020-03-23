@@ -305,7 +305,8 @@ static int alloc_and_link_pwqs(struct workqueue_struct *wq)
 	int cpu, ret;
 
 	if (!(wq->flags & WQ_UNBOUND)) {
-		wq->cpu_pwqs = alloc_percpu(struct pool_workqueue);
+		wq->cpu_pwqs = alloc_pe
+		rcpu(struct pool_workqueue);
 		if (!wq->cpu_pwqs)
 			return -ENOMEM;
 

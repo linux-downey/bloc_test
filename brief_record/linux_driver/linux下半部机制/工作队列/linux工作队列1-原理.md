@@ -59,7 +59,7 @@ workqueue_struct 相当于公司的销售人员，对外揽活儿，揽进来的
 
 这个活干得好不好，进度怎么样，是否需要技术支持，这就需要一个项目管理来进行协调，向上连接销售人员，向下连接技术部门，这个项目管理起到一个联系作用，它就是 pool_workqueue。  
 
-传统的模式是：一个销售(workqueue_struct)固定绑定一个或多个技术员(worker)，来了活儿技术员直接干，活儿太多也得排队等着，如果活儿太少，技术人员就自己在那儿玩。  
+传统的模式是：一个销售(workqueue_struct)固定绑定一个或多个技术员(worker)，来了活儿技术员直接干，活儿太多也得排队等着，如果活儿太少，技术人员就自己在那儿玩，多招入一个销售，就得相对应地多分配出一个技术人员。  
 
 CMWQ 模式是：一个销售人员(workqueue_struct)并不固定对应哪个技术部门(worker_pool)，也不对应哪个技术员(worker)，有事做的时候才请求技术部门(worker_pool)分配技术人员(worker)，没事做的时候就不需要，活儿多的时候就可以申请更多地技术人员(worker)，这种动态申请的方式无疑是提高了效率。  
 
@@ -174,7 +174,7 @@ struct worker {
 	work_func_t		current_func;	    //当前执行 worker 的函数
 	struct pool_workqueue	*current_pwq;  //当前 worker 对应的 pwq
 
-	struct list_head	scheduled;	   
+	struct list_head	scheduled;	    //链表头节点，当准备或者运行一个 worker 的时候，将 work 连接到当前的链表中
 
 	
 
