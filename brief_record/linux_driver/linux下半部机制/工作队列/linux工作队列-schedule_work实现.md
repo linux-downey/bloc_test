@@ -45,7 +45,9 @@ bool queue_work_on(int cpu, struct workqueue_struct *wq,
 }
 ```
 
-如果没有为当前的 work 设置 WORK_STRUCT_PENDING_BIT 标志位，则继续调用 __queue_work 函数：
+**如果没有为当前的 work 设置 WORK_STRUCT_PENDING_BIT 标志位，当当前 work 已经被添加到某个工作队列时，该标志位被置位，与 tasklet 和 softirq 的区别在于，softirq 支持多 cpu 上的并发执行，所以要求执行函数可重入，而 tasklet 不允许多 cpu 上的并发执行，编程相对简单。workqueue 机制中，不允许同一个 work 同时被加入到一个或多个工作队列中，只有当 work 正在执行或者已经执行完成，才能重新添加该 work 到工作队列中，所以也不存在多 cpu 并发执行的问题。** 
+
+继续调用 __queue_work 函数：
 
 ```c++
 static void __queue_work(int cpu, struct workqueue_struct *wq,

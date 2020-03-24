@@ -1,0 +1,9 @@
+softirq 笔记：
+
+softirq_init(); 在 start_kernel 中调用
+
+spawn_ksoftirqd：被设置为 early_initcall(spawn_ksoftirqd);
+
+
+
+
