@@ -95,6 +95,9 @@ spawn_ksoftirqd：被设置为 early_initcall(spawn_ksoftirqd);
 irq_exit 中会调用：
 
 	invoke_softirq();  调用到 softirq。
+	//防止重复的调用
+	if (!in_interrupt() && local_softirq_pending())
+		invoke_softirq();
 
 
 
