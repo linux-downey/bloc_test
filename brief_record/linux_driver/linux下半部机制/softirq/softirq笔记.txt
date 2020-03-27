@@ -92,6 +92,9 @@ irq_exit
 spawn_ksoftirqd：被设置为 early_initcall(spawn_ksoftirqd);
 
 
+禁用下半部之后再使能会调用：
+local_bh_enable。
+
 irq_exit 中会调用：
 
 	invoke_softirq();  调用到 softirq。

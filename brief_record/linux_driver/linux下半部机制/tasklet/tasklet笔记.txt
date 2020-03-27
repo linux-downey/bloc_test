@@ -1,0 +1,125 @@
+tasklet 使用：
+
+如何创建 tasklet：
+
+struct tasklet_struct
+{
+	struct tasklet_struct *next;   //下一个 tasklet 。
+	unsigned long state;           //tasklet 的状态，有两种：TASKLET_STATE_SCHED 等待调度执行，TASKLET_STATE_RUN 正在某个 CPU 上执行。
+	atomic_t count;                //用于记录 tasklet 是 enable 还是 disable 的，等于 0 表示 enable，大于 0 表示disable，可以多次被 disable。 
+	void (*func)(unsigned long);   //调用的函数
+	unsigned long data;            //函数参数
+};
+
+
+如何调度 tasklet：
+
+tasklet_schedule:
+
+
+static inline void tasklet_schedule(struct tasklet_struct *t)
+{
+	//保证同一个 tasklet 不会被重复添加到 schedule 列表中，可能出现的情况是：一个 tasklet 正在执行，这时候可以添加。    
+	//在单核下，没有 TASKLET_STATE_RUN 状态，只有 TASKLET_STATE_SCHED 状态，在执行之前会清除 TASKLET_STATE_SCHED 状态。
+	if (!test_and_set_bit(TASKLET_STATE_SCHED, &t->state))
+		__tasklet_schedule(t);
+}
+
+void __tasklet_schedule(struct tasklet_struct *t)
+{
+	unsigned long flags;
+	local_irq_save(flags);
+	t->next = NULL;
+	*__this_cpu_read(tasklet_vec.tail) = t;
+	__this_cpu_write(tasklet_vec.tail, &(t->next));
+	raise_softirq_irqoff(TASKLET_SOFTIRQ);
+	local_irq_restore(flags);
+}
+
+tasklet_trylock 函数保证不能在多个 cpu 上同时执行 tasklet
+
+
+将 tasklet 添加到 tasklet_vec 链表的最后，然后唤醒软中断：TASKLET_SOFTIRQ
+
+
+	tasklet_vec 是定义的全局数据，
+		static DEFINE_PER_CPU(struct tasklet_head, tasklet_vec);
+		static DEFINE_PER_CPU(struct tasklet_head, tasklet_hi_vec);
+	两个全局的 percpu 类型的 struct tasklet_struct 结构体，
+
+
+初始化部分：
+初始化部分从 softirq_init 开始：
+
+void __init softirq_init(void)
+{
+	int cpu;
+
+	for_each_possible_cpu(cpu) {
+		per_cpu(tasklet_vec, cpu).tail =
+			&per_cpu(tasklet_vec, cpu).head;
+		per_cpu(tasklet_hi_vec, cpu).tail =
+			&per_cpu(tasklet_hi_vec, cpu).head;
+	}
+
+	open_softirq(TASKLET_SOFTIRQ, tasklet_action);
+	open_softirq(HI_SOFTIRQ, tasklet_hi_action);
+}
+
+初始化，打开软中断 TASKLET_SOFTIRQ 和 HI_SOFTIRQ，分别对应的 action 是：tasklet_action 、tasklet_hi_action：
+
+static __latent_entropy void tasklet_action(struct softirq_action *a)
+{
+	struct tasklet_struct *list;
+
+	local_irq_disable();
+	list = __this_cpu_read(tasklet_vec.head);
+	__this_cpu_write(tasklet_vec.head, NULL);
+	__this_cpu_write(tasklet_vec.tail, this_cpu_ptr(&tasklet_vec.head));
+	local_irq_enable();
+
+	while (list) {
+		struct tasklet_struct *t = list;
+
+		list = list->next;
+
+		if (tasklet_trylock(t)) {
+			if (!atomic_read(&t->count)) {
+				if (!test_and_clear_bit(TASKLET_STATE_SCHED,
+							&t->state))
+					BUG();
+				t->func(t->data);
+				tasklet_unlock(t);
+				continue;
+			}
+			tasklet_unlock(t);
+		}
+
+		local_irq_disable();
+		t->next = NULL;
+		*__this_cpu_read(tasklet_vec.tail) = t;
+		__this_cpu_write(tasklet_vec.tail, &(t->next));
+		__raise_softirq_irqoff(TASKLET_SOFTIRQ);
+		local_irq_enable();
+	}
+}
+
+
+
+
+//使用 DECLARE_TASKLET 接口
+#define DECLARE_TASKLET(name, func, data) \
+	struct tasklet_struct name = { NULL, 0, ATOMIC_INIT(0), func, data }
+
+
+
+
+
+
+
+tasklet_disable 表示失能 tasklet
+tasklet_enable  表示使能 tasklet
+
+
+
+
