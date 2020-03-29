@@ -90,6 +90,41 @@ void tasklet_hi_schedule(struct tasklet_struct *t)
 
 
 
+## 代码示例
+以下是一个简单的 tasklet 示例：
+
+```c++
+#include <linux/init.h>
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/interrupt.h>
+
+MODULE_LICENSE("GPL");
+
+void tasklet_func(unsigned long data)
+{
+        printk("Tasklet executed!\n");
+}
+
+DECLARE_TASKLET(mtasklet, tasklet_func, 0);
+static int __init mtasklet_init(void)
+{
+        tasklet_schedule(&mtasklet);
+        return 0;
+}
+
+static void __exit mtasklet_exit(void)
+{
+}
+
+module_init(mtasklet_init);
+module_exit(mtasklet_exit);
+```
+编译加载内核之后，使用 dmesg | grep tail 就可以看到模块打印出的信息：
+
+```
+[ 4758.249659] Tasklet executed!
+```
 
 
 

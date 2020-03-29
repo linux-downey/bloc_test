@@ -71,7 +71,7 @@ open_softirq(TASKLET_SOFTIRQ, tasklet_action);
 
 
 ### softirq 的执行
-想要执行一个 softirq ，需要使用的接口是 tasklet_schedule：
+想要执行一个 softirq ，需要使用的接口是 raise_softirq：
 
 ```
 void raise_softirq(unsigned int nr);
@@ -102,8 +102,86 @@ void raise_softirq(unsigned int nr);
 同样是一个简单的例子：CPU0 触发中断，中断中 raise 了一个软中断，退出中断时将会执行软中断，这时又一个同样的硬件中断进来，被分配到了 CPU1，CPU1 的中断处理程序同样会 raise 这个软中断， CPU0 的软中断因为某些原因被延迟执行了，或者 CPU0 还没执行完，CPU1 开始执行，这时候两个软中断就相当于在不同的 cpu 上并发执行。  
 
 
+## 代码示例
 
+接下来博主演示如何在系统中添加一个新的 softirq，softirq 的添加是一个比较麻烦的操作。  
 
+### 修改内核
+
+首先，需要在系统中静态地添加一个新的 softirq 枚举成员，该成员在 include/linux/interrupt.h 中添加：
+
+```
+enum
+{
+	HI_SOFTIRQ=0,
+	TIMER_SOFTIRQ,
+	NET_TX_SOFTIRQ,
+	NET_RX_SOFTIRQ,
+	BLOCK_SOFTIRQ,
+	IRQ_POLL_SOFTIRQ,
+	TASKLET_SOFTIRQ,
+	SCHED_SOFTIRQ,
+	HRTIMER_SOFTIRQ, 
+	RCU_SOFTIRQ,    
+
+	TEST_SOFTIRQ,    //新添加的 softirq
+
+	NR_SOFTIRQS
+};
+```
+
+默认情况下，softirq 的两个操作接口 oepn_softirq 和 raise_softirq 是没有导出符号的，需要将这两个函数的符号导出，外部接口才能使用，具体操作是分别在 open_softirq 和 raise_softirq 函数实现后添加导出变量的宏：
+
+```c++
+EXPORT_SYMBOL(open_softirq);  //添加到 open_softirq 函数实现下
+EXPORT_SYMBOL(raise_softirq); //添加到 raise_softirq 函数实现下
+```
+这两个函数的定义在 kernel/softirq.c 中。  
+
+做完这两个操作之后，重新编译内核并将新编译的内核替换。   
+
+### 编写驱动程序
+
+在修改完内核之后，就可以编写外部驱动程序测试新添加的 softirq 了：
+
+```c++
+#include <linux/init.h>
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/interrupt.h>
+
+MODULE_LICENSE("GPL");
+
+static void test_softirq_action(struct softirq_action *a)
+{
+        printk("Test softirq excuted!\n");
+}
+
+static int __init msoftirq_init(void)
+{
+		//注册 softirq
+        open_softirq(TEST_SOFTIRQ, test_softirq_action);
+		//触发 softirq
+        raise_softirq(TEST_SOFTIRQ);
+
+        return 0;
+}
+
+static void __exit msoftirq_exit(void)
+{
+}
+
+module_init(msoftirq_init);
+module_exit(msoftirq_exit);
+
+```
+编译并加载该 softirq 代码，使用 dmesg | tail 指令就可以看到 softirq 输出的log：
+
+```
+[  157.500252] Test softirq excuted!
+```
+
+需要注意的是，这里使用 printk 函数仅仅是为了方便查看调试结果，实际上 softirq 中是不建议直接使用 printk 函数的，printk 函数并不是可重入函数而且执行时间较长，不适合在软中断中执行。  
 
 
 

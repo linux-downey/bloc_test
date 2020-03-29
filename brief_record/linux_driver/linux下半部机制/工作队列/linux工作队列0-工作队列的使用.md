@@ -239,7 +239,68 @@ bool cancel_work_sync(struct work_struct *work)
 这个接口会取消指定的工作，如果该工作已经在运行，该函数将会阻塞直到它完成，对于其它添加到工作队列的工作，将会取消它们。  
 
 
+## 示例代码
+以下是一个简单的 workqueue 示例代码：
 
+```c++
+#include <linux/init.h>
+#include <linux/module.h>
+#include <linux/kernel.h>
+#include <linux/workqueue.h>
+
+MODULE_LICENSE("GPL");
+
+
+struct wq_priv{
+        struct work_struct work;
+        struct delayed_work dl_work;
+};
+
+
+static void work_func(struct work_struct *work){
+        printk("exec work queue!\n");
+}
+static void dl_work_func(struct work_struct *work){
+        printk("exec delayed work queue!\n");
+}
+static struct wq_priv priv;
+
+static int __init workqueue_init(void)
+{
+        printk("hello world!!!\n");
+
+		//初始化 workqueue
+        INIT_WORK(&priv.work,work_func);
+        INIT_DELAYED_WORK(&priv.dl_work,dl_work_func);
+		//调度 workqueue
+        if(0 == schedule_work(&priv.work)){
+                printk("Failed to run workqueue!\n");
+        }
+        if(0 == schedule_delayed_work(&priv.dl_work,3*HZ)){
+                printk("Failed to run workqueue!\n");
+        }
+        return 0;
+}
+
+
+static void __exit workqueue_exit(void)
+{
+	//退出 workqueue
+    cancel_work_sync(&priv.work);
+    cancel_delayed_work_sync(&priv.dl_work);
+}
+module_init(workqueue_init);
+module_exit(workqueue_exit);
+```
+
+将编译后的 .ko 文件加载到内核中，打印信息如下：
+
+```
+[17065.062558] exec work queue!
+[17068.102369] exec delayed work queue!
+```
+
+可以看到，delayed workqueue 的执行时间在 workqueue 之后的 3s，因为设置的 delay 时间就是 3s。  
 
 
 

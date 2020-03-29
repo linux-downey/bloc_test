@@ -1,0 +1,28 @@
+request_irq 的实现；
+
+request_irq(unsigned int irq, irq_handler_t handler, unsigned long flags,const char *name, void *dev)
+{
+	return request_threaded_irq(irq, handler, NULL, flags, name, dev);
+}
+
+
+request_threaded_irq：
+	获取 irq_desc
+	申请一个 action，并由传进来的参数填充
+	__setup_irq
+	
+
+
+
+
+中断由 irq_desc 来描述：
+
+//全局定义一个 irq_desc 数组，全局初始化。
+struct irq_desc irq_desc[NR_IRQS] __cacheline_aligned_in_smp = {
+	[0 ... NR_IRQS-1] = {
+		.handle_irq	= handle_bad_irq,
+		.depth		= 1,
+		.lock		= __RAW_SPIN_LOCK_UNLOCKED(irq_desc->lock),
+	}
+};
+
