@@ -71,7 +71,7 @@ banking：
 	
 
 
-GIC partitioning：GIC 分区
+第二章：GIC partitioning：GIC 分区
 
 	distributor：负责中断优先级的分配，并且发送给对应的 CPU。由 GICD_ 寄存器来管理
 	
@@ -81,7 +81,85 @@ GIC partitioning：GIC 分区
 	
 一个 GIC 可以对应 8 个 CPU
 	
+distributor:
+
+	提供的编程接口：
+		将中断发送到 CPU 接口
+		enable 或者 disable 各个中断
+		设置各个中断的优先级，优先级和中断号是独立的
+		设置每个中断的目标 processor
+		设置每个中断的触发方式
+		设置每个中断被分组为 group0 或者 group1
+		发送 SGI 到一个或者多个目标 processor
+	额外地：
+		每个中断的状态都是可见的
+		用户可以设置和清除 pending state
+
+	interrupt IDS：
+		32~1019 作为 SPI 中断
+		0~31 作为 banked 中断，对应每个 CPU， 0~15 对应 SGI，16~31 对应 PPI。
+		2010~1023保留为特殊用途
+		
+		0~7 作为 Non-secure interrupts
+		8~15 作为 secure interrupts
+		
 	
+CPU interface：
+	
+	提供的编程接口：
+		使能发送中断到 CPU 
+		ack一个中断
+		指示中断处理完成
+		为每个 processor 设置中断优先级
+		定义处理器的抢占策略
+		为 processor 决定最高的待执行中断
+
+当 processor 回复 CPU interface 的时候， distributor 就会将该中断从 pending 状态设置为active 或者 active and pending，在这个时候，CPU interface 又可以重新发送一个中断给 CPU，以抢占 CPU 上正在执行的工作。  
+
+当 processor 处理完一个中断的时候，会通知 CPU interface 任务执行完成，这时候会完成两个动作：
+
+优先级下降，表明处理完成的中断不再能阻止低优先级的任务进入 processor
+将中断状态中的 active 移除
+
+
+
+第三章：中断处理和优先级
+
+int handling 描述了：
+	GIC 是如何阻止 interrupts
+	软件上是怎么配置这些 interrupts 的
+	GIC 中每个中断在 CPU interface 上的状态机
+	GIC 的异常模型
+	
+优先级处理描述了：
+	中断优先级的配置
+	pending 中断的执行优先级
+	决定中断什么时候对 processor 是可见的，包括中断优先级mask、优先级组、已激活中断的抢占
+	
+中断分组：
+	默认情况下，所有中断都会被分到 group0
+	每个中断都可以配置分组为 group0 或者 group1
+	CPU interface 可以配置为 group0 然后发送到 FIQ 上
+	
+SGI 的处理使用 N-N 模型
+SPI 的处理使用 1-N 模型
+
+当 GIC 识别到一个中断请求，该中断被置位，如果这时再来一个同样的中断，将不会被重复记录，也就是在处理之前，重复的中断会被忽略。  
+
+
+GIC 处理中断的序列为：
+
+	GIC 决定哪些中断被使能
+	对于每个pending 的中断，distributor 会决定由哪个或者哪些 processor 来执行
+	对于每个 CPU interface，distributor 将最高优先级的中断发送出去。
+	每个 CPU interface 将决定是否发送一个中断给 processor，如果中断需要，就发送，这会涉及到 distributor 发送过来的中断是否有足够的优先级
+	processor 回复中断，GIC 返回 int ID 并更新中断状态。
+	中断执行完成之后，processor就会返回  EOI 信号给 GIC
+	page 37.
+	
+
+
+
 
 
 

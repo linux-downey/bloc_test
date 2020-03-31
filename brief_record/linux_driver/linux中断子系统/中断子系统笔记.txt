@@ -6,11 +6,16 @@ request_irq(unsigned int irq, irq_handler_t handler, unsigned long flags,const c
 }
 
 
+gic 是 arm 提供的一个通用的中断控制器
+
 request_threaded_irq：
 	获取 irq_desc
 	申请一个 action，并由传进来的参数填充
 	__setup_irq
 	
+
+compatible 属性是 ：cortex-a7-gic
+
 
 
 
@@ -25,4 +30,45 @@ struct irq_desc irq_desc[NR_IRQS] __cacheline_aligned_in_smp = {
 		.lock		= __RAW_SPIN_LOCK_UNLOCKED(irq_desc->lock),
 	}
 };
+
+gic 对应的设备节点：
+一方面对应外设上报中断
+一方面对应向 CPU 上报中断，所以有两个外设地址：一个对应外设，一个对应 CPU
+```
+intc: interrupt-controller@00a01000 {
+                compatible = "arm,cortex-a7-gic";
+                #interrupt-cells = <3>;
+                interrupt-controller;
+                reg = <0x00a01000 0x1000>,
+                      <0x00a02000 0x100>;
+        };
+```
+
+
+
+系统静态定义一个 
+
+struct gic_chip_data gic_data[CONFIG_ARM_GIC_MAX_NR];  CONFIG_ARM_GIC_MAX_NR 目前为1
+
+	gic_of_setup()    //根据设备树初始化 gic_data
+	__gic_init_bases(gic, -1, &node->fwnode);  //初始化 gic
+	
+
+
+//一个 gic chip 的私有数据
+struct gic_chip_data {
+	struct irq_chip chip;       
+	union gic_base dist_base;   
+	union gic_base cpu_base;    
+	void __iomem *raw_dist_base;   //经过 iomap 之后的 gic 外设地址，设备树中的第一个
+	void __iomem *raw_cpu_base;    //经过 iomap 之后的 gic 外设地址，设备树中的第二个
+	u32 percpu_offset;             //CPU 偏移地址，如果没有指定，就是0。
+
+	struct irq_domain *domain;
+	unsigned int gic_irqs;
+
+
+};
+
+
 
