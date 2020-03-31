@@ -1,0 +1,92 @@
+GIC 支持：
+
+	安全扩展
+	虚拟化扩展
+	enable、disable或者 生成硬件中断
+	生成软件中断
+	中断掩码屏蔽位和优先级
+	uniprocessor 和 multiprocessor 环境的支持
+	在系统睡眠时支持唤醒事件
+	
+GIC 包括中断组功能：
+
+	每个中断可以配置为 group0 或者 group1
+	发送group0的中断到 IRQ 或者 FIQ
+	发送group1的中断到 IRQ
+	管理group0、1的中断
+	可以配置锁定group0的中断
+	
+
+GICv2在GICv1上的改进：
+
+	虚拟化扩展
+	Group0可以发送到FIQ
+	支持唤醒事件 
+	支持当系统 power down 或者 switch 的时候保存 GIC 状态
+	支持新的两个特性：优先级下降 和中断停用。
+	
+
+interrupt state：
+
+	Inactive       处于非激活状态，或者没有pending
+	
+	Pending        待执行状态，对于硬件中断来说，中断线已经被触发，而对于软件来说，中断被生成，但是等待 CPU 处理。
+	
+	Active         CPU 已经接收了中断并回复了 ack，表示中断正在执行但是没有完成。 
+	
+	Active and pending   CPU 正在处理该中断，此时又来了一个相同的中断。  
+	
+
+中断的类型：
+	
+	peripheral interrupt ：外设中断，可以设置成电平触发也可以设置成边沿触发
+	
+		private peripheral interrupt ：私有外设中断 PPI，中断只会发送到指定的单一 CPU 上。  
+	
+		shared peripheral interrupt:共享外设中断，外设中断可以发送到任意的 CPU
+	
+	Software-generated interrupt：SGI,软件中断，软件上往 GIC 的 GICD_SGIR 寄存器写数据就可以产生软件中断。
+									产生中断之后由 GICC_IAR 或者 GICC_AIAR寄存器来确定将要发送到哪个 CPU 上。  
+	virtual interrupt： 虚拟中断
+	
+	Maintenance interrupt：同样是虚拟中断相关
+									
+	
+中断处理模型：
+
+	1-N：对于同一个中断，只能是一个处理器处理
+	N-N：每个处理器独立地接收中断
+	
+
+Spurious interrupts：虚假中断，GIC 发送中断给 CPU，但是 CPU可能不再需要了。 
+
+
+banking：
+	
+	interrupt banking：在多核中，对于 PPI 和 SGI，一个同样的中断 ID 可以对应多个中断，这种被称为 banked intrerupt
+	
+	register banking：同一个地址映射多个register 副本，
+	
+	整个 banking 像是一种复用机制，没搞清楚。
+	
+
+
+GIC partitioning：GIC 分区
+
+	distributor：负责中断优先级的分配，并且发送给对应的 CPU。由 GICD_ 寄存器来管理
+	
+	CPU interface：CPU 接口，每个 CPU 接口块处理优先级的 masking 和 抢占处理。 
+	
+	virtual CPU interface：虚拟 CPU 接口，暂时不关注。
+	
+一个 GIC 可以对应 8 个 CPU
+	
+	
+
+
+
+
+
+	
+
+	
