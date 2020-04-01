@@ -1,0 +1,127 @@
+softirq 笔记：
+
+softirq_init(); 在 start_kernel 中调用
+	//初始化两个 softirq。
+	open_softirq(TASKLET_SOFTIRQ, tasklet_action);
+	open_softirq(HI_SOFTIRQ, tasklet_hi_action);
+
+void open_softirq(int nr, void (*action)(struct softirq_action *))
+{
+	softirq_vec[nr].action = action;
+}
+
+实现非常简单。
+
+
+触发如何做：调用  raise_softirq 进行触发，也可以在确定中断被关闭的时候调用 raise_softirq_irqoff 函数。 
+
+void raise_softirq(unsigned int nr)
+{
+	unsigned long flags;
+
+	local_irq_save(flags);
+	raise_softirq_irqoff(nr);
+	local_irq_restore(flags);
+}
+
+inline void raise_softirq_irqoff(unsigned int nr)
+{
+	
+	__raise_softirq_irqoff(nr);
+
+	//如果不是在中断或者软中断环境下，需要唤醒 softirqd 内核线程以尽快地执行 softirq。
+	if (!in_interrupt())
+		wakeup_softirqd();
+}
+
+
+就是把 percpu 数组 irq_cpustat_t irq_stat[cpu].__softirq_pending 的对应 cpu 置位。
+__raise_softirq_irqoff(nr)  ： irq_stat[cpu].__softirq_pending |= 1<<nr.
+
+
+irq_stat 类型的定义如下：
+typedef struct {
+	unsigned int __softirq_pending;
+#ifdef CONFIG_SMP
+	unsigned int ipi_irqs[NR_IPI];
+#endif
+} ____cacheline_aligned irq_cpustat_t;
+
+
+
+
+
+接下来是触发部分：
+
+local_bh_enable也会触发调用do_softirq
+
+irq_exit
+	invoke_softirq
+		if (ksoftirqd_running(local_softirq_pending())) //当线程在跑的时候，就不通过软中断来处理了，让线程去处理
+			return;
+		__do_softirq()
+				//根据pending一个个执行
+				h = softirq_vec;
+				while ((softirq_bit = ffs(pending))) {
+					unsigned int vec_nr;
+					int prev_count;
+
+					h += softirq_bit - 1;
+
+					vec_nr = h - softirq_vec;
+					prev_count = preempt_count();
+
+					kstat_incr_softirqs_this_cpu(vec_nr);
+
+					trace_softirq_entry(vec_nr);
+					h->action(h);
+					trace_softirq_exit(vec_nr);
+					if (unlikely(prev_count != preempt_count())) {
+						pr_err("huh, entered softirq %u %s %p with preempt_count %08x, exited with %08x?\n",
+							   vec_nr, softirq_to_name[vec_nr], h->action,
+							   prev_count, preempt_count());
+						preempt_count_set(prev_count);
+					}
+					h++;
+					pending >>= softirq_bit;
+				}
+				
+				//如果刚处理完就又来了一个，就交给线程去处理
+
+
+spawn_ksoftirqd：被设置为 early_initcall(spawn_ksoftirqd);
+
+
+禁用下半部之后再使能会调用：
+local_bh_enable。
+
+irq_exit 中会调用：
+
+	invoke_softirq();  调用到 softirq。
+	//防止重复的调用
+	if (!in_interrupt() && local_softirq_pending())
+		invoke_softirq();
+
+
+
+interrupt.h 中静态定义的 softirq 类型，
+enum
+{
+	HI_SOFTIRQ=0,
+	TIMER_SOFTIRQ,
+	NET_TX_SOFTIRQ,
+	NET_RX_SOFTIRQ,
+	BLOCK_SOFTIRQ,
+	IRQ_POLL_SOFTIRQ,
+	TASKLET_SOFTIRQ,
+	SCHED_SOFTIRQ,
+	HRTIMER_SOFTIRQ, /* Unused, but kept as tools rely on the
+			    numbering. Sigh! */
+	RCU_SOFTIRQ,    /* Preferable RCU should always be the last softirq */
+
+	NR_SOFTIRQS
+};
+
+
+定义静态的向量数组：
+static struct softirq_action softirq_vec[NR_SOFTIRQS] __cacheline_aligned_in_smp;

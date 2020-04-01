@@ -1,0 +1,107 @@
+struct worker_pool 在 early 初始化中已经被创建，每个 CPU 两个，同时创建两个 unbound 的 worker_pool。
+
+wq_numa_init:  numa 节点的初始化
+
+for_each_possible_cpu(cpu) {
+		for_each_cpu_worker_pool(pool, cpu) {
+			pool->node = cpu_to_node(cpu);
+		}
+	}
+为每个 CPU 的每个 worker 分配对应的 numa 节点。
+
+
+//所有的 wq(workqueue_struct) 被连接到全局链表 workqueues 中。
+//对每个 wq
+list_for_each_entry(wq, &workqueues, list)
+		//针对热拔插的CPU
+		wq_update_unbound_numa(wq, smp_processor_id(), true);
+
+
+//对每个 CPU 的每个 worker，都调用 create_worker(pool)
+for_each_online_cpu(cpu) {
+		for_each_cpu_worker_pool(pool, cpu) {
+			pool->flags &= ~POOL_DISASSOCIATED;
+			BUG_ON(!create_worker(pool));
+		}
+	}
+	
+//对每个 unbound queue，同样调用 create_worker(pool)，参数 pool 也是 unbound pool
+hash_for_each(unbound_pool_hash, bkt, pool, hash_node)
+		BUG_ON(!create_worker(pool));
+
+
+static struct worker *create_worker(struct worker_pool *pool)：
+	alloc_worker：申请并初始化一个 worker
+	//如果是 per cpu 的pool，pool->cpu 大于0，如果是 unbound 类型 pool，pool->cpu 就不大于0，id_buf 名不一样。
+	if (pool->cpu >= 0)
+		snprintf(id_buf, sizeof(id_buf), "%d:%d%s", pool->cpu, id,
+			 pool->attrs->nice < 0  ? "H" : "");
+	else
+		snprintf(id_buf, sizeof(id_buf), "u%d:%d", pool->id, id);
+	
+	//使用上述的 id_buf 为名称创建不同的内核线程，返回的 task_struct 结构被放在 worker->task 中。
+	worker->task = kthread_create_on_node(worker_thread, worker, pool->node,
+					      "kworker/%s", id_buf);
+	绑定worker 到 pool，pool 和 worker 是一对多的关系，worker 代表执行线程。
+
+static int worker_thread(void *__worker)：
+	//根据 worker 获取 pool。
+	struct worker_pool *pool = worker->pool;
+	//如果 worklist 为空，继续 sleep
+	if (!need_more_worker(pool))
+		goto sleep;
+	如果 pool->nr_idle 为非空，就需要重新调整 worker，调用 manage_workers，为什么进入 idle 状态？
+	if (unlikely(!may_start_working(pool)) && manage_workers(worker))
+		goto repeat；
+
+	do:
+		//从 pool->worklist 中取出用户插入的 work。
+		struct work_struct *work =
+			list_first_entry(&pool->worklist,
+					 struct work_struct, entry);
+		//设置超时
+		pool->watchdog_ts
+		//执行一个 work。
+		process_one_work(worker, work);
+		//或者执行这个：
+		process_scheduled_works
+		
+	sleep：
+		执行所有的 pool->worklist 上的 work 之后就陷入了休眠。
+		__set_current_state(TASK_IDLE);
+		schedule();
+
+
+static void process_one_work(struct worker *worker, struct work_struct *work)：
+	//这条语句确保同一个 work 不会在多 CPU 上并发。
+	collision = find_worker_executing_work(pool, work);
+	if (unlikely(collision)) {
+		move_linked_works(work, &collision->scheduled, NULL);
+		return;
+	}
+	//设置当前 worker 参数
+	worker->current_work = work;
+	worker->current_func = work->func;
+	worker->current_pwq = pwq;
+	work_color = get_work_color(work);
+	//调用 current_func 
+	worker->current_func(work);
+	
+	
+
+pool_workqueue 和 workqueue_struct  什么关系。
+
+创建队列的时候，将会创建一个 pwq，该 pwq 指向 CPU 的 worker_pool 
+
+程序调用 queue_work，会将该 work 插入到当前 CPU 的 worker_pool 的 work list 上面，pool->worklist
+
+work_pool->worklist 负责装 work_struct 
+
+worker 对应于管理线程，woker->poll 指向 CPU 的 pool 的，所以理论上 woker 和 woker_pool 是对应的。  
+woker 会被绑定到 pool ，也就被绑定到 CPU 上
+worker->node 被连接到 pool->workers 上，所以，一个 pool 会对应多个 woker。一个 pool 上可以创建多个 pool。
+pool 和 worker 是一对多的关系，worker 代表执行线程。
+
+
+
+
