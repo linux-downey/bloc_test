@@ -54,8 +54,8 @@ interrupt state：
 	
 中断处理模型：
 
-	1-N：对于同一个中断，只能是一个处理器处理
-	N-N：每个处理器独立地接收中断
+	1-N：处理针对多个处理器的中断时，该中断只会被一个处理器处理一次
+	N-N：每个处理器独立地接收中断并独立地处理，典型的就是 SGI。
 	
 
 Spurious interrupts：虚假中断，GIC 发送中断给 CPU，但是 CPU可能不再需要了。 
@@ -78,6 +78,8 @@ banking：
 	CPU interface：CPU 接口，每个 CPU 接口块处理优先级的 masking 和 抢占处理。 
 	
 	virtual CPU interface：虚拟 CPU 接口，暂时不关注。
+	
+	需要注意的是，distributor 管理所有的中断输入源，而 CPU interface 针对 processor 存在，也就是每一个 CPU 都会有一个 CPU interface，一个 CPU interface 会连接到一个对应的 CPU。
 	
 一个 GIC 可以对应 8 个 CPU
 	
@@ -159,8 +161,23 @@ GIC 处理中断的序列为：
 	
 
 
+GIC 的优先级管理
+	
+	优先级管理由 GICD_IPRIORITYRn 寄存器设置。
+	contributor 总会选择优先级更高的中断发送给 CPU interface
+	GIC 支持抢占，distributor 会发送更高优先级中断到 CPU interface，CPU interface 也会发送更高优先级中断给 processor。
+	
+	group 0 分配高优先级、group 1 分配低优先级
+	
+	
 
+第四章：编程模型
 
+	列出了 distributor 和 CPU interface 的寄存器 map
+	
+	register banking：为每个CPU提供多个寄存器的副本，但是基于同一个地址，根据寄存器的属性来决定要使用哪个副本
+	
+	distributor 和 CPU interface 的寄存器详细描述
 
 
 
