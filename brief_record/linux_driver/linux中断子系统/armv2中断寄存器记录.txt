@@ -1,0 +1,98 @@
+Distributor：
+GICD:全局使能 distributor 向 CPU interface 发送中断。
+
+GICD_TYPER:提供 GIC 的配置信息，包括：
+	GIC 是否实现了安全扩展
+	GIC 支持的最大数量的中断 ID，最多支持 1024 个
+	CPU interface 的数量
+	如果实现了安全扩展，最大的 LSPI 数量
+	
+GICD_IIDR:
+	提供有关实现者和修订版的信息
+	
+GICD_IGROOPTRn
+	提供每个 GIC 支持的中断的状态位，每一位用来控制用于 group0 或者 group1
+	0 表示该中断属于 group0 ，1 表示该中断属于 group1
+	
+GICD_ISENABLERn
+	对应GIC中支持的每个外部中断的使能位
+	1 表示 enable，0 表示 disable
+
+GICD_ICENABLERn:
+	用于清除GIC中支持的每个外部中断的使能位
+	写1 表示清除
+
+
+GICD_ISPENDRn:  存疑？猜测，pending 位是由 CPU interface 来设置的。
+	设置每个中断 pending 位。
+
+GICD_ICPENDRn：
+	清除每个中断的 pending 位。
+
+
+GICD_ISACTIVERn
+	设置每个中断的 active 状态
+
+GICD_ICACTIVERn
+	清除每个中断的 active 状态
+	
+GICD_IPRIORITYRn
+	这组寄存器为每个 GIC 支持的中断提供 8bit 的优先级设置，每个 32 bit寄存器支持四个中断的优先级设置。
+	
+GICD_ITARGETSRn
+	这组寄存器为每个 IGC 支持的中断提供 8bit 的 CPU 掩码设置，只有设置了对应的 CPU 掩码，中断才会发送到对应的 CPU interface 上。
+
+GICD_ICFGRn
+	中断配置寄存器，GIC 为每个中断分配了 2bit 来指示中断是否被触发，其触发方式是边沿触发还是电平触发。  
+
+GICD_NSACRn
+	这个寄存器用于控制 secure 软件。暂不讨论
+
+GICD_SGIR：
+	写这个寄存器可以生成 SGI 中断，并且对中断形式进行配置
+
+GICD_CPENDSGIRn:
+	清除 SGI pending 的寄存器
+	
+GICD_SPENDSGIRn
+	设置 SGI pending 的寄存器
+	
+identification register：芯片信息寄存器
+
+
+
+CPU interface：
+
+GICC CTLR:
+	CPU interface 控制寄存器，使能 CPU interface 向 CPU 发送中断，并提供CPU interface的控制接口
+	0-disable  1-enable
+
+GICC_PMR:
+	提供中断优先级的过滤机制，只有当优先级比这个寄存器里的值高时，中断才会被发送到 CPU 去，占用 8 位。
+
+GICC_BPR:
+	GIC 的中断优先级被分为两个部分，这个寄存器的 bit0-2 决定这两部分是如何进行分割的。
+
+
+GICC_IAR:
+	CPU 会读取这个寄存器，也就是相当于 CPU interface 向 CPU 发送中断，读取该寄存器同时代表CPU的ack。
+	bit10 - 12 对应 SGI 中断的 CPU ID，bit0-9 对应中断号
+	
+GICC_EOIR:
+	在以下情况中，CPU会写该寄存器：
+		* CPU 处理完一个指定的中断
+		* 在GICv2实现中，当适当的GICC_CTLR.EOImode位设置为1时，指示接口应针对指定的中断执行优先级降低
+	bit10 - 12 对应 SGI 中断的 CPU ID，bit0-9 对应中断号
+
+GICC_PRP:
+	指示 CPU interface 的运行中断优先级
+	8bits
+
+GICC_HPPIR
+	指示CPU接口上优先级最高的未决中断的中断ID和处理器ID
+
+GICC_ABPR
+	针对group1
+
+GICC_AIAR
+	

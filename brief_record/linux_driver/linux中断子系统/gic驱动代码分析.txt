@@ -1,0 +1,49 @@
+GIC v2 驱动代码分析：
+
+IRQCHIP_DECLARE 定义匹配属性。
+
+#define IRQCHIP_DECLARE(name, compat, fn) OF_DECLARE_2(irqchip, name, compat, fn)
+
+
+#define OF_DECLARE_2(table, name, compat, fn) \
+		_OF_DECLARE(table, name, compat, fn, of_init_fn_2)
+	
+	
+#define _OF_DECLARE(table, name, compat, fn, fn_type)			\
+	static const struct of_device_id __of_table_##name		\
+		__attribute__((unused))					\
+		 = { .compatible = compat,				\
+		     .data = (fn == (fn_type)NULL) ? fn : fn }
+
+
+static struct gic_chip_data gic_data[CONFIG_ARM_GIC_MAX_NR]
+
+主要函数：gic_of_init()
+	gic = &gic_data[gic_cnt]  //获取 gic_data
+	gic_of_setup(gic, node);   //通过设备树获取 gic 的参数
+	
+	__gic_init_bases(gic, -1, &node->fwnode);   //主要函数
+
+
+主要函数：__gic_init_bases   //传入参数 gic_chip_data,irq_start,fwnode
+	如果该 gic 是主 gic，初始化 8 个 CPU interface
+	gic_init_chip() // 设置 gic->chip 等成员，还会设置 chip->irq_set_affinity 成员
+	
+
+主要函数：gic_init_bases    //传入参数 gic_chip_data,irq_start,fwnode
+	首先判断 gic 是否支持 bank，分不同的处理方式。 
+		如果不支持，就需要保存 percpu 的偏移等参数。
+		如果支持，同样设置一些参数比如 common_base
+	读取 GIC 的寄存器，以确定 GIC 支持的中断数量，并赋值给 gic->gic_irqs
+	申请 irq_descs,每一个 irq_descs 都对应一路中断。
+	设置 irq_domain(),对应的回调函数为 gic_irq_domain_ops，其中包含 .map 和 .unmap。
+	gic_dist_init() 初始化 distributor 
+	gic_cpu_init() 初始化 CPU interface
+	
+驱动是如何被调用到的？
+
+
+	
+	
+
+
