@@ -47,6 +47,8 @@ LR:链接寄存器，保存返回值
 PC:程序计数器，总是保存下一条需要执行指令的地址，执行ARM指令时，PC读取为当前指令的地址加8
 
 
+
+
 The Application Program Status Register (APSR):应用编程状态寄存器
 只有 PL1 或者更高等级才能访问，
 该寄存器包含：
@@ -56,6 +58,140 @@ The Application Program Status Register (APSR):应用编程状态寄存器
 溢出标志位
 溢出或饱和标志位
 
+
+执行状态寄存器(Execution state registers)：在 armv7 A/R 架构中，该寄存器属于 Current Program Status Register 的一部分
+
+用两位来控制指令由什么指令集来解析：
+
+00 ARM
+01 Thumb
+10 Jazelle
+11 ThumbEE
+
+针对 thumb 指令集和 thumb EE 指令集的设置
+翻译为大端还是小端
+
+高级SIMD：single instruction multi data
+浮点扩展
+
+
+A3：应用level的内存模型
+内存地址的上溢和下溢，超过 FFFFFFFF 的寻址会回环
+
+对齐的支持
+arm 指令需要 word 对齐，thumb 需要 half-word 对齐。
+
+SCTLR.A bit 用来控制是否让非对齐的内存访问产生异常，SCTLR.A 为 1则限制非对齐内存的访问。 
+armv6 和 armv7 内存对齐的限制
+
+armv7-A 中，指令的存储总是小端，在 ARMv7-R 中，大小端可以由应用设置。  
+
+
+同步和信号量
+共享内存的独家访问指令
+
+
+cache：cache只针对普通内存，对外设内存不缓存
+
+
+
+
+A4：指令集
+thumb 和 arm 指令集区别：
+* thumb 是 16 位或者 32 位，arm 是 32 位
+* 某些 thumb 指令只能访问 R0~R7，arm 指令可以访问所有的 R0~R15
+* 多个 thumb 指令的集合往往比一个 32 位的 thumb 指令执行效率高
+
+thumb指令集可以通过 BX/BLX 等指令进入到 arm 指令集。
+
+
+除零操作会不会引发异常是由寄存器决定的。
+
+
+MSR/MRS 指令专门用来操作 APSR 寄存器，它将 APSR 寄存器的值读取到 arm core 寄存器或者由 arm core 寄存器进行设置。
+CPS 指令用来操作 CPSR 寄存器
+
+load 和 store 分为很多种操作：针对32/16/8 bits,针对unprivileged 和 exclusive的。
+针对 64 bits 的 load 和 store 只能是 exclusive 。
+page173
+
+
+A5：arm指令集编码
+
+arm 的指令集编码被分为三个部分：cond(28~31)、op1(25~27)、op(4) 
+
+cond 关于
+op1 确定指令的类型。
+op  表示具体的操作
+
+
+
+
+
+
+
+
+arm 架构的模式决定了：
+	CPU 可以访问的寄存器组
+	软件的执行等级，privilege level
+
+armv7 中的 state：
+	
+指令 state：
+	arm state、thumb state、jazelle state、thumbEE state
+	分别对应不同的指令集
+	由 instruction set register 管理。
+
+执行 state：
+	
+安全 state：
+	secure state 和 non secure state
+debug state：
+	debug 使用
+	
+特权等级：
+	安全 state 下，只有两个特权级，PL0/PL1，USER 模式下使用 PL0，其它模式使用 PL1
+	非安全 state 下，有三个特权级，PL0/PL1/PL2，user 模式使用 PL0，虚拟化扩展或者 hyp mode 使用 PL2.其它模式使用 PL1
+
+异常：
+	异常可以是指令触发的，也可以是外设中断
+	异常必须执行在 PL1 特权级甚至更高
+	
+
+arm CPU mode：
+
+
+arm 的模式一共分为：USER/FIQ/IRQ/Suervisor/Monitor/Abort/Hyp/Undefined/System
+其中，USER 在 PL0 执行，Hyp 在 PL2 执行，针对虚拟化扩展，对应的安全 state 为 Non-secure。 
+
+USER Mode：通常是由操作系统的应用程序使用，这个模式禁止使用系统资源
+System Mode：system mode 和 user mode的寄存器是一致的，不需要异常再进入
+Supervisor mode：异常所对应的默认模式，使用 SVC 指令触发一个异常就可以进入到该模式，系统重启时默认处于该模式下。
+Abort Mode：在数据异常或者预取指令异常时默认进入的模式
+Undefined Mode：执行未定义的指令时，会进入到该模式
+FIQ mode：FIQ 中断发生时进入的模式
+IRQ：IRQ中断发生时进入的模式
+Hyp mode：主要针对虚拟化扩展
+Monitor mode:在安全模式下才存在的mode，在 PL1 下，执行 SMC 指令就会进入到 该模式下。
+
+每个模式对应的寄存器在page 1144，某些寄存器是 banked 类型的，就是该寄存器存在多个副本，每个mode下的寄存器用的是自己的副本，其物理上是不一样的。  
+每个模式对应一个 banked SPSR 或 CPSR。
+CPSR 只有 USER mode 使用，其他运行于 PL1 特权级的 mode 使用 SPSR，用于保存产生异常前的 CPSR 的值，方便返回时使用。
+
+
+
+程序状态寄存器：Program Status Registers (PSRs)
+
+exception handling：
+
+中断向量，
+每个中断向量都会占据连续的 8 个 word，只有 IRQ 和 FIQ 才会用到。
+当运行在 IRQ 或者 FIQ mode 时，可以从软件上改变异常向量，通过操作 SCTLR.VE bit to 1.
+
+异常向量的基地址可以是 0x00000000，也可以是 0xffff0000，由 SCTLR.V 来控制，高端向量表在 armv7-R 上被废弃，可以在 armv7-A 上可以被使用。  
+
+linux 只会从 user 和 svc mode(内核中断) 下跳转到 exception 处理。
+  
 
 
 
