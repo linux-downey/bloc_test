@@ -1,0 +1,23 @@
+.micro
+... 
+.endm
+
+为汇编程序定义宏
+
+
+.section .sec_name
+
+表示下面的代码存放到哪个段中，比如 .section .text
+
+.global
+让某个符号对链接器可见，最常见的就是 .global _start ,_start 是链接器默认的程序entry
+
+.extern 
+.extern 说明函数为外部函数，调用的时候可以遍历所有文件以找到该函数
+
+AREA 用于定义一个代码段或者数据段
+
+
+ENTRY 用来定义汇编程序的入口点，可以有多个，如果有多个的时候，入口地址由链接器指定。  
+
+

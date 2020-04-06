@@ -1,0 +1,215 @@
+总体规则：命令行优先
+
+section 和 segment，section 针对链接器，是半成品，有多个，不包含具体地址。
+segment 针对加载器，是链接完成后的某个部分，包含地址、大小。
+
+多个文件中有多个 section，整合到可执行文件中，就是一个 segment，这个 segment 可以被加载器加载。 
+
+
+OUTPUT_FORMAT("elf32-littlearm", "elf32-bigarm","elf32-littlearm")
+//设置 BFD 格式，OUTPUT_FORMAT 接受三个参数，可以在命令行对 BFD_FORMAT 进行控制，主要是针对大小端。 
+当命令行指定 -EL 时，使用第三个参数，
+当指定-EB 时，使用第二个参数
+当两者都没有指定时，则使用第一个参数
+BFD是Binary format descriptor的缩写, 即二进制文件格式描述，BFD 库是很多二进制文件工具的基础库，比如 objdump、nm 等。 
+
+BFD整体上简单地可分为前端和后端（就象gcc一样），这样做的目的主要出于可移植性的考虑，前端向应用层提供统一的调用接口，是目标文件格式 无关的，后端实现目标格式相关的部分，前端通过调用后端的相关函数实现真正的具体目标文件格式操作功能
+
+OUTPUT_ARCH(arm)
+//设置输出文件的目标平台
+
+SEARCH_DIR("=/usr/lib") ...
+SEARCH_DIR 用于添加搜索目录，这些目录用于让 ld 搜索目标(库)文件，这和 -L path 一样的作用。  
+
+
+SECTIONS
+//设置段信息
+{
+	
+}
+
+PROVIDE (__executable_start = SEGMENT_START("text-segment", 0x00010000)); . = SEGMENT_START("text-segment", 0x00010000) + SIZEOF_HEADERS;
+
+// 在链接脚本中，可以定义变量，直接定义变量形式为：name = exp，这种变量是独立的，在程序中不能定义的，而 PROVIDE(name = exp) 则实现了当程序中定义了 name 时，就使用程序中的 name，当没有定义时，程序中也可以直接引用 name，因为在链接脚本中会定义到。  
+
+//SEGMENT_START(segment, default)：该表达式将会返回一个给定名字的 segment 基地址，如果这个 segment 显式地被指定了一个值(通过命令行 -T 指令)，就返回显式的值，否则这个返回的值就是第二个参数 default。    
+
+//SIZEOF_HEADERS：返回输出文件的头部大小(bytes)，可以用作定位第一个段开始地址。
+//当产生一个 ELF output 文件时，如果链接脚本使用这个內建函数，链接器需要在确定所有段地址之前计算头部大小。如果链接器发现以后需要其它的程序头，会报错：not enough room for program headers。所以，为了防止这个错误，最好是避免使用这个內建函数。或者使用 PHDRS 命令定义程序头。 
+//对于 ELF 文件格式，使用一个程序头，同时也是一个 segments，这个程序头描述程序应该如何被加载到内存中，可以使用 objdump -p 来查看。
+//如果在一个原生的 ELF 系统中，加载器会读取程序头以决定如何加载程序，只有在程序头被正确设置之后才能加载，使用 PHDRS 可以自己创造一个更精确的 program header，而不使用 ld 默认提供的。  
+
+
+.interp         : { *(.interp) }
+.note.gnu.build-id : { *(.note.gnu.build-id) }
+.hash           : { *(.hash) }
+.gnu.hash       : { *(.gnu.hash) }
+.dynsym         : { *(.dynsym) }
+.dynstr         : { *(.dynstr) }
+.gnu.version    : { *(.gnu.version) }
+.gnu.version_d  : { *(.gnu.version_d) }
+.gnu.version_r  : { *(.gnu.version_r) }
+
+合并各个段.  
+
+.rel.dyn        :
+{
+  *(.rel.init)
+  *(.rel.text .rel.text.* .rel.gnu.linkonce.t.*)
+  *(.rel.fini)
+  *(.rel.rodata .rel.rodata.* .rel.gnu.linkonce.r.*)
+  *(.rel.data.rel.ro .rel.data.rel.ro.* .rel.gnu.linkonce.d.rel.ro.*)
+  *(.rel.data .rel.data.* .rel.gnu.linkonce.d.*)
+  *(.rel.tdata .rel.tdata.* .rel.gnu.linkonce.td.*)
+  *(.rel.tbss .rel.tbss.* .rel.gnu.linkonce.tb.*)
+  *(.rel.ctors)
+  *(.rel.dtors)
+  *(.rel.got)
+  *(.rel.bss .rel.bss.* .rel.gnu.linkonce.b.*)
+  PROVIDE_HIDDEN (__rel_iplt_start = .);
+  *(.rel.iplt)
+  PROVIDE_HIDDEN (__rel_iplt_end = .);
+}
+
+定义 .rel.dyn 段，PROVIDE_HIDDEN 和 PROVIDE 类似，只是不会被导出。
+
+
+.rela.dyn       :
+{
+  *(.rela.init)
+  *(.rela.text .rela.text.* .rela.gnu.linkonce.t.*)
+  *(.rela.fini)
+  *(.rela.rodata .rela.rodata.* .rela.gnu.linkonce.r.*)
+  *(.rela.data .rela.data.* .rela.gnu.linkonce.d.*)
+  *(.rela.tdata .rela.tdata.* .rela.gnu.linkonce.td.*)
+  *(.rela.tbss .rela.tbss.* .rela.gnu.linkonce.tb.*)
+  *(.rela.ctors)
+  *(.rela.dtors)
+  *(.rela.got)
+  *(.rela.bss .rela.bss.* .rela.gnu.linkonce.b.*)
+  PROVIDE_HIDDEN (__rela_iplt_start = .);
+  *(.rela.iplt)
+  PROVIDE_HIDDEN (__rela_iplt_end = .);
+}
+
+定义 .rela.dyn 段，PROVIDE_HIDDEN 和 PROVIDE 类似，只是不会被导出。  
+
+.rel.plt        :
+{
+  *(.rel.plt)
+}
+
+.rela.plt       :
+{
+  *(.rela.plt)
+}
+
+.init           :
+{
+	KEEP (*(SORT_NONE(.init)))
+}
+当使用 --gc-sections 时，将会进行垃圾回收，KEEP 用于保留 sections 到输出文件中
+ 
+.plt            : { *(.plt) }
+.iplt           : { *(.iplt) }
+
+.text           :
+{
+    *(.text.unlikely .text.*_unlikely .text.unlikely.*)
+    *(.text.exit .text.exit.*)
+    *(.text.startup .text.startup.*)
+    *(.text.hot .text.hot.*)
+    *(.text .stub .text.* .gnu.linkonce.t.*)
+    /* .gnu.warning sections are handled specially by elf32.em.  */
+    *(.gnu.warning)
+    *(.glue_7t) *(.glue_7) *(.vfp11_veneer) *(.v4_bx)
+}
+合成 .text 段
+
+.fini           :
+  {
+    KEEP (*(SORT_NONE(.fini)))
+}
+
+PROVIDE (__etext = .);
+PROVIDE (_etext = .);
+PROVIDE (etext = .);
+//虚定义三个变量
+
+.rodata         : { *(.rodata .rodata.* .gnu.linkonce.r.*) }
+.rodata1        : { *(.rodata1) }
+.ARM.extab   : { *(.ARM.extab* .gnu.linkonce.armextab.*) }
+PROVIDE_HIDDEN (__exidx_start = .);
+.ARM.exidx   : { *(.ARM.exidx* .gnu.linkonce.armexidx.*) }
+PROVIDE_HIDDEN (__exidx_end = .);
+.eh_frame_hdr : { *(.eh_frame_hdr) *(.eh_frame_entry .eh_frame_entry.*) }
+.eh_frame       : ONLY_IF_RO { KEEP (*(.eh_frame)) *(.eh_frame.*) }
+.gcc_except_table   : ONLY_IF_RO { *(.gcc_except_table
+.gcc_except_table.*) }
+.gnu_extab   : ONLY_IF_RO { *(.gnu_extab*) }
+.exception_ranges   : ONLY_IF_RO { *(.exception_ranges .exception_ranges*) }
+
+
+. = DATA_SEGMENT_ALIGN (CONSTANT (MAXPAGESIZE), CONSTANT (COMMONPAGESIZE));
+//DATA_SEGMENT_ALIGN(maxpagesize, commonpagesize) 相当于：
+	(ALIGN(maxpagesize) + (. & (maxpagesize - 1)))
+	或者 
+	(ALIGN(maxpagesize) + (. & (maxpagesize - commonpagesize)))
+//对齐操作
+
+.eh_frame       : ONLY_IF_RW { KEEP (*(.eh_frame)) *(.eh_frame.*) }
+.gnu_extab      : ONLY_IF_RW { *(.gnu_extab) }
+.gcc_except_table   : ONLY_IF_RW { *(.gcc_except_table .gcc_except_table.*) }
+.exception_ranges   : ONLY_IF_RW { *(.exception_ranges .exception_ranges*) }
+
+.tdata          : { *(.tdata .tdata.* .gnu.linkonce.td.*) }
+.tbss           : { *(.tbss .tbss.* .gnu.linkonce.tb.*) *(.tcommon) }
+
+.preinit_array     :
+{
+    PROVIDE_HIDDEN (__preinit_array_start = .);
+    KEEP (*(.preinit_array))
+    PROVIDE_HIDDEN (__preinit_array_end = .);
+}
+
+.init_array     :
+{
+	PROVIDE_HIDDEN (__init_array_start = .);
+	KEEP (*(SORT_BY_INIT_PRIORITY(.init_array.*) SORT_BY_INIT_PRIORITY(.ctors.*)))
+	KEEP (*(.init_array EXCLUDE_FILE (*crtbegin.o *crtbegin?.o *crtend.o *crtend?.o ) .ctors))
+	PROVIDE_HIDDEN (__init_array_end = .);
+}
+
+.fini_array     :
+{
+	PROVIDE_HIDDEN (__fini_array_start = .);
+	KEEP (*(SORT_BY_INIT_PRIORITY(.fini_array.*) SORT_BY_INIT_PRIORITY(.dtors.*)))
+	KEEP (*(.fini_array EXCLUDE_FILE (*crtbegin.o *crtbegin?.o *crtend.o *crtend?.o ) .dtors))
+	PROVIDE_HIDDEN (__fini_array_end = .);
+}
+
+.ctors          :
+{
+	KEEP (*crtbegin.o(.ctors))
+	KEEP (*crtbegin?.o(.ctors))
+	KEEP (*(EXCLUDE_FILE (*crtend.o *crtend?.o ) .ctors))
+	KEEP (*(SORT(.ctors.*)))
+	KEEP (*(.ctors))
+}
+
+.dtors          :
+{
+	KEEP (*crtbegin.o(.dtors))
+	KEEP (*crtbegin?.o(.dtors))
+	KEEP (*(EXCLUDE_FILE (*crtend.o *crtend?.o ) .dtors))
+	KEEP (*(SORT(.dtors.*)))
+	KEEP (*(.dtors))
+}
+
+.jcr            : { KEEP (*(.jcr)) }
+.data.rel.ro : { *(.data.rel.ro.local* .gnu.linkonce.d.rel.ro.local.*) *(.data.rel.ro .data.rel.ro.* .gnu.linkonce.d.rel.ro.*) }
+.dynamic        : { *(.dynamic) }
+
+. = DATA_SEGMENT_RELRO_END (0, .);
+
+

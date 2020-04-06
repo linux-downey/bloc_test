@@ -1,0 +1,109 @@
+链接概念：
+
+每一个目标文件都是一系列的 sections
+
+每一个 section 都会对应一个 name 和 size，同时会有一些关联的数据，这些数据是 section content
+
+一个 section 可能是 loadable，在执行的时候被加载到内存，也可能是 allocatable，如果不是前面两种，就是 debug 信息。  
+
+每个 loadable 和 allocable 的输出 section 有两个地址，VMA，也就是这个 section 实际运行的地址，LMA，也就是这个 section 被加载的地址。 
+ 
+通常这两个地址是相同的，不同的情况可能在于：在 bootup 的时候，程序被装载到 rom 中，后续又被 copy 到 ram 中执行。在 bootload 中，程序先会被在 nor flash 中执行，然后再被 copy 到 ram 中，这是因为程序不能在 ram 中直接跑。  
+
+objdump -h  查看段信息
+objdump -t  查看symbol信息
+
+
+SECTIONS{
+
+}
+SECTIONS 命令中包含了各段的信息。
+
+. 作为定位符，如果不指定，. 的值会自动增加，增加的 size 为添加段的 size。
+在开始的时候，. 的值为 0。定位符只能在 SECTIONS 里面使用。
+
+.text = {*(.text)}  表示将所有的 .text(源) 段放到 .text(目标) 段中
+
+在不同的段放置中间，链接脚本需要进行对齐。  
+
+对于程序的入口点，链接脚本有以下几种方式来指定程序起始点(按照列出的顺序，直到找到满足的条件，后面的会被忽略)：
+* 命令行中的 -e 参数
+* ENTRY(symbol)
+* start 标号
+* .text section 的开始地址
+* 0地址
+
+
+
+文件相关的命令：
+* INCLUDE filename：包含链接脚本文件，链接器会在当前目录下搜索该文件
+* INPUT(file file) 或者 INPUT(file,file) :输入文件
+
+
+内存相关指令：memory 定义，memory 别名，比如：
+MEMORY
+{
+	ROM : ORIGIN = 0, LENGTH = 2M
+	ROM2 : ORIGIN = 0x10000000, LENGTH = 1M
+	RAM : ORIGIN = 0x20000000, LENGTH = 1M
+}
+	REGION_ALIAS("REGION_TEXT", ROM);
+	REGION_ALIAS("REGION_RODATA", ROM2);
+	REGION_ALIAS("REGION_DATA", RAM);
+	REGION_ALIAS("REGION_BSS", RAM)
+
+
+ALERT(exp, message)   //如果 exp 为真，打印 message，同时终止链接。
+EXTERN(symbol symbol ...)  //强制将某个符号作为 未定义符号添加到输出文件中
+OUTPUT_ARCH(bfdarch)   //指定一个特定的架构
+
+
+SECTIONS 命令：
+每个 section 小节中可以有以下参数：
+* 一个 ENTRY 命令
+* 符号分配
+* 输出段
+* 叠加描述(overlay)
+
+如果在链接描述文件中未使用SECTIONS命令，则链接器会将每个输入节放置在名称相同的输出节中，顺序是在输入文件中首次遇到该节。第一个section 的基地址将是 0 ；
+
+每个 section 的完整描述：
+	section [address] [(type)] :
+	[AT(lma)]
+	[ALIGN(section_align)]
+	[SUBALIGN(subsection_align)]
+	[constraint] {
+		output-section-command
+		output-section-command
+	...
+	} [>region] [AT>lma_region] [:phdr :phdr ...] [=fillexp]
+
+
+
+.text . : { *(.text) }
+.text : { *(.text) }
+
+这两者是有些不一样的，第一个 .text 的地址是当前定位符的地址，第二个段的地址是经过对齐的当前定位符的地址。  
+
+.text ALIGN(0x10)  限制段对齐 0x10 字节
+ALIGN 返回对齐后的定位符，相当于上面的第一种方式。
+
+
+输入符的描述：
+	*(.text)  //表示所有文件的 .text 段
+	*(EXCLUDE_FILE (*crtend.o *otherfile.o) .ctors)  //表示crtend.o 和 otherfile.o 中的 .ctors 段
+	
+	*(.text .rdata)  
+	*(.text) *(.rdata)  //这两条表示所有文件下的 .text 和 .rdata
+	
+	这两条还是有区别的，使用第一条时，.text 和 .rdata 会混合存在，就像在原本文件中的一样
+	第二条则会将所有的 .text 放一起，然后 .rdata 放一起。  
+
+
+
+第三章 link scripts
+
+第四章  arm 相关的扩展
+
+
+
