@@ -1,0 +1,27 @@
+磁盘操作：uboot 的磁盘操作不能以文件系统的形式，只能是以裸数据的形式访问。  
+
+
+
+测试 standalone 的 hello_world.
+修改的 standalone 程序会修改 0x80350000 地址上的 10 个数据为 0x4A 开始的，执行程序之后再读出来。
+
+编译主机的拷贝命令：
+scp examples/standalone/hello_world.bin root@192.168.1.103:/root/
+
+linux 系统下的操作：
+
+SD   是 /dev/mmcblk0
+EMMC 是 /dev/mmcblk1
+
+sudo dd if=hello_world.bin of=/dev/mmcblk1 && sync
+
+
+uboot 下：
+
+//选择操作 emmc
+mmc dev 1
+
+//将 emmc 的前一个 block 地址copy到 80300000 中。
+mmc read 80300000 0 1
+
+go 80300000
