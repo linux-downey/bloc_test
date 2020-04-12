@@ -1,0 +1,50 @@
+armv7 协处理器相关：
+	armv7 的协处理器为 CP15。
+
+操作协处理器的指令：
+	mcr   将 arm 的寄存器赋值给 cp15 的寄存器
+	
+	mcr 0 r0 c1 c0 0              
+	//将 r0 的值 copy 给 c1，第二个参数对于 cp15 恒为1，第五个参数表示对 c1 寄存器的操作，如果是没有操作就是 c0 0
+	
+	mrc   将 cp15 的寄存器赋值给 arm 的寄存器
+  
+
+	
+协处理器寄存器和功能：(armv7-A-R page2514)
+	c0：ID 和 version
+	c1：
+		System Control registers (SCTLR)，
+		主要包含Thump exception控制，不可屏蔽FIQ控制，对齐模型，FIQ控制，中断向量表的地址，
+		指令 cache 的控制，分支预测、cache控制、对齐检查、MMU的使能
+		
+	c2、c3：
+		memory protection and control registers
+		内存相关，内存保护和控制，MMU相关
+	
+	c5、c6：
+		memory system fault registers
+		内存系统错误管理、数据错误和指令错误
+	c7 ：
+		cache maintenance and other functions
+		缓存和分支预测功能
+	c8：
+		TLB maintenance operations
+		内存页相关
+	c9：
+		performance monitors
+		性能监测
+	c12：
+		Security Extensions registers
+		安全扩展方面的
+	c13：
+		process, context and thread ID registers
+		进程、上下文和线程管理
+	c15：
+		IMPLEMENTATION DEFINED registers
+		定义实现寄存器
+
+CP15的主要是针对内存系统的操作，包括 MMU cache 等。  
+
+	
+		

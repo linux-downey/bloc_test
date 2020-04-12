@@ -1,0 +1,299 @@
+CPSR 寄存器内容：
+	APSR flags
+	处理器当前的模式
+	中断失能flag
+	当前指令集状态
+	大小端
+	IT block 的执行状态位
+	
+寄存器详细内容地址：page46
+模式对应的数据位：page42
+
+指令的 cond 表在 arvv7 page 286。
+
+指令码：
+
+CP15 协处理器：
+	
+
+reset 开始(?):
+	save_boot_params   //开机将参数保存到协处理器中
+	
+	mrs r0,cpsr	                    //mrs 用于读取 cprs 的数据到 core register 中
+	and	r1, r0, #0x1f               //r0 位与 0x1f，结果存到 r1
+	teq	r1, #0x1a                   //测试指令，CPSR 的前五位表示当前处理器模式,结果保存在 cpsr 中
+                                    //1a-hyp，1f-sys，11-FIQ，12-IRQ
+	bicne	r0, r0, #0x1f	        //清除	CPSR 的前五位，后缀 ne 表示 CPSR 的 Z==0 的情况下，该指令才会执行
+	orrne	r0, r0, #0x13		    //设置 CPSR 为 SVC 模式,0x13，后缀 ne 表示 CPSR 的 Z==0 的情况下，该指令才会执行
+	orr	r0, r0, #0xc0		        //屏蔽 IRQ 和 FIQ 位
+	msr	cpsr,r0                     //将结果写回 CPSR 寄存器
+	
+	
+	mrc	p15, 0, r0, c1, c0, 0	          //读取协处理器 CP15 的 c1 寄存器
+	//#define CR_V	(1 << 13)	
+	bic	r0, #CR_V		                  // CP15 的 bit13 清零，0表示中断向量表放在0地址，1表示向量表放在FFFF0000
+	mcr	p15, 0, r0, c1, c0, 0			  //写回到协处理器 c0
+
+
+	/* Set vector address in CP15 VBAR register */
+	ldr	r0, =_start
+	mcr	p15, 0, r0, c12, c0, 0            //c12 专门用于设置0地址的中断向量表	
+	
+	                                      //bl 指令表示带链接的跳转，在跳转前先将下一条指令存到 LR 寄存器中，方便返回
+	bl	cpu_init_cp15                     
+	bl	cpu_init_crit
+	bl	_main
+	
+cpu_init_cp15：
+	ENTRY(cpu_init_cp15)
+	
+	//针对 L1 cache的操作
+	mov	r0, #0			
+	mcr	p15, 0, r0, c8, c7, 0	
+	mcr	p15, 0, r0, c7, c5, 0	
+	mcr	p15, 0, r0, c7, c5, 6	
+	mcr     p15, 0, r0, c7, c10, 4	
+	mcr     p15, 0, r0, c7, c5, 4	
+
+	//针对 mmu 的操作
+	mrc	p15, 0, r0, c1, c0, 0
+	bic	r0, r0, #0x00002000	          //向量表设置为0地址
+	bic	r0, r0, #0x00000007			  //MMU、Align检查、cache 使能全部清空
+	orr	r0, r0, #0x00000002	          //设置 Align 检查
+	orr	r0, r0, #0x00000800	          //使能分支预测
+#ifdef CONFIG_SYS_ICACHE_OFF
+	bic	r0, r0, #0x00001000	          
+#else                                 
+	orr	r0, r0, #0x00001000	          //可以选项化地操作 icache，可以关可以不关 
+#endif                                //但是 dcache 的使用需要使能 MMU，所以 uboot 一直是关 dcache 的。 
+	mcr	p15, 0, r0, c1, c0, 0         //正式的设置操作
+                                      
+									  //errata 表示处理器的勘误表
+									  //勘误表部分不进行分析
+
+	mov	r5, lr			              //将 lr 寄存器保存在 r5 中，r5 中保存的是返回地址
+	mrc	p15, 0, r1, c0, c0, 0	      //读取 c0，midr 寄存器到 r1 中
+	mov	r3, r1, lsr #20		          
+	and	r3, r3, #0xf		 
+	and	r4, r1, #0xf		 
+	mov	r2, r3, lsl #4		 
+	orr	r2, r4, r2		               //获取CPU信息，包含armv7-A或R+version
+
+	mov	pc, r5			               //返回到调用函数
+ENDPROC(cpu_init_cp15)
+
+
+cpu_init_crit：
+ENTRY(cpu_init_crit)
+	b	lowlevel_init		
+ENDPROC(cpu_init_crit)
+
+
+*******
+
+
+lowlevel_init 在 start.S 同目录下的 lowlevel_init.S 文件中：
+
+lowlevel_init：
+ENTRY(lowlevel_init)
+	
+	//include/configs/mx6ullevk.h 文件中定义了 CONFIG_SYS_INIT_SP_ADDR
+	ldr	sp, =CONFIG_SYS_INIT_SP_ADDR                        //在内存中找一片空闲地址作为栈，arm_addr + sp_offset
+															//这个空闲地址是 OCRAM，也就是片内 ram，在 imx6ull 中是 128KB
+
+	bic	sp, sp, #7                                          //sp 需要8字节对齐
+
+
+	sub	sp, sp, #GD_SIZE                                   //sp 减去 sizeof(struct global_data),因为栈是向下生长的，减去相当于增加栈长度
+	bic	sp, sp, #7                                         //同样的，8字节对齐
+	mov	r9, sp                                             //将 sp 的值赋值给 r9，r9 中就保存了 global_data 的基地址
+
+	
+	push	{ip, lr}                                       //将 ip(r12) 和 lr 寄存器推到栈上
+
+	/*
+	 * Call the very early init function. This should do only the
+	 * absolute bare minimum to get started. It should not:
+	 *
+	 * - set up DRAM
+	 * - use global_data
+	 * - clear BSS
+	 * - try to start a console
+	 *
+	 * For boards with SPL this should be empty since SPL can do all of
+	 * this init in the SPL board_init_f() function which is called
+	 * immediately after this.
+	 */
+	bl	s_init                                            //一些平台特定的初始化，imx6ull 不需要做任何事
+	pop	{ip, pc}
+ENDPROC(lowlevel_init)
+
+
+
+
+_main //reset 的最后一步，bl _main:
+
+ENTRY(_main)
+
+	ldr	sp, =(CONFIG_SYS_INIT_SP_ADDR)                      //设置栈
+
+	bic	sp, sp, #7	                                        //栈8字节对齐
+
+	mov	r0, sp                                              //将栈顶指针放在 r0 ，作为参数传递给 board_init_f_alloc_reserve
+	bl	board_init_f_alloc_reserve                          //imx6ull 里面仅仅是向16字节对齐，r0中保存了返回值，也即是对齐后的 sp
+	mov	sp, r0                                              //栈顶回到刚刚设置的地方
+	
+	mov	r9, r0                                              //将栈顶放到，作为 board_init_f_init_reserve 的参数
+	bl	board_init_f_init_reserve                           //common/init/board_init.c 中
+
+	mov	r0, #0                                              //将 r0 清零
+	bl	board_init_f                                        //调用 board_init_f ,在 common/board_f.c 中
+
+#if ! defined(CONFIG_SPL_BUILD)
+
+/*
+ * Set up intermediate environment (new sp and gd) and call
+ * relocate_code(addr_moni). Trick here is that we'll return
+ * 'here' but relocated.
+ */
+
+	ldr	sp, [r9, #GD_START_ADDR_SP]	/* sp = gd->start_addr_sp */
+#if defined(CONFIG_CPU_V7M)	/* v7M forbids using SP as BIC destination */
+	mov	r3, sp
+	bic	r3, r3, #7
+	mov	sp, r3
+#else
+	bic	sp, sp, #7	/* 8-byte alignment for ABI compliance */
+#endif
+	ldr	r9, [r9, #GD_BD]		/* r9 = gd->bd */
+	sub	r9, r9, #GD_SIZE		/* new GD is below bd */
+
+	adr	lr, here
+	ldr	r0, [r9, #GD_RELOC_OFF]		/* r0 = gd->reloc_off */
+	add	lr, lr, r0
+#if defined(CONFIG_CPU_V7M)
+	orr	lr, #1				/* As required by Thumb-only */
+#endif
+	ldr	r0, [r9, #GD_RELOCADDR]		/* r0 = gd->relocaddr */
+	b	relocate_code
+here:
+/*
+ * now relocate vectors
+ */
+
+	bl	relocate_vectors
+
+/* Set up final (full) environment */
+
+	bl	c_runtime_cpu_setup	/* we still call old routine here */
+#endif
+#if !defined(CONFIG_SPL_BUILD) || defined(CONFIG_SPL_FRAMEWORK)
+# ifdef CONFIG_SPL_BUILD
+	/* Use a DRAM stack for the rest of SPL, if requested */
+	bl	spl_relocate_stack_gd
+	cmp	r0, #0
+	movne	sp, r0
+	movne	r9, r0
+# endif
+	ldr	r0, =__bss_start	/* this is auto-relocated! */
+
+#ifdef CONFIG_USE_ARCH_MEMSET
+	ldr	r3, =__bss_end		/* this is auto-relocated! */
+	mov	r1, #0x00000000		/* prepare zero to clear BSS */
+
+	subs	r2, r3, r0		/* r2 = memset len */
+	bl	memset
+#else
+	ldr	r1, =__bss_end		/* this is auto-relocated! */
+	mov	r2, #0x00000000		/* prepare zero to clear BSS */
+
+clbss_l:cmp	r0, r1			/* while not at end of BSS */
+#if defined(CONFIG_CPU_V7M)
+	itt	lo
+#endif
+	strlo	r2, [r0]		/* clear 32-bit BSS word */
+	addlo	r0, r0, #4		/* move to next */
+	blo	clbss_l
+#endif
+
+#if ! defined(CONFIG_SPL_BUILD)
+	bl coloured_LED_init
+	bl red_led_on
+#endif
+	/* call board_init_r(gd_t *id, ulong dest_addr) */
+	mov     r0, r9                  /* gd_t */
+	ldr	r1, [r9, #GD_RELOCADDR]	/* dest_addr */
+	/* call board_init_r */
+#if defined(CONFIG_SYS_THUMB_BUILD)
+	ldr	lr, =board_init_r	/* this is auto-relocated! */
+	bx	lr
+#else
+	ldr	pc, =board_init_r	/* this is auto-relocated! */
+#endif
+	/* we should not return here. */
+#endif
+
+ENDPROC(_main)
+
+	
+****
+
+board_init_f_init_reserve:
+void board_init_f_init_reserve(ulong base)
+{
+	struct global_data *gd_ptr;
+
+	gd_ptr = (struct global_data *)base;                //将保留的 global_data 清零
+	memset(gd_ptr, '\0', sizeof(*gd));                  //最后添加一个 '\0'
+	
+	base += roundup(sizeof(struct global_data), 16);
+
+	gd->malloc_base = base;
+
+	base += CONFIG_SYS_MALLOC_F_LEN;
+
+}
+
+*****************
+
+void board_init_f(ulong boot_flags)
+{
+	gd->flags = boot_flags;
+	gd->have_console = 0;
+
+	if (initcall_run_list(init_sequence_f))
+		hang();
+
+}
+
+
+int initcall_run_list(const init_fnc_t init_sequence[])
+{
+	const init_fnc_t *init_fnc_ptr;
+
+	for (init_fnc_ptr = init_sequence; *init_fnc_ptr; ++init_fnc_ptr) {
+		unsigned long reloc_ofs = 0;
+		int ret;
+
+		if (gd->flags & GD_FLG_RELOC)
+			reloc_ofs = gd->reloc_off;
+
+		debug("initcall: %p", (char *)*init_fnc_ptr - reloc_ofs);
+		if (gd->flags & GD_FLG_RELOC)
+			debug(" (relocated to %p)\n", (char *)*init_fnc_ptr);
+		else
+			debug("\n");
+		ret = (*init_fnc_ptr)();
+		if (ret) {
+			printf("initcall sequence %p failed at call %p (err=%d)\n",
+			       init_sequence,
+			       (char *)*init_fnc_ptr - reloc_ofs, ret);
+			return -1;
+		}
+	}
+	return 0;
+}
+
+board_f.c 中定义了 init_sequence 函数列表，逐个执行。
+
+timer_init

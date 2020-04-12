@@ -1,0 +1,9 @@
+armv7 一共 16 个 core registers：
+
+r0 ~ r12 是通用寄存器。
+
+R0 R1 R2 R3 默认用来传递参数
+
+
+
+
