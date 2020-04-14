@@ -1,0 +1,36 @@
+Arm Architecture Procedure call standard
+
+机器类型：
+
+基本的：
+	(unsigned)byte                 1
+	(unsigned)half-word            2
+	(unsigned)word                 4
+	(unsigned)double-word          8
+
+float：
+	half precision                 2
+	single precision               4
+	double precision               8
+
+容器向量：
+	64-bit vector                  8
+	128-bit vector                 16
+
+pointer：
+	data pointer                   4
+	code pointer                   4
+	
+
+大小端描述。  
+
+r0-r3 专门用来传递参数，同时也作为返回的数据，同时可能作为临时存储寄存器
+r12(IP) ,也可以作为临时存储寄存器
+
+R9 是一个特殊的寄存器，它的作用是平台指定的，可能是某个数据模型的 static base，或者专门用做 thread-local storage，
+	
+r4-r8，r10、r11，用于保存程序的local value。
+
+	
+
+
