@@ -28,17 +28,72 @@ typedef struct
 
 e_ident : 7f 45 4c 46 01 01 01 00  00 00 00 00 00 00 00 00
 	7f 45 4c 46  : 头文件识别
-	01           ：小端模式，2表示大端模式
 	01           ：1 表示 32 位 ELF 文件，2 表示64位 ELF 文件，
-					区别在于成员长度不一样，但是成员是一样的
-	01：
+	01           ：小端模式，2表示大端模式
+	01			 ：EI_version ，1 表示 EV_CURRENT，只有 1 才是合理的。
+	00           ： OS_ABI
+	00           ： ABI version
+	其他 byte 没有意义。  
+	
+e_type：
+	REL (Relocatable file)
+	EXEC (Executable file)
+	DYN (Shared object file)
+	CORE (Core file)
+	
+	file：readelf.c
+	line：2277
+
+e_machine:
+	EM_ARM:40
+	
+	file:readelf.c
+	line:2301
+
+e_version:
+	就是四字节的version
+
+e_entry：
+	四(八)字节的入口地址
+
+e_phoff：
+	四(八)字节的 program header 地址
+
+e_shoff：
+	四(八)字节的 section headers 地址
+	
+e_flags：
+	取决于 e_machine,根据 e_machine 进行解析。
+	
+	file:readelf.c
+	line:3105
+	
+e_ehsize:
+	elf header size
+	
+e_phentsize:
+	每一个 program header 的 size
+
+e_phnum:
+	program header 的数量
+
+e_shentsize：
+	每一个 section header 的 size
+	
+e_shnum：
+	section header 的数量
+
+e_shstrndx：
+	节标题字符串索引表
+	段字符串所在的段索引，值为 8 表示第九个段是用来装字符串的。
 
 
-前16 字节意义：readelf.c 的 19736 行。
 
 header 就是文件开始的地方。  
 整个 header 文件的含义，在 readelf.c ，4850 行，process_file_header 函数中，每一个对应的都能看到。  
 32 和 64 的头长度是不一样的，一个 52，一个 64.
+
+主要区别在于 e_entry、e_phoff、e_shoff 这三个字段，每个相差 4 bytes，相当于 12 bytes。
 
 typedef struct {
   unsigned char	e_ident[16];		/* ELF "magic number" */
@@ -57,6 +112,7 @@ typedef struct {
   unsigned char	e_shstrndx[2];		/* Section header string table index */
 } Elf32_External_Ehdr;
 
+
 typedef struct {
   unsigned char	e_ident[16];		/* ELF "magic number" */
   unsigned char	e_type[2];		/* Identifies object file type */
@@ -73,6 +129,70 @@ typedef struct {
   unsigned char	e_shnum[2];		/* Section header table entry count */
   unsigned char	e_shstrndx[2];		/* Section header string table index */
 } Elf64_External_Ehdr;
+
+
+line 6112，process_section_headers()  专门处理 section headers；
+
+
+
+每个段的信息，由 section headers 描述，每个 section header 占用 40 字节：
+	
+typedef struct elf_internal_shdr {
+	unsigned int	sh_name;		/* Section name, index in string tbl */
+	unsigned int	sh_type;		/* Type of section */
+	bfd_vma	sh_flags;		/* Miscellaneous section attributes */
+	bfd_vma	sh_addr;		/* Section virtual addr at execution */
+	file_ptr	sh_offset;		/* Section file offset */
+	bfd_size_type	sh_size;		/* Size of section in bytes */
+	unsigned int	sh_link;		/* Index of another section */
+	unsigned int	sh_info;		/* Additional section information */
+	bfd_vma	sh_addralign;		/* Section alignment */
+	bfd_size_type	sh_entsize;		/* Entry size if section holds table */
+
+	/* The internal rep also has some cached info associated with it. */
+	asection *	bfd_section;		/* Associated BFD section.  */
+	unsigned char *contents;		/* Section contents.  */
+} Elf_Internal_Shdr;
+	
+	
+sh_name：保存在 section header table 段中。
+sh_type：section header type  ：line 4279
+sh_flags：line 5802
+sh_addr：section header 的地址
+sh_offset：section header 的 offset
+sh_size：section 的 size
+sh_link：
+sh_info：额外的 section  header 信息
+sh_addralign:对齐字节
+sh_entsize：如果 section 有 table，入口的 size？
+
+bfd_section:BFD 相关的 section
+contents;section 内容指针。
+
+
+	
+	0  NULL段，没有意义，其实指的就是 elf 头
+	
+	.text：全部都是代码
+	
+	.rel.text：
+	
+
+
+
+
+
+
+
+
+	
+	
+
+
+
+
+
+
 
 
 
