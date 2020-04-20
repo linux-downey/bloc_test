@@ -1,0 +1,40 @@
+.o 文件：
+	先编译出 .o 文件，使用 readelf -h 读取 elf 头，使用 hexdump -C test.o -n 64 来对比。
+	elf 头长度为 64 字节。
+	
+	magic：magic 部分一共 16 个字节
+
+arm 中 elf 格式，定义在 /usr/include/elf.h
+
+#define EI_NIDENT (16)
+
+typedef struct
+{
+  unsigned char e_ident[EI_NIDENT];     /* Magic number and other info */
+  Elf32_Half    e_type;                 /* Object file type */
+  Elf32_Half    e_machine;              /* Architecture */
+  Elf32_Word    e_version;              /* Object file version */
+  Elf32_Addr    e_entry;                /* Entry point virtual address */
+  Elf32_Off     e_phoff;                /* Program header table file offset */
+  Elf32_Off     e_shoff;                /* Section header table file offset */
+  Elf32_Word    e_flags;                /* Processor-specific flags */
+  Elf32_Half    e_ehsize;               /* ELF header size in bytes */
+  Elf32_Half    e_phentsize;            /* Program header table entry size */
+  Elf32_Half    e_phnum;                /* Program header table entry count */
+  Elf32_Half    e_shentsize;            /* Section header table entry size */
+  Elf32_Half    e_shnum;                /* Section header table entry count */
+  Elf32_Half    e_shstrndx;             /* Section header string table index */
+} Elf32_Ehdr;
+
+e_ident : 7f 45 4c 46 01 01 01 00  00 00 00 00 00 00 00 00
+	7f 45 4c 46  : 头文件识别
+	01           ：小端模式，2表示大端模式
+	01           ：1 表示 32 位 ELF 文件，2 表示64位 ELF 文件，
+					区别在于成员长度不一样，但是成员是一样的
+	01：
+
+
+前16 字节意义：readelf.c 的 19736 行。
+
+
+
