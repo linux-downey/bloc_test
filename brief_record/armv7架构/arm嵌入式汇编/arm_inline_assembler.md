@@ -118,7 +118,8 @@ TODO
 
 "=" 表示只写，通常用于所有输出操作数的属性
 "+" 表示读写，只能被列为输出操作数的属性，否则编译会报错。
-"&" 该寄存器只允许被用作输出操作数，同样不能用作输入操作数的属性。
+
+在输出操作数中，必须指定其中一个。  
 
 TODO
 r 相关的图。
@@ -210,8 +211,9 @@ asm __volatile__ ("mov r0,r0");
 比如对于 CPU 内部状态寄存器的操作，就不会有输入输出，通常都会加上。  
 
 
+这只是一个相对简单的入门介绍，更多详细资料可以参考官方手册：[inline-arm-assembly](https://gcc.gnu.org/onlinedocs/gcc-9.3.0/gcc/Using-Assembly-Language-with-C.html#Using-Assembly-Language-with-C)
 
-参考：http://www.ethernut.de/en/documents/arm-inline-asm.html
+
 
 
 
