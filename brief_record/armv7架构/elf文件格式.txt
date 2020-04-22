@@ -135,7 +135,7 @@ line 6112，process_section_headers()  专门处理 section headers；
 
 
 
-每个段的信息，由 section headers 描述，每个 section header 占用 40 字节：
+每个段的信息，由 section headers 描述，每个 section header 占用 40(64) 字节：
 	
 typedef struct elf_internal_shdr {
 	unsigned int	sh_name;		/* Section name, index in string tbl */
@@ -155,9 +155,30 @@ typedef struct elf_internal_shdr {
 } Elf_Internal_Shdr;
 	
 	
-sh_name：保存在 section header table 段中。
+整个头的内存分布就是按照这个结构体来的。
+typedef struct {
+  unsigned char	sh_name[4];		// 段名称在 sh_hdr 中的索引地址，字节为单位
+  unsigned char	sh_type[4];		// 这个 type 需要根据架构进行区分，
+  unsigned char	sh_flags[4];		/* Miscellaneous section attributes */
+  unsigned char	sh_addr[4];		/* Section virtual addr at execution */
+  unsigned char	sh_offset[4];		/* Section file offset */
+  unsigned char	sh_size[4];		/* Size of section in bytes */
+  unsigned char	sh_link[4];		/* Index of another section */
+  unsigned char	sh_info[4];		/* Additional section information */
+  unsigned char	sh_addralign[4];	/* Section alignment */
+  unsigned char	sh_entsize[4];		/* Entry size if section holds table */
+} Elf32_External_Shdr;
+	
+	
+
+获取整个 section header 的方法在 get_32bit_section_headers 中，line 5437.
+	
+sh_name：保存在 section header table 段中，这个值表示在 section header table 中的索引地址。
+
 sh_type：section header type  ：line 4279
+
 sh_flags：line 5802
+
 sh_addr：section header 的地址
 sh_offset：section header 的 offset
 sh_size：section 的 size
@@ -166,8 +187,9 @@ sh_info：额外的 section  header 信息
 sh_addralign:对齐字节
 sh_entsize：如果 section 有 table，入口的 size？
 
-bfd_section:BFD 相关的 section
-contents;section 内容指针。
+
+
+
 
 
 	
@@ -184,8 +206,14 @@ contents;section 内容指针。
 
 
 
+bss 和 COMMON 段，COMMON 段是伪段
+对于目标文件，bss 只存放初始化为 0 的全局变量或者静态变量，而 COMMON 段用于保存未初始化的部分，这是因为 gcc 支持强弱符号，初始化为 0 表示为强符号，就直接放到 bss 里面，未初始化表示弱符号，就放在 COMMON 部分，统一交给链接器处理。
+
+COMMON 被包含在 symbol table 中。 
 
 	
+	
+专门针对重定位写一篇，涉及到汇编代码。  
 	
 
 
