@@ -1,0 +1,63 @@
+暂时不考虑动态库的情况，忽略 SHARED 分支。
+
+	.text
+	.globl _start
+	.type _start,#function
+_start:
+	
+	//防范未处理的异常
+	.fnstart
+	
+	//清除帧寄存器和lr寄存器
+	mov fp, #0
+	mov lr, #0
+
+	//将栈上的 argc 保存到 a2(r1) 中
+	pop { a2 }
+	
+	//将栈地址保存在 a3(r2) 中
+	mov a3, sp
+
+	//将参数地址argv保存在栈上
+	push { a3 }
+	
+	//将 r0 放到栈上 rtld_fini，r0 中保存的是进程的收尾工作。 
+	push { a1 }
+
+
+	/* Fetch address of __libc_csu_fini */
+	ldr ip, =__libc_csu_fini
+
+	/* Push __libc_csu_fini */
+	push { ip }
+
+	/* Set up the other arguments in registers */
+	ldr a1, =main
+	ldr a4, =__libc_csu_init
+
+	/* __libc_start_main (main, argc, argv, init, fini, rtld_fini, stack_end) */
+	/* Let the libc call main and exit with its return code.  */
+	bl __libc_start_main
+
+	/* should never get here....*/
+	bl abort
+
+#ifdef SHARED
+	.align 2
+.L_GOT:
+	.word _GLOBAL_OFFSET_TABLE_ - .L_GOT
+	.word __libc_csu_fini(GOT)
+	.word __libc_csu_init(GOT)
+	.word main(GOT)
+#endif
+
+       .cantunwind
+       .fnend
+
+/* Define a symbol for the first piece of initialized data.  */
+	.data
+	.globl __data_start
+__data_start:
+	.long 0
+	.weak data_start
+	data_start = __data_start
