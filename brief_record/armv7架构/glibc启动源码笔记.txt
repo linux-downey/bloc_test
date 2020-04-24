@@ -1,5 +1,11 @@
 暂时不考虑动态库的情况，忽略 SHARED 分支。
 
+
+程序执行之前的状态：
+栈上：
+	
+
+
 	.text
 	.globl _start
 	.type _start,#function
@@ -37,6 +43,9 @@ _start:
 
 	/* __libc_start_main (main, argc, argv, init, fini, rtld_fini, stack_end) */
 	/* Let the libc call main and exit with its return code.  */
+	
+	
+	//在调用 __libc_start_main 之前，a1 是 main 函数，a2 是 argc，a3 是 argv，a4 是 __libc_csu_init，另外的参数放在栈上。
 	bl __libc_start_main
 
 	/* should never get here....*/

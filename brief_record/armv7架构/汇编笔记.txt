@@ -1,3 +1,41 @@
+arm 汇编基本规则：
+
+	arm 指令集中立即数为 12 bit，这 12 bit 被分为 8 bit 的 constant 和 4 bit 的旋转，
+	每一条指令都有对应的 condition 字段
+	Suffix     Meaning                          Flags
+	EQ     	   Equal                            Z = 1
+	NE         Not equal                        Z = 0
+	CS         Carry set (identical to HS)      C = 1
+	HS         Unsigned higher or same          C = 1
+	CC         Carry clear (identical to LO)    C = 0
+	LO         Unsigned lower (identical to CC) C = 0
+	MI         Minus or negative result         N = 1
+	PL         Positive or zero result          N = 0
+	VS         Overflow                         V = 1
+	VC         Now overflow                     V = 0
+	HI         Unsigned higher                  C = 1 AND Z = 0
+	LS         Unsigned lower or same           C = 0 OR Z = 1
+	GE         Signed greater than or equal     N = V
+	LT         Signed less than                 N != V
+	GT         Signed greater than              Z = 0 AND N = V
+	LE         Signed less than or equal        Z = 1 OR N != V
+	AL         Always. This is the default      -
+	不指定后缀时，默认为 al，总是执行。
+	
+	APSR 状态寄存器，在高特权级叫 CPSR，用户空间为 CPSR。管理分支的主要是高四位：
+	
+	N 31 Negative Set to the same value as bit[31] of the result. For a 32-bit signed integer, bit[31] being set indicates that the value is negative.
+	Z 30 Zero Set to 1 if the result is zero, otherwise it is set to 0.
+	C 29 Carry Set to the carry-out value from result, or to the value of the last bit shifted out from a shift operation.
+	V 28 Overflow Set to 1 if signed overflow or underflow occurred, otherwise it is set to 0.
+
+	arm 指令集只能在寄存器中操作数据，不能直接在内存中操作数据。 
+	
+	指令的第一个操作数必然是一个寄存器，第二个操作数可以灵活地实现，可以是：
+	立即数：#开头
+	寄存器：Rm
+	被移位的寄存器：Rm,shift#x 或者 Rm,shift Rs，有 5 个 shift 指令，LSL(左移)，LSR(逻辑右移),ASR(算数右移),POR(循环右移),循环右移扩展(RRX)
+
 .micro
 ... 
 .endm
@@ -20,6 +58,126 @@ AREA 用于定义一个代码段或者数据段
 
 ENTRY 用来定义汇编程序的入口点，可以有多个，如果有多个的时候，入口地址由链接器指定。  
 
+.word 
+在当前位置放一个字
 
-.type 
+
+常用汇编指令：
+
+计算指令：
+Opcode     Operands 		Description 					Function
+ADC         Rd, Rn, Op2 	Add with carry 					Rd = Rn + Op2 + C
+ADD			Rd, Rn, Op2 	Add 							Rd = Rn + Op2
+MOV 		Rd, Op2 		Move 							Rd = Op2
+MVN 		Rd, Op2 		Move NOT 						Rd = ~Op2
+RSB 		Rd, Rn, 		Op2 Reverse Subtract 			Rd = Op2 – Rn
+RSC 		Rd, Rn, 		Op2 Reverse Subtract withCarry 	Rd = Op2 – Rn - !C
+SBC 		Rd, Rn, Op2	 	Subtract with carry 			Rd = Rn – Op2 -!C
+SUB 		Rd, Rn, Op2 	Subtract 						Rd = Rn – Op2
+
+逻辑操作指令：
+Opcode     Operands 		Description 					Function
+AND 		Rd, Rn, Op2 	AND 							Rd = Rn & Op2
+BIC 		Rd, Rn, Op2 	Bit Clear 						Rd = Rn & ~ Op2
+EOR 		Rd, Rn, Op2 	Exclusive OR 					Rd = Rn ^ Op2
+ORR 		Rd, Rn, Op2 	OR 								Rd = Rn | Op2 (OR NOT) Rd = Rn | ~Op2
+
+标志位设置指令：
+Opcode     Operands 		Description 					Function
+CMP 		Rn, Op2 		Compare 						Rn – Op2
+CMN 		Rn, Op2 		Compare Negative 				Rn + Op2
+TEQ 		Rn, Op2 		Test EQuivalence 				Rn ^ Op2
+TST 		Rn, Op2 		Test 							Rn & Op2
+
+
+乘法指令：乘法指令只能在寄存器里面做，不能使用立即数
+
+Opcode 				Operands 			Description 					Function
+MLA 				Rd, Rn, Rm, Ra 		Multiply accumulate (MAC) 		Rd = Ra + (Rn × Rm)
+MLS 				Rd, Rn, Rm, Ra 		Multiply and Subtract 			Rd = Ra - (Rm × Rn)
+MUL 				Rd, Rn, Rm 			Multiply 						Rd = Rn × Rm
+SMLAL 				RdLo, RdHi, Rn, Rm 	Signed 32-bit multiply with a	RdHiLo += Rn × Rm
+										64-bit accumulate
+SMULL 				RdLo, RdHi, Rn, Rm 	Signed 64-bit multiply 			RdHiLo = Rn × Rm
+UMLAL 				RdLo, RdHi, Rn, Rm 	Unsigned 64-bit MAC 			RdHiLo += Rn × Rm
+UMULL 				RdLo, RdHi, Rn, Rm 	Unsigned 64-bit multiply 		RdHiLo = Rn × Rm
+
+
+SIMD(Single Instruction, Multiple Data) 指令,一条指令处理多个data，比如 SADD16 指令：
+	SADD16 R1,R3,R0   
+	将 R0 的低16位和R3的低16位相加放到R1的低16位，对于高16位同样的操作。  
+	
+
+内存操作指令：
+	LDR
+
+连续的内存操作指令：
+	连续内存操作的前缀是 LDM, STM, LDM 将地址上的数据逐一保存到寄存器列表中，STM 将寄存器列表中的数据逐一地保存到指定的地址上。  
+	指令后缀为 ：IA/IB(increment After/Before),DA/DB(Decrement After/Before)，也可以使用对应的别名：FD/FA,ED/EA。 
+	
+	示例：
+
+	LDMIA 读取指定地址上的数据到寄存器中：
+		LDMIA R10!,{R0-R3,R12}
+		读取 R10 寄存器保存的地址上的数据到 R0-R3，R12 寄存器中，因为加了!,所以每读取一个，R10 的地址会自增 4 .
+		
+	STMFD sp!, {r0-r5} ; Push onto a Full Descending Stack，将寄存器中的值保存到栈上。
+	LDMFD sp!, {r0-r5} ; Pop from a Full Descending Stack   将栈上的值逐一保存到寄存器中。
+	
+	
+分支指令：
+	B 和 BL
+	如果想切换指令集，ARM->Thumb 或者 Thumb->ARM，使用 BX 或者 BLX
+	另一种跳转的方式就是直接写 PC 指针的值。  
+	
+
+杂项：
+	cp15 的寄存器操作，这需要在特权级下才能操作，用户模式下不能进行操作，cp15 是 build-in 协处理器，主要负责内存、cache、MMU。
+	cp14 的寄存器操作，管理debug系统。  
+	cp10和cp11 主要负责硬件浮点功能。  
+	
+SVC: SVC 执行的时候，将产生一个异常，这个指令在之前是 SWI。  
+	
+
+
+
+寻址模式:
+	arm 有多种寻址模式：
+		直接使用寄存器中的地址(1)
+		寄存器加立即数(23)
+		回写，在地址部分后面加一个 ！，当内存操作完成之后，基寄存器的值更新为操作数+offset，不指定offset则默认为4。
+		回写，暂时不懂和上一条的差别(5)
+		
+		(1) LDR R0, [R1] @ address pointed to by R1
+		(2) LDR R0, [R1, R2] @ address pointed to by R1 + R2
+		(3) LDR R0, [R1, R2, LSL #2] @ address is R1 + (R2*4)
+		(4) LDR R0, [R1, #32]! @ address pointed to by R1 + 32, then R1:=R1 + 32
+		(5) LDR R0, [R1], #32 @ read R0 from address pointed to by R1, then R1:=R1 + 32
+		
+WFE:wait for event ，会让 CPU 进入到 standby 模式，interrupt 和 debug 事件会唤醒系统，或者由其它 core 发送过来的 SEV 事件。
+SEV:产生唤醒事件，可以发送给其他 core，以唤醒 WFE 的 core
+
+
+
+blx 
+blx label
+将下一条地址放在 lr 寄存器中，然后执行跳转
+
+add
+A：
+add 目的寄存器,源寄存器,立即数
+T：
+add 目的寄存器，源寄存器，立即数
+
+movw ：将一个 16 bit 数据放到寄存器低 16 位，并将高16位清零
+movt ：将一个 16 bit 数据放到寄存器高 16 位，不处理低16位
+
+
+ldr rn,=label
+将标号对应的数据加载到寄存器中。
+
+ldr rn,=<constant>
+将内存地址上的数据加载到寄存器中。
+
+
 
