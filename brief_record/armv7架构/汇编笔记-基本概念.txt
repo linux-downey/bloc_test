@@ -1,0 +1,94 @@
+arm 指令集和 thumb 指令集。  
+arm 指令集都是 32 bits 的指令，指令更加强大，一条指令相对执行效率也高。在异常处理的时候同样会使用 arm 指令集，因为在某些平台下，thumb 指令集不支持异常的处理(比如 arm7 和 arm9，但是在 cortex M3 上只使用 thumb2 指令集，这会根据平台来实现)
+thumb 指令集都是 16位的，thumb2 有32位的指令，thumb 指令集的代码密度要更小，所以会更节省内存，实现同一个工作需要更多的指令，但是代码密度高，要理解 thumb 指令集和 arm 指令集具体的区别，需要从硬件实现的角度进行分析。  
+在 thumb 指令集中，可以指定指令的编码方式，.w 表示强制使用 32 bit 的指令，.n 表示强制使用 16 bit 的指令，如果超出编码限制，将会报错。  
+
+
+arm 指令集中立即数为 12 bit，这 12 bit 被分为 8 bit 的 constant 和 4 bit 的旋转，
+每一条指令都有对应的 condition 字段
+Suffix     Meaning                          Flags
+EQ     	   Equal                            Z = 1
+NE         Not equal                        Z = 0
+CS         Carry set (identical to HS)      C = 1
+HS         Unsigned higher or same          C = 1
+CC         Carry clear (identical to LO)    C = 0
+LO         Unsigned lower (identical to CC) C = 0
+MI         Minus or negative result         N = 1
+PL         Positive or zero result          N = 0
+VS         Overflow                         V = 1
+VC         Now overflow                     V = 0
+HI         Unsigned higher                  C = 1 AND Z = 0
+LS         Unsigned lower or same           C = 0 OR Z = 1
+GE         Signed greater than or equal     N = V
+LT         Signed less than                 N != V
+GT         Signed greater than              Z = 0 AND N = V
+LE         Signed less than or equal        Z = 1 OR N != V
+AL         Always. This is the default      -
+不指定后缀时，默认为 al，总是执行。
+
+APSR 状态寄存器，在高特权级叫 CPSR，用户空间为 CPSR。管理分支的主要是高四位：
+
+N 31 Negative Set to the same value as bit[31] of the result. For a 32-bit signed integer, bit[31] being set indicates that the value is negative.
+Z 30 Zero Set to 1 if the result is zero, otherwise it is set to 0.
+C 29 Carry Set to the carry-out value from result, or to the value of the last bit shifted out from a shift operation.
+V 28 Overflow Set to 1 if signed overflow or underflow occurred, otherwise it is set to 0.
+
+arm 指令集只能在寄存器中操作数据，不能直接在内存中操作数据。 
+
+指令的第一个操作数必然是一个寄存器，第二个操作数可以灵活地实现，可以是：
+立即数：#开头
+寄存器：Rm
+被移位的寄存器：Rm,shift#x 或者 Rm,shift Rs，有 5 个 shift 指令，LSL(左移)，LSR(逻辑右移),ASR(算数右移),POR(循环右移),循环右移扩展(RRX)
+
+
+
+
+汇编的每个表达式(不是指令)有三个部分：
+label：指令 @注释
+
+label 用于标识一串指令的地址
+
+可以使用 .section 来标识指令所在的段
+
+
+.align :设置对齐，如果是 data section，补充0，如果是 code section，补充 NOP 指令
+.ascii "string" : 将字符串插入到目标文件中
+.asciiz : 和 ascii 一样，但是这种需要指定最后的 \0 字符
+
+.byte exp
+.hword exp
+.word exp : 在文件中插入一个 byte、halfword、word
+
+.data : 后续的表达式将会被放在 data 段
+.equ symbol,exp: 设置 symbol 的值为表达式结果
+.globl symbol：声明全局符号
+.include "filename" : 将其他文件中的 contend 插入到当前的文件中
+.text ： 下面的部分放到代码段
+
+GNU 和 armasm 的不同之处：
+
+GNU Assembler 		armasm 		Description
+	@ 				; 			Comment
+	#& 				#0x 		An immediate hex value
+	.if 			IFDEF		, IF Conditional (not 100% equivalent)
+	.else 			ELSE
+	.elseif 		ELSEIF
+	.endif 			ENDIF
+	.ltorg 			LTORG
+	| 				:OR: 		OR
+	& 				:AND: 		AND
+	<< 				:SHL: 		Shift Left
+	>> 				:SHR: 		Shift Right
+	.macro 			MACRO 		Start macro definition
+	.endm 			ENDM 		End macro definition
+	.include 		INCLUDE 	GNU Assembler requires “filename”
+	.word 			DCD 		A data word
+	.short 			DCW
+	.long 			DCD
+	.byte 			DCB
+	.req 			RN
+	.global 		IMPORT, EXPORT
+	.equ 			EQU
+
+
+汇编指令将被直接编译成机器码，而有些指令用于告诉编译器该做什么，这些指令叫做伪汇编指令。

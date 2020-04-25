@@ -1,40 +1,6 @@
 arm 汇编基本规则：
+	
 
-	arm 指令集中立即数为 12 bit，这 12 bit 被分为 8 bit 的 constant 和 4 bit 的旋转，
-	每一条指令都有对应的 condition 字段
-	Suffix     Meaning                          Flags
-	EQ     	   Equal                            Z = 1
-	NE         Not equal                        Z = 0
-	CS         Carry set (identical to HS)      C = 1
-	HS         Unsigned higher or same          C = 1
-	CC         Carry clear (identical to LO)    C = 0
-	LO         Unsigned lower (identical to CC) C = 0
-	MI         Minus or negative result         N = 1
-	PL         Positive or zero result          N = 0
-	VS         Overflow                         V = 1
-	VC         Now overflow                     V = 0
-	HI         Unsigned higher                  C = 1 AND Z = 0
-	LS         Unsigned lower or same           C = 0 OR Z = 1
-	GE         Signed greater than or equal     N = V
-	LT         Signed less than                 N != V
-	GT         Signed greater than              Z = 0 AND N = V
-	LE         Signed less than or equal        Z = 1 OR N != V
-	AL         Always. This is the default      -
-	不指定后缀时，默认为 al，总是执行。
-	
-	APSR 状态寄存器，在高特权级叫 CPSR，用户空间为 CPSR。管理分支的主要是高四位：
-	
-	N 31 Negative Set to the same value as bit[31] of the result. For a 32-bit signed integer, bit[31] being set indicates that the value is negative.
-	Z 30 Zero Set to 1 if the result is zero, otherwise it is set to 0.
-	C 29 Carry Set to the carry-out value from result, or to the value of the last bit shifted out from a shift operation.
-	V 28 Overflow Set to 1 if signed overflow or underflow occurred, otherwise it is set to 0.
-
-	arm 指令集只能在寄存器中操作数据，不能直接在内存中操作数据。 
-	
-	指令的第一个操作数必然是一个寄存器，第二个操作数可以灵活地实现，可以是：
-	立即数：#开头
-	寄存器：Rm
-	被移位的寄存器：Rm,shift#x 或者 Rm,shift Rs，有 5 个 shift 指令，LSL(左移)，LSR(逻辑右移),ASR(算数右移),POR(循环右移),循环右移扩展(RRX)
 
 .micro
 ... 
@@ -178,6 +144,8 @@ ldr rn,=label
 
 ldr rn,=<constant>
 将内存地址上的数据加载到寄存器中。
+
+
 
 
 

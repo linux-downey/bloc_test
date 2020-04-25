@@ -1,0 +1,44 @@
+栈的内容：
+栈底
+..
+argv[2]
+argv[1]
+argv[0]
+argc
+
+栈顶
+
+ 
+ 
+ 
+ 
+32 000082e0 <_start>:
+33     82e0:       f04f 0b00       mov.w   fp, #0               //fp 清零
+34     82e4:       f04f 0e00       mov.w   lr, #0               //lr清零
+35     82e8:       bc02            pop     {r1}                 //栈上
+36     82ea:       466a            mov     r2, sp               
+37     82ec:       b404            push    {r2}
+38     82ee:       b401            push    {r0}
+39     82f0:       f8df c010       ldr.w   ip, [pc, #16]   ; 8304 <_start+0x24>
+40     82f4:       f84d cd04       str.w   ip, [sp, #-4]!
+41     82f8:       4803            ldr     r0, [pc, #12]   ; (8308 <_start+0x28>)
+42     82fa:       4b04            ldr     r3, [pc, #16]   ; (830c <_start+0x2c>)
+
+设置好所有的栈和寄存器值，再调用对应函数。  
+
+43     82fc:       f7ff efde       blx     82bc <_init+0x20>
+44     8300:       f7ff efe8       blx     82d4 <_init+0x38>
+45     8304:       0000840d        .word   0x0000840d
+46     8308:       000083bd        .word   0x000083bd
+47     830c:       000083cd        .word   0x000083cd
+ 
+
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
