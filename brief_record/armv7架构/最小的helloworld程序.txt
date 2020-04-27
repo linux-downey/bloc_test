@@ -9,7 +9,6 @@ arm 平台上，系统调用指令为 svc(老版的为swi)
 
 
 
-
 _start:
 	这一部分执行 write 系统调用，对应调用号为 4 , r0 传递 fd，1 表示标准输出，r1 传递数据地址，示例中为 msgtext，第三个参数为长度，保存在 r2,13 字节，svc #0 表示执行系统调用。  
 	mov r0,#1        
@@ -224,6 +223,8 @@ int _vprintf(struct printf_info *info, const char *fmt, va_list va)
 abort:
         return 0;
 }
+
+
 
 
 
