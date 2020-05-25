@@ -1,0 +1,43 @@
+程序加载笔记:
+
+程序加载需要执行 exec 函数族,以执行可执行文件的替换.   
+
+exec 属于系统调用,其对应的系统调用为 sys_execve,被定义在 fs/exec.c 中:
+
+```
+SYSCALL_DEFINE3(execve,...
+```
+
+接受三个参数: filename 文件名, argv 文件参数, envp 环境变量.   
+
+syscall_execve
+    do_execve
+        do_execveat_common
+            exec_binprm                   
+                search_binary_handler    // 填充一个 struct linux_binprm *bprm 结构
+                    fmt->load_binary(bprm);    // 以 bprm 为参数,调用每种 format 的 load_binary 函数.
+
+
+
+fmt 从哪儿来?  
+
+在 fs/binfmt_elf.c 中,针对 elf 文件,将 elf format 注册到内核中,将 elf_format 链接到全局链表 format 上:
+
+static int __init init_elf_binfmt(void)
+{
+	register_binfmt(&elf_format);
+	return 0;
+}
+
+static struct linux_binfmt elf_format = {
+	.module		= THIS_MODULE,
+	.load_binary	= load_elf_binary,
+	.load_shlib	= load_elf_library,
+	.core_dump	= elf_core_dump,
+	.min_coredump	= ELF_EXEC_PAGESIZE,
+};
+
+主要是 load_elf_binary : 500 行的函数.  
+
+
+
