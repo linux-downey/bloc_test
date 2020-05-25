@@ -1,4 +1,4 @@
-# elf 文件格式0 - 目标文件
+# elf 文件格式0 - 可重定位目标文件
 
 
 ## elf 文件格式总览
@@ -100,9 +100,34 @@ ELF Header:
   Section header string table index: 7
 ```
 
-由 readelf -h 读取的头部信息非常清晰,其中的每一个字段都对应解析.  
+由 readelf -h 读取的头部信息已经很清晰明了,下面是头部对应的C语言中结构体:
 
-## magic
+```
+typedef struct {
+  unsigned char	e_ident[16];		/* ELF "magic number" */
+  unsigned char	e_type[2];		/* Identifies object file type */
+  unsigned char	e_machine[2];		/* Specifies required architecture */
+  unsigned char	e_version[4];		/* Identifies object file version */
+  unsigned char	e_entry[4];		/* Entry point virtual address */
+  unsigned char	e_phoff[4];		/* Program header table file offset */
+  unsigned char	e_shoff[4];		/* Section header table file offset */
+  unsigned char	e_flags[4];		/* Processor-specific flags */
+  unsigned char	e_ehsize[2];		/* ELF header size in bytes */
+  unsigned char	e_phentsize[2];		/* Program header table entry size */
+  unsigned char	e_phnum[2];		/* Program header table entry count */
+  unsigned char	e_shentsize[2];		/* Section header table entry size */
+  unsigned char	e_shnum[2];		/* Section header table entry count */
+  unsigned char	e_shstrndx[2];		/* Section header string table index */
+} Elf32_External_Ehdr;
+```
+
+elf 头部的数据结构更能够反映出头部的相关信息,各字段,排列顺序等,可以计算得出该结构体总共占用 52 字节,对于 elf64 而言, e_entry,e_phoff,e_shoff 这三个成员为 8 字节,因此多出 12 字节,总共 64 字节.  
+
+下面我们结合 readelf -h 命令给出的信息来详细介绍每个字段.    
+
+### e_ident
+e_ident 是一个包含 16 字节的数组成员,对应 readelf -h 给出的 magic 部分.
+
 magic 部分就是我们所说的魔数,魔数通常就是自定义的识别码,对于 32 位的 elf 文件而言,magic 部分有 16 个字节.  
 
 大部分的文件组织形式都是这样的,头部是一串特殊的识别码,标识该文件的一些概要信息,主要用于外部程序快速地对这个文件进行识别,快速地判断文件类型.  
@@ -114,11 +139,10 @@ magic 部分就是我们所说的魔数,魔数通常就是自定义的识别码,
 * 第七个字节:表示 EI_version,1 表示 EV_CURRENT,只有 1 才是合理的(代码中是 EI_versoin,但是博主没有进一步具体研究).
 * 第八个字节: 00 表示 OS_ABI
 * 第九个字节: 00 表示 ABI version 
-* 其它字段,源码中没有找到对应的解析,暂定为reserver.
+* 其它字段,源码中没有找到对应的解析,暂定为reserver.  
 
-readelf -h 显示的头部 16 字节信息中前七行(包括ABI_version)都被包含在 magic 中.  
 
-## type
+### e_type
 type 表示 elf 文件的细分类型,总共有四种:
 * 可重定位的目标文件
 * 可执行文件
@@ -131,21 +155,94 @@ type 表示 elf 文件的细分类型,总共有四种:
 
 coredump 文件主要保存的是系统出错时的运行断点信息,方便人为地或者借助 gdb 分析 bug.  
 
-## e_machine
+### e_machine
 标识指定的机器,比如 40 代表 ARM.  
 
 其它的比如 x86,mips 等都对应不同的编码.  
 
-## e_version
+### e_version
 四个字节的 version code
 
-## e_phoff
-四个字节的 program headers 的起始偏移地址,64 位下为八字节,关于 Program headers 将在后续的章节中详谈.   
+### e_entry
+程序的入口虚拟地址,对于可重定位的目标文件默认是0,而对于可执行文件而言是真实的程序入口.  
 
-## e_shoff
-四个字节的 section headers 的起始偏移地址,64 位下为八字节,
+### e_phoff
+四个字节的 program headers 的起始偏移地址,关于 Program headers 将在后续的章节中详谈.   
+
+### e_shoff
+四个字节的 section headers 的起始偏移地址,
+
+### e_flags
+和处理器相关的标志位集合,不同的处理器有不同的参数,根据 e_machine 进行解析.  
+
+### e_ehsize
+指示 elf header 的 size,对于 arm 而言,52 或者 64.
+
+### e_phentsize
+每一个 program header 的 size,在可重定位目标文件中为 0.
+
+### e_phnum
+该文件中一共有多少个 program header,在可重定位目标文件中为0.
+
+### e_shentsize
+文件中每一个section header 的大小,通常是 40.
+
+### e_shnum
+该文件中一共有多少个 section header,上述的示例文件中为 10 个.
+
+### e_shstrndx
+在 elf 格式的文件中,符号,section,文件的命名通常是字符串,这些字符串并不会保存在其对应的 section 中,而是统一地使用一个字符串表来保存,该字段指示节标题字符串所在的 section,在上面的示例中,section 标题(.text,.data,...)对应的 e_shstrndx 即段序号为 7,即保存在 .shstrtab 段中.这些 section 标题在链接的过程中需要使用到,在程序执行时是无用的,所以分开有利于精简 section 内容的大小,从而程序加载运行时需要更小的空间.    
+
+除了 section 标题,还有符号命,文件名等字符串,这些默认会被保存在 .strtab section 中.  
+
+## section信息
+根据上文中的 elf 文件框架，在 elf 头部之后就是各 sections，section headers 按照一定的格式存放每个 section，包含具体的数据，比如 text 段中包含代码部分，数据、bss 段中包含数据。每种数据都有对应的段解析方式，这一部分我们将在后续的文章中详细解析。  
+
+这一章我们主要研究 elf 目标文件的框架，所以需要获取 section 的描述信息，而 section 的描述信息被保存在 section headers 中，每一个段都由一个 section header 来描述，如果说 elf 头部是整个 elf 文件的"目录"，那么 section headers 就是文件内段信息的"目录"。 
+
+从 elf 头部信息可以看出，program headers 的起始地址为0，表示当前 elf 文件中不存在 program headers，section headers 的起始地址为 264，文件中段的数量为 10，每个段的 size 为 40。  
+
+使用 readelf 命令查看文件内所有的段信息：
+
+```
+readelf -S foo.o
+
+There are 10 section headers, starting at offset 0x108:
+
+Section Headers:
+  [Nr] Name              Type            Addr     Off    Size   ES Flg Lk Inf Al
+  [ 0]                   NULL            00000000 000000 000000 00      0   0  0
+  [ 1] .text             PROGBITS        00000000 000034 000010 00  AX  0   0  4
+  [ 2] .data             PROGBITS        00000000 000044 000004 00  WA  0   0  4
+  [ 3] .bss              NOBITS          00000000 000048 000004 00  WA  0   0  4
+  [ 4] .comment          PROGBITS        00000000 000048 000033 01  MS  0   0  1
+  [ 5] .note.GNU-stack   PROGBITS        00000000 00007b 000000 00      0   0  1
+  [ 6] .ARM.attributes   ARM_ATTRIBUTES  00000000 00007b 000035 00      0   0  1
+  [ 7] .shstrtab         STRTAB          00000000 0000b0 000055 00      0   0  1
+  [ 8] .symtab           SYMTAB          00000000 000298 0000f0 10      9  11  4
+  [ 9] .strtab           STRTAB          00000000 000388 000027 00      0   0  1
+Key to Flags:
+  W (write), A (alloc), X (execute), M (merge), S (strings)
+  I (info), L (link order), G (group), T (TLS), E (exclude), x (unknown)
+  O (extra OS processing required) o (OS specific), p (processor specific)
+```
+
+终端所显示的信息非常详细，该文件一共十个段，其中第一个为 NULL，尽管它在 section 部分不占据任何空间，但是同样对应一个 section header 描述，占用 40 字节，内容为全0。  
+
+每个段的描述信息中都包含了起始偏移地址、size 以及段属性，其中：
+section header0 ~ section header7：对应的段内容被保存在 elf 和 section headers 之间的段数据中，比如 text 段内容的起始地址为 0x34，即 52，紧随着 elf 头(elf头 52 字节)，而 .data 段又紧随着 .text 段放置，当然，段之间会设置数据对齐，对齐宽度可以自由设置，默认情况下是 4.   
+
+section header8 和 section header9 比较特殊，它们是 elf 文件的符号表和字符串表，被存放在 section headers 之后，对于可重定位的目标文件而言，这两个表将会在链接阶段被使用。  
 
 
+在文章开头博主就贴出了整个 elf 文件的布局图，通过 readelf 给出的信息验证一下到底是不是这样：
+* 文件头 52 个字节，描述整个文件的属性，包括：类型、段表位置、段表数量及长度等等。  
+* 接下来就是段信息，从上图中段表信息可以看到，最开始的 .text 段起始地址为 0x34(52)，所有段依次紧密相连，直到 .shstrtab 段，它的起始地址为 0xb0，长度为 0x55，所以段信息结束位置可以算得： 0xb0 + 0x55 = 0x105，十进制为 261。因此，中间的段信息部分占用地址为 0x34~0x108(对齐到4字节)。
+* 从 elf 头部可以看到，section headers 的起始地址为 264(十六进制为0x108)，紧随着第二部分的段信息，而整个 section headers 的长度在 elf 中也有给出，为 10(段) * 40(per size) = 400，所以整个 section headers 占用的地址为 264~664，对应的 16 进制为 0x108 ~ 0x298。
+* 再次看上面的段表信息， .symtab 的起始地址正是 0x298，紧随着 section headers 的结尾，.strtab 紧随在 .symtab 之后，.strtab 的结束地址为 0x388+0x27=0x3af。  
+* 使用 ls -l 命令查看整个 foo.o 的文件大小，发现文件的大小为 943，正好是 .strtab 段结束的位置。  
+
+到这里，整个可重定位类型的 elf 目标文件的布局已经非常清楚地展现出来。当然，这仅仅是个开始，因为我们还没有详细讨论其中的内容，而这些才是最关键的所在，这些我们将在后文中详细讨论。   
 
 
 
