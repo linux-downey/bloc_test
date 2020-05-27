@@ -115,7 +115,9 @@ typedef struct {
 
 来看一下实际的情况是不是这样:我们以第一个 section .interp 为例进行分析,
 
-第一步,找到 .interp section 对应的 section header.因为 .interp 位于第二个 section,而在 elf header 对于 section headers table 的描述是这样的:
+.interp 是当前文件中第一个有效 section，第一个 section 为 NULL，对应的 section header 为 section header 起始地址+ size of section headers 
+
+在 elf header 对于 section headers table 的描述是这样的:
 
 ```
 ...
@@ -124,10 +126,23 @@ Size of section headers:           40 (bytes)
 Number of section headers:         30
 ...
 ```
-所以, .interp 的偏移地址为
+所以, .interp section 对应 section header 在 section header table 中的偏移地址为 4508 + 40 = 4548,占据 40 字节，所以，我们可以使用 hexdump 指令将这 40 字节打印出来：
 
-第二步,找到 .shstrtab 所在位置,然后进行对比.  
+```
+hexdump -C -s 4548 -n 40 foo
 
+000011c4  1b 00 00 00 01 00 00 00  02 00 00 00 54 81 00 00  |............T...|
+000011d4  54 01 00 00 19 00 00 00  00 00 00 00 00 00 00 00  |T...............|
+000011e4  01 00 00 00 00 00 00 00                           |........|
+000011ec
+
+```
+
+接下来就是进行对比，每个 section header 中包含 10 个条目，每个条目占用 4 字节进行描述，因为当前 elf 文件是小端，所以所有的字节都以小端模式进行解析，TODO section header解析：TODO
+
+
+
+了解 section header 的描述信息对于后续 section 的解析是非常必要的，同时，在后续的开发中可能也会涉及到要手动地向 elf 文件中添加内容以达到向程序添加功能的目的。  
 
 
 ## 各 sections 描述
@@ -175,12 +190,17 @@ Section Headers:
 下面我们来看看常见的 section 内容。  
 
 ### .interp
-包含了动态链接器在文件系统中的路径
+包含了动态链接器在文件系统中的路径，通常是 /lib/ld-linux-armx.so.x，在程序加载时如果当前程序依赖于动态库，需要确保其依赖的动态库已经被加载到内存中，而动态库的加载就是由动态链接器完成。所以在程序中需要指定动态链接器在文件系统中的位置。    
 
 ### .note.ABI-tag
-用于指定程序的 ABI 
+每个可执行文件都应包含一个名为.note.ABI-tag的SHT_NOTE类型的节。  
+
+本部分的结构为ELF规范中记录的注释部分。该部分必须至少包含以下条目：前面的部分为类型、名称，名称字段包含字符串“ GNU”。类型字段应为1。后续是 desc 字段，应至少为16，desc字段的前16个字节应如下：desc字段的第一个32位字必须为0（这表示Linux可执行文件）。desc字段的第二，第三和第四32位字包含最早的兼容内核版本。例如，如果3个字分别是2、6和2，则表示2.6.2内核。  
+
+该 section 和 text 一样将会被放在 Read/Exec 权限内存内。  
 
 ### .note.gnu.build-i
+同样是 SHT_NOTE 类型，用于描述该 elf 文件的相关属性，其中保存的是 GNU build ID，
 
 ### .gnu.hash 
 符号的 hash 表，主要用于符号的快速查找
@@ -192,6 +212,15 @@ Section Headers:
 动态链接时的字符串表，主要是动态链接符号的符号名
 
 ### .gnu.version，.gnu.version_r
-版本相关
+版本相关的内容
 
-### 
+### .rel.dyn ， .rel.plt
+动态链接相关的重定位信息，关于动态链接，将在后续的文章详细讨论。  
+
+###  .init ， .fini
+.init section 的类型为 INIT_ARRAY，其中包含了
+
+
+
+
+
