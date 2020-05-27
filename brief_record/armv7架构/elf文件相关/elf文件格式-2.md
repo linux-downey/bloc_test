@@ -68,10 +68,65 @@ typedef struct {
 } Elf32_External_Shdr;
 ```
 
+### 成员介绍
+
 整个结构体包含 10 个成员，正好对应 40 个字节，每个 section header 按照顺序依次保存下列的内容：
-* sh_name :
+* sh_name : 对应的 section 名称在 .shstrtab section 中的偏移地址,所有的 section 名称都是被保存在 .shstrtab section 中,因为对于程序的加载运行而言,section name 并没有意义,使用偏移地址的方式保存只会占用固定的 4 字节,而如果直接将 name 放置到这个字段中,一方面长度不固定造成一些编程上的麻烦,另一方面也会造成内存的浪费.  
+* sh_type : 该 section 的类型,section 常见的类型如下:
 
+  * SHT_NULL(0):           对应 elf 文件中的第一个 NULL section.
+  * SHT_PROGBITS(1):       程序数据,也就是二进制的机器码.
+  * SHT_SYMTAB(2):         符号表,链接时需要用到.
+  * SHT_STRTAB(3):         字符串表.
+  * SHT_RELA(4):           重定位偏移信息.
+  * SHT_HASH(5):           符号对应的 hash 表,用于快速查找.
+  * SHT_DYNAMIC(6):        动态链接相关信息
+  * SHT_NOTE(7):           用于标记文件的信息
+  * SHT_NOBITS(8):         该 section 在 elf 文件中不占用空间   
+  * SHT_REL(9):            重定位信息
+  * SHT_DYNSYM(11):        动态链接符号表
+  * SHT_INIT_ARRAY(14):    函数指针数组,数组中的每个函数指针执行初始化工作,在 main 之前执行.  
+  * SHT_FINI_ARRAY(15):    函数指针数组,数组中的每个函数指针执行收尾工作,在 main 之后执行.  
+  * SHT_PREINIT_ARRAY(16): 函数指针数组,数组中的每个函数指针执行更早期的初始化工作,在 main 之前执行.  
+  * SHT_GROUP(17):         包含一个 section 组,对于存在一些内部关系的 section,将其归为一个 section group,比如当两个 section 存在内部引用时,一个 section 被删除,而另一个 section 就失去了意义,使用 group 可以绑定 section 之间的关系,但是这种做法并不多见.  
 
+* sh_flags : 该 section 对应的属性,常见的属性有以下几种:
+  * SHF_WRITE(1 << 0):                可写的数据
+  * SHF_ALLOC(1 << 1):                在执行的时候需要从系统申请内存
+  * SHF_EXECINSTR(1 << 2):            可执行的指令数据
+  * SHF_MERGE(1 << 4):                该 section 中的数据可以被合并
+  * SHF_STRINGS	(1 << 5):             由 '\0' 结尾的字符串数据
+  * SHF_INFO_LINK	(1 << 6):           保存 section header 的索引
+  * SHF_LINK_ORDER	(1 << 7):         在链接时保留节顺序.
+  * SHF_OS_NONCONFORMING (1 << 8):    该 section 需要特定于操作系统的处理 
+  * SHF_GROUP	(1 << 9):               section group 中的成员
+  * SHF_TLS (1 << 10):                线程本地存储数据 section
+  * SHF_COMPRESSED	(1 << 11):        压缩数据
+
+* sh_addr:该 section 对应的执行时虚拟地址,对于目标文件而言,所有 section 都为 0,因为目标文件中的 section 无法确定最后的执行地址,而可执行文件中将要被加载到内存中的 section 将会在链接阶段分配虚拟地址,而那些执行时不被加载的 section ,该值也是 0,典型的不加载的 section 有:.strtab,.symtab,.comment 等.  
+* sh_offset:该 section 在文件中的偏移值,需要注意的是,文件中的偏移地址和 section 的虚拟地址并没有线性的偏移关系.  
+* sh_size: section 的 size,以 byte 为单位.  
+* sh_link: 另一个相关联段的索引地址
+* sh_info: 额外的 section 信息.  
+* sh_addralign: section 内的对齐宽度.注意区分section 内对齐宽度与 section 之间的对齐宽度,section 之间的对齐宽度由下一个 section 的 sh_addralign 来决定,比如当前 section 对齐宽度为 4,下一个 section 的对齐宽度为 1,而当前 section 最后一个条目结束地址为 103 bytes,下一个 section 的起始地址就是 103,而不会对齐到 104.  
+* sh_entsize: 如果该 section 中保存的是列表,该字段指定条目大小.   
+
+### 文件分析
+
+来看一下实际的情况是不是这样:我们以第一个 section .interp 为例进行分析,
+
+第一步,找到 .interp section 对应的 section header.因为 .interp 位于第二个 section,而在 elf header 对于 section headers table 的描述是这样的:
+
+```
+...
+Start of section headers:          4508 (bytes into file)
+Size of section headers:           40 (bytes)
+Number of section headers:         30
+...
+```
+所以, .interp 的偏移地址为
+
+第二步,找到 .shstrtab 所在位置,然后进行对比.  
 
 
 
