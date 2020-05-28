@@ -111,6 +111,76 @@ typedef struct {
 * sh_addralign: section 内的对齐宽度.注意区分section 内对齐宽度与 section 之间的对齐宽度,section 之间的对齐宽度由下一个 section 的 sh_addralign 来决定,比如当前 section 对齐宽度为 4,下一个 section 的对齐宽度为 1,而当前 section 最后一个条目结束地址为 103 bytes,下一个 section 的起始地址就是 103,而不会对齐到 104.  
 * sh_entsize: 如果该 section 中保存的是列表,该字段指定条目大小.   
 
+## 不同类型的 section 数据组织方式
+上文中提到不同的 section 可能分属不同的类型,而不同的类型自然包含着不同含义的数据,起到不同的作用,有一部分 section 针对链接过程而存在,有一部分针对加载过程而存在.针对加载过程的 section 数据分为两种:一种是需要被加载器进行解析,给加载过程提供辅助信息,另一种就是程序代码和数据,加载器直接将其 copy 到对应的虚拟地址即可,二进制代码和数据由 CPU 执行.   
+
+对于需要解析的 section 数据,自然需要规定在它组成和解析的时候遵循特定的格式,这样链接器或者加载器才能按照格式对它进行解析,从程序中的角度来看这就涉及到不同的数据结构.   
+
+接下来就来分析各个 section 对应的数据结构:
+
+### SHT_SYMTAB
+对应 SHT_SYMTAB 类型的 section 中保存的数据是程序的静态符号表,静态符号表是对应链接过程,符号表中每个符号所对应的数据结构为:
+
+```
+typedef struct {
+  unsigned char	st_name[4];		/* Symbol name, index in string tbl */
+  unsigned char	st_value[4];		/* Value of the symbol */
+  unsigned char	st_size[4];		/* Associated symbol size */
+  unsigned char	st_info[1];		/* Type and binding attributes */
+  unsigned char	st_other[1];		/* No defined meaning, 0 */
+  unsigned char	st_shndx[2];		/* Associated section index */
+} Elf32_External_Sym;
+```
+一个 Elf32_External_Sym 描述一个符号,占 16 个字节:
+* byte0~byte3:每个符号都有对应的 name,比如函数名,变量名,该名称为字符串,前文中有提到,字符串是被统一存放在 strtab 中的,该字段的值表示当前符号名在 strtab 中的位置.  
+* byte4~byte7:符号的值,注意这里符号的值指的是地址值,比如对于变量 val = 1,这里符号的值不是 1,而是 val 的地址值.
+* byte8~byte11:符号的 size,不同的符号对应不同的 size,比如 char 和 int.该字段记录了当前符号的size,同时需要注意的是,对于函数而言,符号的 size 等于整个函数所占的空间.  
+* byte12: 类型以及绑定的属性,该字节分为高四位和低四位,高四位用于描述绑定信息,低四位表示类型,常见的符号的类型有以下几种:
+  * STT_NOTYPE(0):      未指定类型.
+  * STT_OBJECT(1):      该符号是一个数据对象
+  * STT_FUNC(2):        该符号是一个代码对象,虽然名称为 FUNC,但是它也可以是汇编代码中的标号,比如 _start,所以用代码对象描述更合适
+  * STT_SECTION(3):     与 section 相关联的符号
+  * STT_FILE(4):        该符号是文件名
+  * STT_COMMON(5):      通常是 weak 类型的符号(比如目标文件中未初始化的全局变量)
+  * STT_TLS(6):         线程的本地数据
+  * STT_RELC(8):        复杂的重定位表达式
+  * 其它一些处理器或者 OS 特定的符号类型
+  
+  常见的绑定状态有以下几种:
+  * STB_LOCAL(0):       内部符号,外部不可见,最典型的就是由 static 修饰的静态变量
+  * STB_GLOBAL(1):      全局符号
+  * STB_WEAK(2):        和全局变量一样,优先级较低
+  * 其它一些处理器或者 OS 特定的绑定状态
+
+* byte13: 无意义
+* byte14~15:相关联的 section 索引,比如 main 函数对应的 section 为 .text,所以该字段就是 .text 的索引.  
+
+看完这个针对符号的数据结构,是不是感觉少了什么东西?细心的朋友不禁要问:对于变量符号而言,变量的值怎么没有保存在符号表中?   
+
+是的,你没看错,对于变量的值,确实没有保存在符号表中,而是单独保存在 .data section 中.   
+
+为什么将一个变量的描述信息保存在符号表中,而将变量的值放在 .data section 中?要搞清楚这个问题,你得先搞清楚一个问题:程序代码是如何引用数据的?   
+
+在 C 语言中,编译器为每个全局(静态)变量分配一个地址,地址上保存着该变量的值,编译后的程序指令对于这个全局变量的引用实际上完全不需要通过符号表,而是直接将变量的地址硬编码到指令中,所以程序的执行完全不需要符号表的介入,也就是为什么在可执行文件中可以丢弃静态符号表.  
+
+那么为什么链接过程需要符号表呢?这也是因为刚开始变量的地址还没有确定,链接过程需要通过符号表获取变量的信息来进行重定位,重定位过程就是将变量最终的地址硬编码进指令中的过程,重定位一旦完成,静态符号表也就不需要了.    
+
+如果想要了解程序指令的执行以及静态链接过程,可以参考我的另一篇博客:TODO.  
+
+### SHT_NOTE  
+
+
+
+
+### 无需解析的 section
+elf 文件中不需要被解析的 section 主要有以下几个:
+* SHT_PROGBITS:二进制代码或者数据,由加载器直接 copy,无需解析,所以这一类 section 中保存的就是纯数据.典型的 section 为 .text,.data 等. 
+* SHT_NOBITS:该类的 section 在 elf 文件中不占用空间,由加载器加载时向系统申请相应 size 的内存,而这些 size 的信息保存在 section header 中而不是 section 的内容中,不存在数据自然就不需要解析,典型的 section 为 .bss .
+* SHT_INIT_ARRAY,SHT_FINI_ARRAY,SHT_PREINIT_ARRAY:这些 section 中保存的都是函数指针,在同一个平台中,函数指针的长度是固定的(尽管对于某些特殊的平台可能不一样,但是可以规定使用统一长度的指针),因此不需要规定额外的数据组织方式.  
+
+类型为 SHT_PROGBITS 的 section 中保存的基本都是程序代码和数据,这些 section 在加载的过程中并不需要
+
+
 ### 文件分析
 
 来看一下实际的情况是不是这样:我们以第一个 section .interp 为例进行分析,
@@ -185,12 +255,15 @@ Section Headers:
 
 仅仅是编译了一个非常简单的例程，连最基本的 C 库函数 printf 都没有调用，为什么会出现这么多的段？  
 
-答案是：一个程序的编译运行过程远远不是你想象得那么简单，一个程序并不是以 main 开始，也不是以 main 的返回为结尾，TODO。
+实际上,一个程序的编译运行过程远远不是你想象得那么简单，一个程序并不是以 main 开始，也不是以 main 的返回为结尾，在一个进程开始之初,需要运行环境进行一些必要的初始化,比如堆栈空间的初始化,bss 数据的初始化,进程参数的传递等,然后再执行 main 函数.  
+
+这就是为什么你可以直接在 main 函数中申请释放内存,获取命令行传入的参数,这都是由 Glibc 运行库做的,在 main 函数返回时,还会执行一些收尾工作.所以一个基本的程序通常都会链接 C 标准库,主要是初始化和收尾工作,自然就包含额外的一些 section.   
 
 下面我们来看看常见的 section 内容。  
 
 ### .interp
 包含了动态链接器在文件系统中的路径，通常是 /lib/ld-linux-armx.so.x，在程序加载时如果当前程序依赖于动态库，需要确保其依赖的动态库已经被加载到内存中，而动态库的加载就是由动态链接器完成。所以在程序中需要指定动态链接器在文件系统中的位置。    
+
 
 ### .note.ABI-tag
 每个可执行文件都应包含一个名为.note.ABI-tag的SHT_NOTE类型的节。  
