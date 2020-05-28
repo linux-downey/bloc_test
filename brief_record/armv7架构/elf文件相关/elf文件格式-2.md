@@ -168,9 +168,60 @@ typedef struct {
 如果想要了解程序指令的执行以及静态链接过程,可以参考我的另一篇博客:TODO.  
 
 ### SHT_NOTE  
+SHT_NOTE 类型的 section 用于标记文件的相关信息，属于在加载过程中起到辅助作用的 section，它的数据结构如下：
+
+```
+typedef struct {
+  unsigned char	namesz[4];		/* Size of entry's owner string */
+  unsigned char	descsz[4];		/* Size of the note descriptor */
+  unsigned char	type[4];		/* Interpretation of the descriptor */
+  char		name[1];		/* Start of the name+desc data */
+} Elf_External_Note;
+```
+Note 类型的数据是不定长的，从这个结构体看来，它的长度应该是 13，但是实际上，char name[1] 是 GNUC 中一种技巧，定义一个长度为 1 或者为 0 的数据，将需要存放的数据都放在 name 起始的位置，同时在给该结构体申请内存时考虑到需要多出来的空间即可。这样的好处在于可以将不确定长度的数据保存在连续的地址内，同时又不浪费空间，这种零长数组的机制在内核中非常常见。  
+
+由此也可以看出，SHT_NOTE 类型的 section 的格式并不是固定的。  
+
+整个 section 的布局是这样的：
+* namesz：指定 name 的长度
+* descsz：指定 desc 即描述部分的长度。
+* type：  desc 部分数据的类型，即如何解析它。
+* name：  从 name 开始的地址，就是存放 name + desc 的真实数据部分。  
+
+### SHT_REL
+SHT_REL 类型的 section 主要用于链接时的重定位，重定位 section 分两种，一种是链接过程的重定位，而另一种属于运行过程的重定位，这里我们主要讨论链接过程的重定位。   
+
+具体的静态链接过程可以参考我的另一篇博客TODO。  
+
+所以重定位主要是针对代码对数据的引用，对于没有引用全局数据的纯代码而言，放到任何地址都是可以运行的，但是一旦涉及到全局变量，情况就不一样了，因为在链接之前，全局数据是不能确定最终运行地址的，所以在原来的代码指令中对于全局变量的编址需要修改，而修改就涉及到三部分：
+
+* 需要修改的指定的地址
+* 需要修改的变量的信息
+* 如何修改
+
+重定位 section 所提供的信息必然需要解决这三个问题，看看它的数据结构：
+
+```
+typedef struct {
+  unsigned char r_offset[4];	/* Location at which to apply the action */
+  unsigned char	r_info[4];	/* index and type of relocation */
+} Elf32_External_Rel;
+```
+
+每个重定位项占 8 个字节，前四个字节表示重定位的位置，这个位置是指在 .text 段中的偏移地址。  
+
+第二个四字节表示重定位的信息：index 以及类型。具体的对应关系如下：
+* 高 24 位用于标识需要重定位的符号在符号表中的偏移地址
+* 最低 8 位用于标识重定位类型，重定位的类型和具体指令强相关，比如 R_ARM_ABS16 标识需要重定位的指令是 16 位立即数寻址，R_ARM_THM_CALL 标识重定位指令为 thumb 指令等等，这些涉及到具体指令相关的就不过多赘述了。  
 
 
 
+```
+typedef struct {
+  unsigned char r_offset[4];	/* Location at which to apply the action */
+  unsigned char	r_info[4];	/* index and type of relocation */
+} Elf32_External_Rel;
+```
 
 ### 无需解析的 section
 elf 文件中不需要被解析的 section 主要有以下几个:
