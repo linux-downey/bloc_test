@@ -215,19 +215,27 @@ typedef struct {
 * 最低 8 位用于标识重定位类型，重定位的类型和具体指令强相关，比如 R_ARM_ABS16 标识需要重定位的指令是 16 位立即数寻址，R_ARM_THM_CALL 标识重定位指令为 thumb 指令等等，这些涉及到具体指令相关的就不过多赘述了。  
 
 
+### SHT_DYNAMIC
+动态链接的相关信息,程序中使用了动态库中的函数,在静态链接阶段无法获取到
 
 ```
 typedef struct {
-  unsigned char r_offset[4];	/* Location at which to apply the action */
-  unsigned char	r_info[4];	/* index and type of relocation */
-} Elf32_External_Rel;
+  unsigned char	d_tag[4];		/* entry tag value */
+  union {
+    unsigned char	d_val[4];
+    unsigned char	d_ptr[4];
+  } d_un;
+} Elf32_External_Dyn;
 ```
+
+
 
 ### 无需解析的 section
 elf 文件中不需要被解析的 section 主要有以下几个:
 * SHT_PROGBITS:二进制代码或者数据,由加载器直接 copy,无需解析,所以这一类 section 中保存的就是纯数据.典型的 section 为 .text,.data 等. 
 * SHT_NOBITS:该类的 section 在 elf 文件中不占用空间,由加载器加载时向系统申请相应 size 的内存,而这些 size 的信息保存在 section header 中而不是 section 的内容中,不存在数据自然就不需要解析,典型的 section 为 .bss .
 * SHT_INIT_ARRAY,SHT_FINI_ARRAY,SHT_PREINIT_ARRAY:这些 section 中保存的都是函数指针,在同一个平台中,函数指针的长度是固定的(尽管对于某些特殊的平台可能不一样,但是可以规定使用统一长度的指针),因此不需要规定额外的数据组织方式.  
+* STRTAB: STRTAB 类型的 section 中保存的都是以 '\0' 结尾的字符串,由链接器读取.不需要使用特定的数据结构来描述.  
 
 类型为 SHT_PROGBITS 的 section 中保存的基本都是程序代码和数据,这些 section 在加载的过程中并不需要
 
@@ -323,26 +331,105 @@ Section Headers:
 
 该 section 和 text 一样将会被放在 Read/Exec 权限内存内。  
 
-### .note.gnu.build-i
-同样是 SHT_NOTE 类型，用于描述该 elf 文件的相关属性，其中保存的是 GNU build ID，
+### .note.gnu.build-id
+同样是 SHT_NOTE 类型，用于描述该 elf 文件的相关属性，其中保存的是 GNU build ID，每一次构建都对应一个唯一 ID 号,主要是在 debug 时被用来唯一识别一个可执行文件.  
 
 ### .gnu.hash 
-符号的 hash 表，主要用于符号的快速查找
+符号的 hash 表，使用 hash 表在字符串查找中可以明显提高性能.  
 
-### .dynsym
-动态链接时的符号表，主要用于保存动态链接时的符号
+### 动态链接相关 section 
 
-### .dynstr
-动态链接时的字符串表，主要是动态链接符号的符号名
+#### .dynsym, .dynamic, .dynstr
+动态链接的符号相关信息, 关于动态链接，将在后续的文章详细讨论。 
 
-### .gnu.version，.gnu.version_r
-版本相关的内容
-
-### .rel.dyn ， .rel.plt
+#### .rel.dyn ， .rel.plt
 动态链接相关的重定位信息，关于动态链接，将在后续的文章详细讨论。  
 
+#### .plt, .got
+重定位时的全局偏移表.
+
+### .gnu.version，.gnu.version_r
+版本相关的内容信息.  
+
+### .init_array, .fini_array
+.init_array, .fini_array 的类型为 INIT_ARRAY，内容是多个函数指针, init 中的函数将会在初始化阶段即 main 函数之前调用,而 .fini 中的函数在收尾时调用.  
+
 ###  .init ， .fini
-.init section 的类型为 INIT_ARRAY，其中包含了
+
+分别是初始化部分的代码和收尾工作的代码.  
+
+### .ARM.exidx, .ARM.attributes 
+以.ARM.exidx名称段开头的名称，其中包含用于段展开的索引条目。以.ARM.extab名称节开头的名称，其中包含异常展开信息。有关详细信息，请参见[EHABI]
+
+构建属性在类型为SHT_ARM_ATTRIBUTES的节中编码，名称为.ARM.attributes。该节的内容是字节流。除小节大小以外的数字是使用DWARF-3样式[GDWARF16]的无符号LEB128编码（ULEB128）编码的数字。属性分为几个小节。每个小节均以供应商名称作为前缀。有一个小节由“ aeabi”伪供应商定义，并且包含有关目标文件兼容性的一般信息。在特定于供应商的部分中定义的属性是供应商专用的。  
+
+(注:关于这两个section,博主也没完全弄清楚具体应用,仅仅是对官方文档的翻译,有兴趣的朋友可以参考官方文档:[ELF for the Arm Architecture-5.3.4](TODO))
+
+### .eh_frame, .eh_frame_hdr
+和 c++ 异常处理相关的内容.  
+
+### .jcr
+和 java 程序相关
+
+### .comment
+编译器的版本信息.
+
+
+
+## program header 结构
+section 是按照高级语言对程序的分类产生的结果,比如 .text 表示程序代码,.data 表示初始化的全局数据,.bss 中保存未初始化全局数据等等.   
+
+section header 则是单个 section 的描述信息,针对的是链接器.它们之间的关系类似于产品和说明书.     
+
+segment 则是站在操作系统的角度上对 section 的一种组织方式,对于操作系统而言,数据属性通常是读,写,执行,符合同一数据属性的 section 理论上就可以放到一起以节省加载时的内存,所以通过一个 segment 中包含连续的多个 section, Program header 则是单个 segment 的描述信息,针对加载器.  
+
+而 section header 和 program header 都是对于 elf 文件中 sections 的描述,只是采用了不同的方式,elf 文件中的 sections 按照 segment 的组成形式进行排列,这样就不需要为每个 segment 重新生成一份针对 segment 的 sections 的组合.  
+
+接下来继续来探讨 Program header 对 segment 的描述,在 elf header 中,有这样的信息:
+
+```
+...
+Size of program headers:           32 (bytes)
+Number of program headers:         9
+...
+```
+
+从 elf 头部信息可以看出,每个 program header 的长度是 32 字节,接下来我们就看看 elf 文件中是如何用 32 字节来描述一个 segment 的,为此,我找来了 Program header 对应的数据结构:
+
+```
+typedef struct {
+  unsigned char	p_type[4];		/* Identifies program segment type */
+  unsigned char	p_offset[4];		/* Segment file offset */
+  unsigned char	p_vaddr[4];		/* Segment virtual address */
+  unsigned char	p_paddr[4];		/* Segment physical address */
+  unsigned char	p_filesz[4];		/* Segment size in file */
+  unsigned char	p_memsz[4];		/* Segment size in memory */
+  unsigned char	p_flags[4];		/* Segment flags */
+  unsigned char	p_align[4];		/* Segment alignment, file & memory */
+} Elf32_External_Phdr;
+```
+
+每个条目 4 字节,一共 8 个条目,总共 32 字节,每个条目对应的信息如下:
+* p_type            : 用于标示 segment 的类型,其对应的类型有:
+  * PT_NULL         :NULL segment,有时作为第一个 elf 的第一个 segment.
+  * PT_LOAD         :可加载的 segment.
+  * PT_DYNAMIC      :动态加载的信息
+  * PT_INTERP       :程序动态加载器信息
+  * PT_NOTE         :辅助信息
+  * PT_PHDR         :Program header table(也就是自身) 的信息,大概是因为 elf 头记录的 Program header table 信息不够完整?
+  * PT_TLS          :线程本地数据 segment
+  
+* p_offset          : 该 segment 在当前文件中开始的偏移地址,因为一个 segment 由多个连续的 section 组成,所以这个参数也等于该 segment 中第一个 section 的起始地址.  
+* p_vaddr           :该 segment 对应的虚拟地址
+* p_paddr           :该 segment 对应的物理地址,在带有 MMU 的平台上,这个字段不用考虑,输出等于虚拟地址,物理地址的概念只有在uboot或者裸机代码中存在.  
+* p_filesz          :该 segment 的 size  
+* p_memsz           :该 segment 占用的 memory size  
+* p_flags           :该 segment 的属性,也就是 segment 的读写属性,多种属性可以组合.
+  * PF_X(1 << 0)    :可执行
+  * PF_W(1 << 1)    :可写
+  * PF_R(1 << 2)    :可读
+* p_align           :该 segment 的对齐参数  
+
 
 
 
