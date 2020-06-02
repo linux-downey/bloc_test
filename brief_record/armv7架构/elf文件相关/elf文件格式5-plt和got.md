@@ -39,6 +39,8 @@ gcc -fpic -shared foo.c -o libfoo.so
 这些就是动态链接所面临的挑战。  
 
 
+
+
 ### 位置无关代码
 如果你阅读过我之前的文章TODO，就能大概了解程序指令是如何运行的，程序的主体是指令和数据，在最后的链接阶段，链接器为每条指令和数据分配独立的地址空间，当指令要访问数据时，访问的是数据的绝对地址。  
 
@@ -65,6 +67,11 @@ gcc -fpic -shared foo.c -o libfoo.so
 
 另一种就是使用 -fpic 编译出来的代码。对于同一个模块而言，指令和数据之间的偏移是固定的，加载到内存中也是将指令和数据作为一个整体进行加载，所以，指令对数据的引用可以是用相对地址而不是绝对地址，对数据地址的引用只需要加上一个固定的偏移地址即可(实现细节将在后续文章中讨论)。  
 
+### 动态库的加载
+动态库又名共享库，顾名思义，动态库可以在多个进程之间共享，也就是说，在真实的物理内存中只存在一份动态库的实体，可以被多个进程引用。  
+
+首先，动态库
+
 
 ## 动态库类型的 elf 文件
 前面我们已经介绍过了 elf 文件中的目标文件和可执行文件，相对于这两种文件而言，动态库类型的文件有一些小的区别：
@@ -77,6 +84,76 @@ gcc -fpic -shared foo.c -o libfoo.so
 ## 动态库中与动态链接相关的 section
 
 ### .dynamic
+.dynamic 是整个动态链接中最核心的部分，该 section 中保存了动态链接器所需要的符号基本信息，它对应的数据结构为：
+
+```C
+typedef struct {
+  unsigned char	d_tag[4];		/* entry tag value */
+  union {
+    unsigned char	d_val[4];
+    unsigned char	d_ptr[4];
+  } d_un;
+} Elf32_External_Dyn;
+```
+每一个动态链接的符号由一个类型值加上一个附加的联合体数值或者指针，每个符号占用 8 个字节，对于不同的 tag，其对应的数值或者指针有不同的含义，下面列举几个比较常用的 tag 类型：
+
+* DT_HASH(4)：动态链接 hash 表的位置，d_ptr 表示地址
+* DT_STRTAB(5)：动态链接字符串表的位置，d_ptr 表示地址
+* DT_SYMTAB(6)：符号表的位置
+* DT_RELA(7)：：重定位表 rela 的位置
+* DT_RELASZ(8)：重定位表 rela 的 size，d_val 表示 size
+* DT_STRSZ(10)：字符串表的长度
+* DT_INIT(12)：初始化代码的地址
+* DT_FINI(13)：结束代码的地址
+* DT_REL(17)：重定位表 rel 的位置
+* DT_RELSZ(18)：重定位表 rel 的 size，rel 和 rela 的区别在于：rela 相对于 rel 而言多了一个 addend(加数)，这个加数用于重定位的过程，因为 rel 将加数放在了需要重定位的内存位置作为占位符，而 rela 类型的对应内存位置为0.  
+* DT_SYMTAB_SHNDX(34)：符号表的 section header 的 index。  
+
+.dynamic 包含了动态库中所有基本信息，可以将其看成是动态库的文件头，readelf 也支持直接通过 -d 参数查看 .dynamic 段：
+
+
+```
+# readelf -d libfoo.so
+
+Dynamic section at offset 0xf20 contains 24 entries:
+  Tag        Type                         Name/Value
+ 0x00000001 (NEEDED)                     Shared library: [libc.so.6]
+ 0x0000000c (INIT)                       0x46c
+ 0x0000000d (FINI)                       0x604
+ 0x00000019 (INIT_ARRAY)                 0x8f14
+ 0x0000001b (INIT_ARRAYSZ)               4 (bytes)
+ 0x0000001a (FINI_ARRAY)                 0x8f18
+ 0x0000001c (FINI_ARRAYSZ)               4 (bytes)
+ 0x6ffffef5 (GNU_HASH)                   0x118
+ 0x00000005 (STRTAB)                     0x2d8
+ 0x00000006 (SYMTAB)                     0x178
+ 0x0000000a (STRSZ)                      222 (bytes)
+ 0x0000000b (SYMENT)                     16 (bytes)
+ 0x00000003 (PLTGOT)                     0x9000
+ 0x00000002 (PLTRELSZ)                   24 (bytes)
+ 0x00000014 (PLTREL)                     REL
+ 0x00000017 (JMPREL)                     0x454
+ 0x00000011 (REL)                        0x404
+ 0x00000012 (RELSZ)                      80 (bytes)
+ 0x00000013 (RELENT)                     8 (bytes)
+ 0x6ffffffe (VERNEED)                    0x3e4
+ 0x6fffffff (VERNEEDNUM)                 1
+ 0x6ffffff0 (VERSYM)                     0x3b6
+ 0x6ffffffa (RELCOUNT)                   3
+ 0x00000000 (NULL)                       0x0
+```
+
+### .dynsym, .dynstr
+对于在链接阶段未解析的符号，就需要在动态链接阶段进行解析和重定位，这些未解析的符号被保存在 .dynsym 中，而对应的字符串被保存在 .dynstr，在动态链接阶段，链接器将会一一地在已加载的动态库中找到对应的符号定义，并对符号进行重定位。  
+
+### .got 
+动态链接过程中的重定位并不像静态链接那样方便，对于静态链接而言，重定位过程可以直接修改指令中对数据的引用地址，因为静态链接操作的是 elf 文本，而动态链接则做不到，因为这时候指令已经被加载到内存中，且映射为只读属性。  
+
+有些朋友就有疑问了，为什么要强行把代码段的数据映射为只读属性，映射成读写属性不行吗，这样动态链接过程就可以直接修改指令了，实际上还真不行。一方面，映射为只读属性是出于保护代码不被修改的目的，另一方面，如果动态库 A 引用了动态库 B，在重定位过程中修改了动态库 A 中的指令部分，但是，动态库是进程之间共享的，为某一个进程修改动态库会导致其它进程的引用出错。  
+
+但是，对于所有的进程而言，动态库的数据部分是有独立的一份副本的，这也很好理解，程序的数据部分是读写属性的，对数据的操作由进程说了算，所以，在重定位过程中，既然不能修改代码部分，那么我们只能通过修改数据部分来完成重定位的过程。  
+
+
 
 
 
