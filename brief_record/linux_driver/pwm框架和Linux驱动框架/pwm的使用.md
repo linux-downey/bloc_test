@@ -44,4 +44,10 @@ pwm 的输出最终体现到引脚上，既然是引脚输出，那就不得不�
 
 在这篇文章中，博主并不准备讨论 pwm 驱动在内核中的实现
 
+        struct pwm_state state = {}; 
+        pwm_init_state(pwmdev,&state);
+        state.duty_cycle = 1;
+        state.enabled = true; 
+        ret = pwm_apply_state(pwmdev,&state);
+
 
