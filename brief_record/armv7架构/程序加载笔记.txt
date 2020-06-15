@@ -1,5 +1,8 @@
 程序加载笔记:
 
+getname(filename);  
+
+
 程序加载需要执行 exec 函数族,以执行可执行文件的替换.   
 
 exec 属于系统调用,其对应的系统调用为 sys_execve,被定义在 fs/exec.c 中:
@@ -17,6 +20,36 @@ syscall_execve
                 search_binary_handler    // 填充一个 struct linux_binprm *bprm 结构
                     fmt->load_binary(bprm);    // 以 bprm 为参数,调用每种 format 的 load_binary 函数.
 
+
+
+
+
+
+struct linux_binprm *bprm 用于描述整个待执行进程。包括文件名，mm_struct 等。   
+struct linux_binfmt *fmt; 用于进程的加载相关，描述一个类型的加载器，a.out 格式、elf 文件等。
+
+static int do_execveat_common(int fd, struct filename *filename,
+			      struct user_arg_ptr argv,
+			      struct user_arg_ptr envp,
+			      int flags)
+{
+	前面检查权限
+	do_open_execat->do_filp_open  //打开文件，返回struct file*
+	
+	sched_exec：涉及到内核进程中的负载均衡，选择一个最闲的 CPU 来运行当前进程，在使用系统调用 execve 创建新进程时，这时进程的内存、cache以及各项资源都占用非常少，在非 SMP 下，这个函数定义为空。参考：https://blog.csdn.net/CQ062364/article/details/38473343  
+	
+	继续初始化 bprm，包括：
+		bprm->file,->filenem,->interp,->argc,->argv,->envc,
+		bprm_mm_init:为新进程创建一个 mm_struct 结构并且初始化，新进程要用到。  
+		prepare_binprm(bprm);
+			bprm_fill_uid：初始化 bprm 的用户相关参数
+			security_bprm_set_creds：设置安全参数
+			kernel_read：读取前 128 字节，以通过文件头判断是什么类型的可执行文件
+		copy_strings：将 argv 和 envp 拷贝到内存空间，保存在 bprm->page 中。
+		exec_binprm：根据 binprm 提供的参数执行
+			search_binary_handler：寻找加载器
+				fmt->load_binary(bprm)   ：加载模块
+}	
 
 
 fmt 从哪儿来?  
@@ -37,7 +70,35 @@ static struct linux_binfmt elf_format = {
 	.min_coredump	= ELF_EXEC_PAGESIZE,
 };
 
-主要是 load_elf_binary : 500 行的函数.  
+主要是 load_elf_binary : 500 行的函数.在此之前，已经取出了 128 个字节的头部，arg 和 env 也被保存在了 bprm->page 中，其他的进程空间的参数也已经完成初始化，保存在了 bprm。  
+
+
+//程序的加载主要就是这个函数了。 
+static int load_elf_binary(struct linux_binprm *bprm)
+{
+	//从 bprm->buf 中取出 128 字节头部，判断是不是 elf 格式文件，如果不是，返回。  
+	load_elf_phdrs   //从文件中读出所有的 program headers 数据，并返回
+	for (i = 0; i < loc->elf_ex.e_phnum; i++) ：遍历每个 program header：
+		如果 phdr 的类型为 PT_INTERP，表明这个 segment 中是动态链接器的地址，读取动态链接器的 elf 头并保存。
+	
+	for (i = 0; i < loc->elf_ex.e_phnum; i++, elf_ppnt++)：第二次遍历每个 program header
+		特殊处理，暂时不管，binfmt_elf.c  line 804
+	flush_old_exec：释放继承自之前进程的一些资源，比如信号表，打开文件信息、描述符等。
+	setup_new_exec：重新设置进程空间资源
+	setup_arg_pages：设置 arg 的 pages，放到栈上，原始栈顶位置不固定，会加上一个随机的偏移值。  
+	current->mm->start_stack = bprm->p;  //设置栈顶地址，
+	前面都是设置环境，接下来就是加载，到这里，参数有没有放到栈上？
+	
+	for(i = 0, elf_ppnt = elf_phdata;i < loc->elf_ex.e_phnum; i++, elf_ppnt++)  //再次遍历所有 program header。
+		如果 segment 属性不是 PT_LOAD，continue，表示不加载。  
+		读取 phdrs-> p_vaddr(虚拟地址)
+	
+}
+
+
+
+参考：https://zhuanlan.zhihu.com/p/54859580
+
 
 
 
