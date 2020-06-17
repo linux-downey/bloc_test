@@ -1,0 +1,25 @@
+W(ldr)	pc, .L__vectors_start + 0x1000
+
+__vectors_start + 0x1000 放置的是：
+	.word	vector_swi
+
+
+为什么 r8 开始，因为 r7 以前的寄存器都被使用了。  
+
+vector_swi：
+	sub	sp, sp, #PT_REGS_SIZE       //在栈上预留出空间，栈是哪里的栈，怎么初始化的？ulong [18]，r0~r15，spsr，old r0
+	stmia	sp, {r0 - r12}			//将 r0~r12 保存在刚刚预留的栈上，对于usr system 和 svc 模式而言，r0~r12是共用的。
+	ARM(	add	r8, sp, #S_PC		)   // S_PC = 60，r8 指向 sp 偏移 60处，这里应该是放 pc 指针的地方。
+	ARM(	stmdb	r8, {sp, lr}^		)	// 将用户模式下的 sp 和 lr 保存到栈上，^ 符号作用(stm和ldm有不同含义)，pc保存在哪里？
+	mrs	r8, spsr					//spsr 到 r8
+	
+	str	lr, [sp, #S_PC]			  //将 pc 指针保存到栈上
+	str	r8, [sp, #S_PSR]		//将 pspr 保存到栈上
+	str	r0, [sp, #S_OLD_R0]		//再保存一次 old r0
+
+	zero_fp                     // 没有定义 CONFIG_FRAME_POINTER，无效语句
+	alignment_trap r10, ip, __cr_alignment   //对齐相关，不分析
+	enable_irq                  // cpsid i 关中断， cpsie 开中断，armv6 以上支持的指令，之前把中断关了吗？
+	ct_user_exit                //上下文跟踪子系统
+	get_thread_info tsk          // tsk 是 r9，把 thread_info 保存到 r9 中，当前进程内核栈
+	
