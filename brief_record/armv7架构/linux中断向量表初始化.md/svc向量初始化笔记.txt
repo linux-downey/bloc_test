@@ -21,5 +21,45 @@ vector_swi：
 	alignment_trap r10, ip, __cr_alignment   //对齐相关，不分析
 	enable_irq                  // cpsid i 关中断， cpsie 开中断，armv6 以上支持的指令，之前把中断关了吗？
 	ct_user_exit                //上下文跟踪子系统
-	get_thread_info tsk          // tsk 是 r9，把 thread_info 保存到 r9 中，当前进程内核栈
+	get_thread_info tsk          // tsk 是 r9，把 thread_info 保存到 r9 中，当前进程内核栈,thread_info 在栈底的位置
+	
+	
+OABI 和 EABI：OABI 是 old abi，EABI 是新式的 abi，主要的区别在于 OABI 假定 CPU 包含 FVP 单元，在某些平台上并不适用，EABI 在这方面做了针对性的优化，对于交叉编译工具链而言，名称中通常有 -eabi 字样，就是指 abi 的类型。编译时可指定。   
+
+这里我们只考虑 EABI。 
+
+	uaccess_disable tbl                 //tbl 为 r8，访问相关，后续在详解
+	adr	tbl, sys_call_table             //将系统调用表地址装载到 tbl(r8)中，sys_call_table 的定义在 call.S 中定义
+	
+local_restart:
+	ldr	r10, [tsk, #TI_FLAGS]            //获取 thread_info->flags 到 r10 中
+	stmdb	sp!, {r4, r5}                //将 r4 和 r5 中的参数暂时放到栈上，这两个寄存器也可能没有保存有效参数
+	tst	r10, #_TIF_SYSCALL_WORK          //是否在 trace 系统调用
+	bne	__sys_trace                      //追踪系统调用时进入
+	
+	cmp	scno, #NR_syscalls               //scno 就是 r7 ，检查系统调用号是不是大于最大系统调用号 400
+	badr	lr, ret_fast_syscall         //就是 adr lr，ret_fast_syscall，将 ret_fast_syscall 地址放到 lr 寄存器中
+	ldrcc	pc, [tbl, scno, lsl #2]      //CC 后缀表示 C= 0，也就是系统调用号小于 400 时，执行这一条，也就是系统调用号对应的系统调用。
+	
+	//系统调用之后会回到 ret_fast_syscall，r0 中保存的是返回值。  
+
+
+#define UNWIND(code...)		code
+UNWIND 主要用在程序调用栈的展开，暂时不管这部分代码
+
+ret_fast_syscall:
+ UNWIND(.fnstart	)
+ UNWIND(.cantunwind	)
+	disable_irq_notrace			@ disable interrupts
+	ldr	r1, [tsk, #TI_FLAGS]		@ re-check for syscall tracing
+	tst	r1, #_TIF_SYSCALL_WORK | _TIF_WORK_MASK
+	bne	fast_work_pending
+
+	/* perform architecture specific actions before user return */
+	arch_ret_to_user r1, lr
+
+	restore_user_regs fast = 1, offset = S_OFF
+ UNWIND(.fnend		)
+ENDPROC(ret_fast_syscall)
+	
 	
