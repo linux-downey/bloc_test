@@ -61,5 +61,48 @@ ret_fast_syscall:
 	restore_user_regs fast = 1, offset = S_OFF
  UNWIND(.fnend		)
 ENDPROC(ret_fast_syscall)
+
+4.14下:	
+ret_fast_syscall:
+__ret_fast_syscall:
+ UNWIND(.fnstart	)
+ UNWIND(.cantunwind	)
+	disable_irq_notrace				//设置 I bit,禁止中断
+	ldr	r2, [tsk, #TI_ADDR_LIMIT]  
+	cmp	r2, #TASK_SIZE
+	blne	addr_limit_check_failed // 这三条语句检查 task size 是否超标
+	ldr	r1, [tsk, #TI_FLAGS]		//再次检查 syscall trace
+	tst	r1, #_TIF_SYSCALL_WORK | _TIF_WORK_MASK   //
+	bne	fast_work_pending
+
+
 	
-	
+	arch_ret_to_user r1, lr
+
+	restore_user_regs fast = 1, offset = S_OFF
+ UNWIND(.fnend		)
+ENDPROC(ret_fast_syscall)
+
+
+.macro	restore_user_regs, fast = 0, offset = 0
+uaccess_enable r1, isb=0
+
+mov	r2, sp
+load_user_sp_lr r2, r3, \offset + S_SP	@ calling sp, lr
+ldr	r1, [sp, #\offset + S_PSR]	@ get calling cpsr
+ldr	lr, [sp, #\offset + S_PC]	@ get pc
+add	sp, sp, #\offset + S_SP
+tst	r1, #PSR_I_BIT | 0x0f
+bne	1f
+msr	spsr_cxsf, r1			@ save in spsr_svc
+
+@ We must avoid clrex due to Cortex-A15 erratum #830321
+strex	r1, r2, [sp]			@ clear the exclusive monitor
+
+.if	\fast
+ldmdb	sp, {r1 - r12}			@ get calling r1 - r12
+.else
+ldmdb	sp, {r0 - r12}			@ get calling r0 - r12
+.endif
+add	sp, sp, #PT_REGS_SIZE - S_SP
+movs	pc, lr				@ return & move spsr_svc into cpsr
