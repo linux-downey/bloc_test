@@ -106,3 +106,8 @@ ldmdb	sp, {r0 - r12}			@ get calling r0 - r12
 .endif
 add	sp, sp, #PT_REGS_SIZE - S_SP
 movs	pc, lr				@ return & move spsr_svc into cpsr
+
+
+
+
+#define COMPAT(nr, native, compat) syscall nr, native
