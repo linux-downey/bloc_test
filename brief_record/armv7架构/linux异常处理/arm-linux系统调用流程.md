@@ -26,20 +26,97 @@ ABI 是应用程序二进制接口,每个操作系统都会为运行在该系统
 
 所以在系统调用的源码实现中,尽管大多数情况下都是使用 EABI 的系统调用方式,也会保持对 OABI 的兼容,而 CONFIG_OABI_COMPAT 表示是否保持对 OABI 的兼容,大部分平台都没有定义,所以在本章的讨论中不包括 OABI 的部分.  
 
-## 系统调用的接口
-了解了系统调用的基本概念之后,我们同样需要知道,系统调用有哪些?  
+## 系统调用的初始化
+了解了系统调用的基本概念之后,我们同样需要知道,系统调用有哪些?   
 
-系统调用由内核中定义的一个静态数组描述的,这个数组名为 sys_call_table,系统调用的数量由 NR_syscalls 这个宏描述,这些系统调用的定义在 entry-common.S 中:
+系统调用由内核中定义的一个静态数组描述的,这个数组名为 sys_call_table,系统调用的数量由 NR_syscalls 这个宏描述，默认为 400，也可以手动地修改,这些系统调用的定义在 entry-common.S 中:
 
 ```
 syscall_table_start sys_call_table
+...
 #include <calls-eabi.S>
 ...
+syscall_table_end sys_call_table
 ```
-syscall_table_start 宏定义了 sys_call_table 符号,并使用 #include 包含了 calls-eabi.S 文件,如果你完全理解了 #include 这个预编译指令. 
+
+\#include 这个预编译指令将预编译阶段会将指定文件中的内容全部拷贝到当前地址，而 calls-eabi.S 文件中就是系统调用表列表的定义：
+
+```
+NATIVE(0, sys_restart_syscall)
+NATIVE(1, sys_exit)
+...
+NATIVE(396, sys_pkey_free)
+NATIVE(397, sys_statx)
+```
+
+于是整个系统调用表的定义变成了：
+
+```
+syscall_table_start sys_call_table
+NATIVE(0, sys_restart_syscall)
+NATIVE(1, sys_exit)
+...
+NATIVE(396, sys_pkey_free)
+NATIVE(397, sys_statx)
+syscall_table_end sys_call_table
+```
+
+这里有三个部分需要关注，syscall_table_start、syscall_table_end 和 NATIVE 这三个宏，接下来就一个个解析。  
+
+```
+	.macro	syscall_table_start, sym
+	.equ	__sys_nr, 0
+	.type	\sym, #object
+ENTRY(\sym)
+	.endm
+```
+syscall_table_start 宏接收一个参数 sym，然后定义一个 __sys_nr 值为零，.type 表示指定符号的类型为 object。需要注意的是，这里的 ENTRY 并不是链接脚本中的 ENTRY 关键字，实际上这也是一个宏定义：
+
+```
+#define ENTRY(name)				\
+	.globl name;				\
+	name:
+```
+
+上面的调用中传入的参数是 sys_call_table，syscall_table_start sys_call_table 这个宏的啥意思就是：
+* 创建一个 sys_call_table 的符号并使用 .globl 导出到全局符号
+* 定义一个内部符号 __sys_nr，初始化为 0，这个变量主要用于后续系统调用好的计算和判断。
+
+紧接着 syscall_table_start sys_call_table 这个语句的就是以 NATIVE 描述的系统调用列表,NATIVE 带两个参数：系统调用号和对应的系统调用函数，它的定义同样是一个宏：
+
+```
+#define NATIVE(nr, func) syscall nr, func
+
+.macro	syscall, nr, func
+.ifgt	__sys_nr - \nr       //__sys_nr 从0开始，总是指向已初始化系统调用的下一个系统调用号，如果需要初始化的系统调用号小于  __sys_nr，表示和已初始化的系统调用号冲突，报错。  
+.error	"Duplicated/unorded system call entry"
+.endif
+.rept	\nr - __sys_nr       // .rept 指令表示下一条 .endr 指令之前的指令执行次数
+.long	sys_ni_syscall       // 放置 sys_ni_syscall 函数到当前地址，sys_ni_syscall 是一个空函数，直接返回 -ENOSYS，即如果定义的系统调用号之间有间隔，填充为该函数
+.endr
+.long	\func                //将系统调用函数放置在当前地址
+.equ	__sys_nr, \nr + 1    //将 __sys_nr 更新为当前系统调用号 +1 。
+.endm
+```
+其实使用 NATIVE 指令实现一个 sys_call_table 的数组，不断地在数组尾部放置函数指针，而系统调用号对应数组的下标，只是添加了一些异常处理。  
+
+接下来就是系统调用的收尾部分：syscall_table_end,sys_call_table，传入的参数为 sys_call_table，它也是通过宏实现的：
+
+```
+.macro	syscall_table_end, sym
+.ifgt	__sys_nr - __NR_syscalls       //__NR_syscalls 是当前系统下静态定义的最大系统调用号，当前初始化的系统调用号不能超出
+.error	"System call table too big"
+.endif
+.rept	__NR_syscalls - __sys_nr       //
+.long	sys_ni_syscall                 //当前已定义系统调用号到最大系统调用之间未使用的系统调用号使用 sys_ni_syscall 这个空函数填充 
+.endr
+.size	\sym, . - \sym                 //设置 sym 也就是 sys_call_table 的 size
+.endm
+```
 
 
-
+## 系统调用的产生
+系统调用尽管是由用户空间产生的，但是在日常的编程工作中我们并不会直接使用系统调用，只知道在使用诸如 read、write 函数时，对应的系统调用就会产生，实际上，发起系统调用的真正工作封装在 glibc 中，要查看系统调用的产生细节，需要通过反汇编实现。  
 
 
 
