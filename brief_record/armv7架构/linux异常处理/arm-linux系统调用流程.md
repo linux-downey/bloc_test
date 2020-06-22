@@ -116,12 +116,78 @@ syscall_table_start 宏接收一个参数 sym，然后定义一个 __sys_nr 值�
 
 
 ## 系统调用的产生
-系统调用尽管是由用户空间产生的，但是在日常的编程工作中我们并不会直接使用系统调用，只知道在使用诸如 read、write 函数时，对应的系统调用就会产生，实际上，发起系统调用的真正工作封装在 glibc 中，要查看系统调用的产生细节，需要通过反汇编实现。  
+系统调用尽管是由用户空间产生的，但是在日常的编程工作中我们并不会直接使用系统调用，只知道在使用诸如 read、write 函数时，对应的系统调用就会产生，实际上，发起系统调用的真正工作封装在 C 库中，要查看系统调用的产生细节，一方面可以查看 C 库,另一方面也可以查看编译时的汇编代码。    
 
 
 
+## glibc 库
+既然系统调用基本都是封装在 glibc 中,最直接的方法就是看看它们的源代码实现,因为只是探究系统调用的流程,找一个相对简单的函数作为示例即可,这里以 close 为例,下载的源代码版本为 glibc-2.30.
 
+close 的定义在 close.c 中:
 
+```
+int __close (int fd)
+{
+  return SYSCALL_CANCEL (close, fd);
+}
+```
 
+SYSCALL_CANCEL 是一个宏,被定义在 sysdeps/unix/sysdep.h 中,由于该宏的嵌套有些复杂,全部贴上来进行解析并没有太多必要,就只贴上它的调用路径:
+```
+SYSCALL_CANCEL
+	->INLINE_SYSCALL_CALL
+		->__INLINE_SYSCALL_DISP
+			->__INLINE_SYSCALLn(n=1~7)
+				->INLINE_SYSCALL   
+```
+对于不同的架构,INLINE_SYSCALL 有不同的实现,毕竟系统调用指令完全是硬件相关指令,可以想到其最后的定义肯定是架构相关的,而 arm 平台的 INLINE_SYSCALL 实现在 sysdeps/unix/sysv/linux/arm/sysdep.h:
 
+```
+INLINE_SYSCALL
+	->INTERNAL_SYSCALL
+		->INTERNAL_SYSCALL_RAW
+```
+整个实现流程几乎全部由宏实现,在最后的 INTERNAL_SYSCALL_RAW 中,执行了以下的指令:
 
+```
+...
+asm volatile ("swi	0x0	@ syscall " #name	\
+		     : "=r" (_a1)				\
+		     : "r" (_nr) ASM_ARGS_##nr			\
+		     : "memory");				\
+       _a1; })
+...
+```
+其中的 swi 指令正是执行系统调用的软中断指令,在新版的 arm 架构中,使用 svc 指令代替 swi,这两者是别名的关系,没有什么区别.  
+
+在 OABI 规范中,系统调用号由 swi(svc) 后的参数指定,在 EABI 规范中,系统调用号则由 r7 进行传递,系统调用的参数由寄存器进行传递.  
+
+这里需要区分系统调用和普通函数调用,对于普通函数调用而言,前四个参数被保存在 r0~r3 中,其它的参数被保存在栈上进行传递.  
+
+但是在系统调用中,swi(svc)指令将会引起处理器模式的切换,user->svc,而 svc 模式下的 sp 和 user 模式下的 sp 并不是同一个,因此无法使用栈直接进行传递,从而需要将所有的参数保存在寄存器中进行传递,在内核文件 include/linux/syscall.h 中定义了系统调用相关的函数和宏,其中 SYSCALL_DEFINE_MAXARGS 表示系统调用支持的最多参数值,在 arm 下为 6,也就是 arm 中系统调用最多支持 6 个参数,分别保存在 r0~r5 中.  
+
+## 反汇编代码
+除了直接查看源代码,也可以通过反汇编代码来查看系统调用细节,下面是 open 系统调用的片段,对应的反汇编代码为:
+
+```
+int fd = open("test",O_CREAT|O_RDWR,0666);
+
+89d6:       f24d 30c4       movw    r0, #54212      ; 0xd3c4
+89da:       f2c0 0004       movt    r0, #4            //第一个参数保存在 r0 中,赋值为 0x4d3c4,这是 "test" 的地址,保存在 .rodata 段中.
+89de:       2142            movs    r1, #66 ; 0x42    //第二个参数保存在 r1 中,0x42 正是 O_CREAT|O_RDWR 的编码
+89e0:       f44f 72db       mov.w   r2, #438          //对应第三个参数 
+89e4:       f010 fcc4       bl      19370 <__libc_open> //跳转到 __libc_open 函数中
+
+...
+...
+
+000193b0 <__libc_open>:
+...
+193c2:       4f0f            ldr     r7, [pc, #60]   ; 从 __libc_open+0x50 处取得系统调用号保存在 r7 中.
+193c4:       df00            svc     0
+...
+19400:       00000005        .word   0x00000005      //系统调用号的保存地址,read 对应 05
+
+```
+
+从反汇编代码可以看到,系统调用的过程正是将参数一一保存到寄存器中,再将系统调用号保存在 r7 中,然后调用 svc 指令.
