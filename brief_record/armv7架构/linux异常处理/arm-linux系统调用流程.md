@@ -196,7 +196,58 @@ int fd = open("test",O_CREAT|O_RDWR,0666);
 
 
 ## 内核中系统调用的处理
-系统调用的处理完全不像是想象中那么简单，从用户空间到内核需要经历处理器模式的切换，svc 指令实际上是一条软件中断指令，和硬件中断不同的是软件中断是主动发起的，
+系统调用的处理完全不像是想象中那么简单，从用户空间到内核需要经历处理器模式的切换，svc 指令实际上是一条软件中断指令，也是从用户空间到内核空间的唯一通路,
+相对应的处理器模式为从 user 模式到 svc 模式,svc 指令执行系统调用的大致流程为:
+* 执行 svc 指令,产生软中断,跳转到系统中断向量表的 svc 向量处执行指令,这个地址是 0xffff0008 处(也可配置在 0x00000008处),并将处理器模式设置为 svc.  
+* 保存用户模式下的程序断点信息,以便系统调用返回时可以恢复用户进程的执行.
+* 根据传入的系统调用号(r7)确定内核中需要执行的系统调用,比如 read 对应 syscall_read.
+* 执行完系统调用之后返回到用户进程,继续执行用户程序.  
+
+上述只是一个简化的流程,省去了很多的实现细节以及在真实操作系统中的多进程环境,不过通过这些可以建立一个对于系统调用大致的概念,后续我们会深入系统调用的细节,一步步地将上述提到的系统调用流程进行剖析.  
+
+关于 armv7-A 相关的异常处理可以参考我的另一篇博客:TODO
+
+### 中断向量表
+linux 的中断向量表的定义在 arch/arm/kernel/entry-armv.S 中:
+
+```
+.section .vectors, "ax", %progbits
+.L__vectors_start:
+	W(b)	vector_rst
+	W(b)	vector_und
+	W(ldr)	pc, .L__vectors_start + 0x1000
+	W(b)	vector_pabt
+	W(b)	vector_dabt
+	W(b)	vector_addrexcptn
+	W(b)	vector_irq
+	W(b)	vector_fiq
+```
+整个向量表被单独放置在 .vectors 段中,包括 reset,undefined,abort,irq 等异常向量,svc 异常向量在第三条,这是一条跳转指令,其中 .L 表示 后续的 symbol 为 local symbol,这条指令的含义是将 __vectors_start+0x1000 地址处的指令加载到 pc 中执行, __vectors_start 的地址在哪里呢?通过链接脚本 arch/arm/kernel/vmlinux.lds 查看对应的链接参数:
+
+```
+...
+ __vectors_start = .;
+ .vectors 0xffff0000 : AT(__vectors_start) {
+  *(.vectors)
+ }
+ . = __vectors_start + SIZEOF(.vectors);
+ __vectors_end = .;
+ __stubs_start = .;
+ .stubs ADDR(.vectors) + 0x1000 : AT(__stubs_start) {
+  *(.stubs)
+ }
+...
+```
+可以看到, .vectors 段链接时确定的虚拟地址指定为 0xffff0000,加载地址指定为 __vectors_start 的地址, __vectors_start 被赋值为当前的地址定位符,并不确定,紧随着上一个段放置,可以确定的是 __vectors_start 是 .vectors 段的起始部分.  
+
+根据吓一跳 .stubs 段的描述,该段被放置在 .vectors + 0x1000 地址处,等于 __vectors_start + 0x1000,正是我们要找的 svc 向量的跳转地址,于是在内核向量代码部分搜索 .stub 段就可以找到 svc 跳转代码了:
+
+```
+.section .stubs, "ax", %progbits
+	.word	vector_swi
+```
+.stubs 部分放置的是 vector_swi 这个符号的地址,所以绕来绕去,svc 向量处放置的指令相当于:mov pc,vector_swi,即跳转到 vector_swi 处执行.  
+
 
 
 
