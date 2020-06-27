@@ -248,6 +248,330 @@ linux 的中断向量表的定义在 arch/arm/kernel/entry-armv.S 中:
 ```
 .stubs 部分放置的是 vector_swi 这个符号的地址,所以绕来绕去,svc 向量处放置的指令相当于:mov pc,vector_swi,即跳转到 vector_swi 处执行.  
 
+vector_swi 是一个标号，被定义在 arch/arm/kernel/entry-common.S 中，在查看 vector_swi 的实现源码之前，有几个宏需要了解一下，这些宏直接影响到程序执行的分支，了解这些宏是否被定义或者为何值，才能掌握源码的执行路径，它们分别是：
+
+* CONFIG_CPU_V7M ：针对 armv7-M 处理器，而我们基于 armv7-A 架构分析，所以该宏未定义
+* ARM(instruct) 、THUMB(instruct) :这两个宏的定义取决于另一个宏 CONFIG_THUMB2_KERNEL，该宏用于指定使用 thumb 指令集还是 arm 指令集，如果使用 arm 指令集，CONFIG_THUMB2_KERNEL 不被 defined，则 ARM(instruct) 括号中的指令被执行，THUMB(instruct) 括号中的指令不被执行,反之亦然。在当前版本(4.14) linux 内核中， CONFIG_THUMB2_KERNEL 未被定义，即使用 arm 指令集，因此在源码分析中忽略 THUMB(instruct) 部分。  
+* TRACE(instruct)：顾名思义，这是程序追踪相关的，如果定义了 CONFIG_TRACE_IRQFLAGS 或者 CONFIG_CONTEXT_TRACKING 两个宏，括号中的指令就会被执行，否则就忽略，在本章中专注于分析系统调用流程，对于 TRACE 的实现不做过多探讨。  
+* CONFIG_OABI_COMPAT：是否兼容 OABI 宏，在当前平台上不兼容，未定义。  
+* CONFIG_AEABI：是否使用 EABI 宏，当前平台默认使用 EABI，所以该宏支持并被定义，实际上 EABI 和 OABI 是可以共存的。  
+* CONFIG_ARM_THUMB：arm 和 thumb 指令集的支持，支持并被定义。
+
+对于上述的宏，CONFIG_CPU_V7M 、THUMB(instruct)、TRACE(instruct)、CONFIG_OABI_COMPAT 未支持，所以这四个宏对应的代码部分可以忽略，简化源代码的分析工作。  
+
+经过简化之后的代码如下：
+```
+/**************保存断点部分***************/
+sub	sp, sp, #PT_REGS_SIZE
+stmia	sp, {r0 - r12}
+add	r8, sp, #S_PC
+stmdb	r8, {sp, lr}^
+mrs	saved_psr, spsr
+str	saved_pc, [sp, #S_PC]		@ Save calling PC
+str	saved_psr, [sp, #S_PSR]		@ Save CPSR
+str	r0, [sp, #S_OLD_R0]		@ Save OLD_R0      
+
+/****************系统设置****************/
+zero_fp
+alignment_trap r10, ip, __cr_alignment
+asm_trace_hardirqs_on save=0
+enable_irq_notrace
+ct_user_exit save=0
+uaccess_disable tbl
+
+/**************执行系统调用****************/
+adr	tbl, sys_call_table		@ load syscall table pointer
+
+get_thread_info tsk
+
+local_restart:
+	ldr	r10, [tsk, #TI_FLAGS]		@ check for syscall tracing
+	stmdb	sp!, {r4, r5}			@ push fifth and sixth args
+
+	tst	r10, #_TIF_SYSCALL_WORK		@ are we tracing syscalls?
+	bne	__sys_trace
+
+	invoke_syscall tbl, scno, r10, __ret_fast_syscall
+
+	add	r1, sp, #S_OFF
+
+	cmp	scno, #(__ARM_NR_BASE - __NR_SYSCALL_BASE)
+	eor	r0, scno, #__NR_SYSCALL_BASE	@ put OS number back
+	bcs	arm_syscall
+	mov	why, #0				@ no longer a real syscall
+	b	sys_ni_syscall			@ not private func
+```
+
+代码看起来并不复杂，接下来逐个部分进行分析。  
+
+### 保存断点部分
+在从用户跳转到内核之初，硬件实现了 CPSR 保存到 SPSR，返回值保存到 LR 操作，然后执行跳转到中断向量表 svc 向量处，对于 user 模式下的寄存器断点保存与恢复，还是需要软件来实现，这部分代码及解析如下：
+
+```
+/* PT_REGS_SIZE 的大小为  = 72，该指令在栈上分配 72 字节的空间用于保存参数*/
+sub	sp, sp, #PT_REGS_SIZE  
+
+/* 将 r0 ~ r12 保存到栈上，对于 user 模式和 svc 模式，r0 ~ r12 是共用的 */
+stmia	sp, {r0 - r12}  
+
+/*定位到栈上应该保存 PC 寄存器的地址，存放到 r8 中，S_PC 的值为 60，因为栈是向下增长，所以 add 指令相当于栈的回溯*/
+add	r8, sp, #S_PC
+
+/* 将用户空间的 sp 和 lr 保存到 r8 地址处，详解见下文。*/
+stmdb	r8, {sp, lr}^
+
+/* saved_psr 其实就是 r8 的一个别名，该指令表示将 spsr 保存到 r8 中，spsr 中保存了 user 下的 APSR */
+mrs	saved_psr, spsr
+
+/* 一般模式下，saved_pc 是 lr 的别名，将返回地址保存在栈上对应位置 */
+str	saved_pc, [sp, #S_PC]		
+
+/* 将 spsr 保存在栈上对应位置 */
+str	saved_psr, [sp, #S_PSR]		
+
+/* 将 r0 保存到 OLD_R0 处，OLD_R0 解释见下文 */
+str	r0, [sp, #S_OLD_R0]		
+```
+
+为什么在刚开始要在栈上分配 72 字节的参数，这是怎么计算得来的？   
+
+PT_REGS_SIZE 宏对应 sizeof(struct pt_regs)，而  struct pt_regs 的定义为 unsigned long uregs[18]，这些空间全部用于保存参数，对应 18 个寄存器值。这 18 个寄存器包括 16 个核心寄存器 r0~r15，一个 CPSR(APSR) 状态寄存器，以及一个 old_r0 寄存器。  
+
+有一个 r0，为什么还要分配一个 old_r0 呢？这是因为，在异常发生时，自然要将用户空间的 r0 压栈以保存断点值，但是系统调用本身也会有返回值需要传递到用户空间，而这个返回值正是保存在 r0 中的，因此发生系统调用前的 r0 就会被返回值覆盖，在一般情况下，这其实也不会有什么问题，但是在两种场合下有意义：
+* ptrace，这和 debug 相关
+* system call restart
+
+用户空间使用 svc 指令产生系统调用时 r0 用于传递参数，并复制一份到 OLD_r0，当系统调用返回的时候，r0 是系统调用的返回值。
+**(注：对于 OLD_R0 的解释部分参考了 wowo 科技的博客，原博客链接在最后。)**
+
+****  
+
+对于保存用户空间的 sp 和 lr指令：
+
+```
+stmdb	r8, {sp, lr}^  
+```
+
+这里有两个细节需要注意，stmdb 中的 db 表示 decrement before，也就是在操作之前先递减 r8，于是 r8 的地址指向了应该存放 lr 的空间，而 stm* 指令操作顺序为从右往左,因此把 lr 和 sp 保存到了正确的地址上。  
+
+主要到指令最后的 ^，这个特殊符号表明：所操作的寄存器不是当前模式下的，而是 user 模式下的寄存器，这是一条特殊指令用于跨模式访问寄存器。    
+
+指令详情可以参考我的另一篇博客：<arm异常处理>
+
+到这里，整个断点保存的工作就圆满完成了，给自己留好了后路，就可以欢快地去做正事了。  
+
+### 系统设置 
+
+```
+/* 等于 mov fp,#0，在 arm 编译器中 frame point 为 r11*/
+zero_fp     
+
+/* 通过读写 SCTLR 寄存器与 __cr_alignment 标号处设置的对齐参数对比来决定是否设置对齐检查，该寄存器由 cp15 协处理器操作，需要使用 mrs 和 msr 指令。 */
+alignment_trap r10, ip, __cr_alignment
+
+/* trace irq 部分，CONFIG_TRACE_IRQFLAGS 未定义，这个宏不执行操作。 */
+asm_trace_hardirqs_on save=0
+
+/* 执行 cpsie i 指令，打开中断 */
+enable_irq_notrace
+
+/* 因为未定义 CONFIG_CONTEXT_TRACKING 宏，该宏不执行操作。 */
+ct_user_exit save=0
+
+/* tbl 是 r8 寄存器的别名,uaccess_disable 宏的功能在于设定处理器模式下对于内存块的访问权限，详解见下文*/
+uaccess_disable tbl
+```
+
+对于 uaccess_disable 这条指令，是和 VMSA(Virtual Memory System Architecture 虚拟内存架构) 相关的内容，主要是和内存的权限控制相关，相对应的寄存器为 DACR(Domain Access Control Register)，这个寄存器由协处理器进行操作，对应的协处理器读指令为 mcr p15 arm_r c3, c0, 0，其中，arm_r 是 arm 核心寄存器(r0，r1等)，该指令表示将 DACR 中的值读取到 arm_r 寄存器中。  
+
+DACR 定义了 16 块内存区域的访问权限，每块的访问权限由两个位来控制，uaccess_disable 这条指令就是禁止某些内存区域的访问权限，由于这一部分不是重点，就不再详细讨论了，具体的细节可以参考 armv7-A-R 手册 B4.1 section。  
 
 
+### 执行系统调用
+做完相应的系统设置，就来到了我们的正题，系统调用的执行：
 
+```
+/* tbl 是 r8 的别名，sys_call_table 在上文中有介绍，这是系统调用表的基地址，将系统调用表基地址放在 r8 中 */
+adr	tbl, sys_call_table		
+
+/* tsk 是 r9 的别名，该宏将 thread_info 的基地址放在 r9 中，详解见下文*/
+get_thread_info tsk
+
+local_restart:
+	/* tsk 中保存 thread_info 基地址，基地址+偏移值就是访问结构体内成员，TI_FLAGS 偏移值对应 thread_info->flags 成员，保存在 r10 中*/
+	ldr	r10, [tsk, #TI_FLAGS]		
+
+	/*将 r4 和 r5 的值保存在栈上，这两个寄存器中保存着系统调用第五个和第六个参数(如果存在) */
+	stmdb	sp!, {r4, r5}			@ push fifth and sixth args
+
+	/* tst 指令执行位与运算，并更新状态寄存器，这里用于判断是否在进行系统调用tracing(跟踪),如果处于系统调用跟踪，thread_info->flags 中与 _TIF_SYSCALL_WORK 对应的位将会被置位， */
+	tst	r10, #_TIF_SYSCALL_WORK		
+
+	/* thread_info->flags| _TIF_SYSCALL_WORK 的结果不为0，表示处于系统调用 tracing，跳转到 tracing 部分执行，这将走向系统调用的另一个 slow path 分支，关于 tracing 部分不做详细讨论。*/
+	bne	__sys_trace
+
+	/* 从名称可以看出，这条宏用于执行系统调用，第一个参数是 tbl，表示系统调用表基地址，第二个参数为 scno(r7)，第三个参数为 r10，第四个参数为 __ret_fast_syscall(返回程序)，注意这里的参数是 invoke_syscall 宏的参数，并不是系统调用的参数。 详解见下文*/
+	invoke_syscall tbl, scno, r10, __ret_fast_syscall
+
+```
+
+thread_info 中记录了进程中相关的进程信息，包括抢占标志位、对应 CPU 信息、以及一个进程最重要的 task_struct 结构地址等。  
+
+每个进程都对应一个用户栈和内核栈，在当前 linux 实现中，内核栈的大小为 8K，占用两个页表，而 thread_info 被存放在栈的顶部，也就是内核栈中的最低地址，内核栈的使用从栈底开始，一直向下增长，当增长过程触及到 thread_info 的区域时，内核栈就检测到溢出，要获取 thread_info 也非常简单，只需要屏蔽当前内核栈 sp 的低 12 位，就得到了 thread_info 的开始地址，达到快速访问的目的，而上面的宏指令 get_thread_info tsk 正是这么做的。  
+
+
+invoke_syscall 宏的源码如下,为了查看方便，将调用参数部分贴在前面方面对照：
+
+```
+invoke_syscall tbl, scno, r10, __ret_fast_syscall
+
+/* tabal 对应 tbl，对应系统调用表基地址 
+** nr 对应 scno(r7)，对应系统调用号
+** tmp 对应 r10，用于临时的存储
+** ret 对应 __ret_fast_syscall，这是系统调用的返回程序，与 __ret_fast_syscall 相对应的还有 ret_slow_syscall，不过 slow 部分对应 tracing 分支 。
+*/
+
+.macro	invoke_syscall, table, nr, tmp, ret, reload=0
+	/* 将系统调用号临时保存在 r10 中 */
+	mov	\tmp, \nr
+	/* 检查系统调用号是否有效 */
+	cmp	\tmp, #NR_syscalls		@ check upper syscall limit
+	/* 如果系统调用号超过定义的最大值，就改为 0 */
+	movcs	\tmp, #0
+
+	/* barrie 指令，防止 CPU 的乱序执行 */
+	csdb
+	/* badr 是一个宏，在这里作用相当于 adr lr,\ret，也就是把 ret 即 __ret_fast_syscall 的地址保存在 lr 中 */
+	badr	lr, \ret			
+
+	/* reload 默认为 0 ，不执行 */
+	.if	\reload
+	add	r1, sp, #S_R0 + S_OFF		@ pointer to regs
+	ldmccia	r1, {r0 - r6}			@ reload r0-r6
+	stmccia	sp, {r4, r5}			@ update stack arguments
+	.endif
+
+	/* tmp 中保存系统调用号，lsl #2 表示将系统调用号乘以4，这是因为每个系统调用占用 4 字节，以此作为基于 table(系统调用表) 的偏移地址值，就是相对应的系统调用基地址，加载到 PC 中，即实现跳转，系统调用函数执行完成后，将会返回到 lr 中保存的地址处，即上文中赋值给 lr 的 __ret_fast_syscall ，返回值保存在 r0 中。 */
+	ldrcc	pc, [\table, \tmp, lsl #2]	
+```
+
+系统调用已经执行完成，从上面的源码可以知道，程序返回到了 __ret_fast_syscall 中，接下来查看 __ret_fast_syscall 的源码实现：
+
+```
+__ret_fast_syscall:
+	/* 将返回值保存在 R0 对应的栈处 */
+	str	r0, [sp, #S_R0 + S_OFF]!	
+
+	/* 禁止中断 */
+	disable_irq_notrace			
+
+	/* 将 thread_info->addr_limit 读到 r2 ，addr_limit 用于界定内核空间和用户空间的访问权限 */
+	ldr	r2, [tsk, #TI_ADDR_LIMIT]
+	/* 检查 addr_limit 是否符合规定，不符合则跳转到 addr_limit_check_failed，这部分属于安全检查 */
+	cmp	r2, #TASK_SIZE
+	blne	addr_limit_check_failed
+
+	/* 再次检查 thread_info->flags 位与 _TIF_SYSCALL_WORK | _TIF_WORK_MASK */
+	ldr	r1, [tsk, #TI_FLAGS]		@ re-check for syscall tracing
+	tst	r1, #_TIF_SYSCALL_WORK | _TIF_WORK_MASK
+
+	/* 当 thread_info->flag | _TIF_SYSCALL_WORK | _TIF_WORK_MASK 不为零时，执行 fast_work_pending */
+	/* _TIF_SYSCALL_WORK | _TIF_WORK_MASK 这两个宏定义在 arch/arm/include/asm/thread_info.h 中，包括 tracing 、信号、NEED_RESCHED 的检查，如果存在未处理的信号或者进程可被抢占时，执行 fast_work_pending ，否则跳过继续往下执行 */
+	bne	fast_work_pending
+
+	/* 没有未处理的信号，没有设置抢占标志位 */
+	/* 架构相关的返回代码，arm 中没有相关代码 */
+	arch_ret_to_user r1, lr
+	
+	/* 返回代码 */
+	restore_user_regs fast = 1, offset = S_OFF
+```
+
+从 __ret_fast_syscall 宏部分分出两个分支，一个是有信号处理或者抢占标志位被置位，需要先行处理，另一个是直接返回，其中直接返回由 restore_user_regs 控制，我们就来看看 fast_work_pending 的分支：
+
+```
+fast_work_pending:
+	/* 更新 sp 为 sp+S_OFF,这个 S_OFF 表示栈上保存断点信息的地址相对于当前栈顶的偏移，在保存断点之后的操作中将 r4 和 r5 push 到栈上，所以断点寄存器信息为当前 sp + S_OFF，这条指令的操作将 sp 返回到断点寄存器信息基地址处 */
+	str	r0, [sp, #S_R0+S_OFF]!	
+
+	/* 检查是不是 tracing */	
+	tst	r1, #_TIF_SYSCALL_WORK
+	bne	__sys_trace_return_nosave
+
+/* 继续执行 slow_work_pending */
+slow_work_pending:
+	/* sp 赋值到 r0 中，此时 sp 执行栈上保存的断点信息 */
+	mov	r0, sp		
+	/* why 是 r8 的别名，将 r8 中的值保存到 r2 中，r8 中保存的是系统调用表，传入这个参数的作用只是告诉 sigal 处理函数这个信号是从系统调用过程中处理的*/		
+	mov	r2, why	
+	/* r1 的值在前面确定，保存的是 thread->flags */
+	/* r0,r1,r2 作为三个参数传入 do_work_pending 函数并执行，这个函数被定义在 arch/arm/kernel/signal.c 中，主要检查是否有信号处理，如果有，就处理信号，同时检查抢占标志是否置位，如果置位，则执行调度*/
+	bl	do_work_pending
+	/* 判断返回值，返回值为0 ，执行 no_work_pending */
+	cmp	r0, #0
+	beq	no_work_pending
+```
+
+no_work_pending 中的执行主体就是：
+
+```
+restore_user_regs fast = 0, offset = 0
+```
+
+在上面另一个分支中(没有信号和抢占标志位)，最后调用的也是 restore_user_regs，只是参数不一样：
+
+```
+restore_user_regs fast = 1, offset = S_OFF
+```
+
+这是因为在执行 fast_work_pending 的时候已经把 sp 恢复到断点寄存器信息处，如果没有进入 fast_work_pending，需要手动添加一个偏移值即 S_OFF，来定位断点寄存器信息，同时 fast_work_pending 执行过程中原系统调用返回值 r0 已经被保存到栈上，r0 的值已经被污染，而另一个分支中 r0 没有被破坏，所以 restore_user_regs 宏的两个参数有所区别。  
+
+restore_user_regs 宏的执行就是真正地返回断点部分，参考下面的源代码：
+
+```
+
+.macro	restore_user_regs, fast = 0, offset = 0
+	/* 设置内存访问权限 */
+	uaccess_enable r1, isb=0
+
+	/* 将当前 sp 保存到 r2 中 */
+	mov	r2, sp
+	/* 将保存在栈上的 CPSR 寄存器值取出，保存到 r1 中 */
+	ldr	r1, [r2, #\offset + S_PSR]	
+
+	/* 将保存在栈上的 PC 寄存器值取出，保存到 lr 中 */
+	ldr	lr, [r2, #\offset + S_PC]!	
+
+	/* 判断原进程中 CPSR 的 irq 位是否被置位，如果置位，跳转到 1 处执行，表示出错 */
+	tst	r1, #PSR_I_BIT | 0x0f
+	bne	1f
+
+	/* 将用户进程的 CPSR 复制到 SPSR_SVC 中 */
+	msr	spsr_cxsf, r1			@ save in spsr_svc
+
+	/* 将 r2(sp) 中保存的用户进程的 r1~lr push 回用户进程下的寄存器中(^ 表示操作的是用户进程)，r0 ~ r12 是共用的寄存器，r0 中保存了系统调用返回值，不需要返回到断点 r0 */
+	.if	\fast
+	ldmdb	r2, {r1 - lr}^			
+	/* 如果执行的是 fast_work_pending 分支，r0 是保存在栈上的，也需要一并重新加载 */
+	.else
+	ldmdb	r2, {r0 - lr}^			
+	.endif
+	/* 空指令，特定架构(ARMv5T)需要 */
+	mov	r0, r0				
+	/* 将内核中的 sp 寄存器返回到系统调用前的地址，就像什么都没发生过一样 */
+	add	sp, sp, #\offset + PT_REGS_SIZE
+
+	/* lr 中保存的是用户进程的原 pc 值，执行这条指令就返回到用户空间执行了，同时 movs 的后缀 s 对应的操作为将 SPSR_SVC 拷贝到 USER 模式下的 CPSR 中 */
+	movs	pc, lr		
+1:	bug	"Returning to usermode but unexpected PSR bits set?", \@
+
+```
+
+恢复断点和保存断点的操作是相反的，将栈上保存的 r0~r14 寄存器值一个个拷贝回用户空间的 r0~r14，然后恢复用户进程中的 CPSR 寄存器，再更新 PC，跳转到用户空间，即完成了程序的返回。  
+
+
+参考：http://www.wowotech.net/irq_subsystem/irq_handler.html
+
+
+问题：
+系统调用会关闭中断？
