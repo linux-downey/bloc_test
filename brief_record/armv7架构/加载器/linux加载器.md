@@ -86,6 +86,7 @@ struct linux_binfmt {
 } __randomize_layout;
 ```
 
+## 注册可执行文件加载程序
 在 linux 的初始化阶段，对应每一种可执行文件格式，都会注册相应的 struct linux_binfmt 结构到内核中，当程序真正加载可执行文件时，调用对应的 load_binary 回调函数即可实现可执行文件的加载，对于 elf 格式的可加载文件而言，对应的注册程序在 fs/binfmt_elf.c 中：
 
 ```C
@@ -109,7 +110,7 @@ elf 可执行文件的加载对应 load_elf_binary 函数，对应的动态库�
 ## do_execveat_common
 介绍完了主要的结构体，再回到 do_execveat_common 函数中，继续分析程序的执行：
 
-```
+```c++
 static int do_execveat_common(int fd, struct filename *filename,struct user_arg_ptr argv,struct user_arg_ptr envp,int flags)
 {
     char *pathbuf = NULL;
@@ -158,9 +159,103 @@ static int do_execveat_common(int fd, struct filename *filename,struct user_arg_
     /* 执行程序加载的主要函数 */
     retval = exec_binprm(bprm);
 
+	current->fs->in_exec = 0;
+	current->in_execve = 0;
+	membarrier_execve(current);
+	acct_update_integrals(current);
+	task_numa_free(current);
+	free_bprm(bprm);
+	kfree(pathbuf);
+	putname(filename);
+	if (displaced)
+		put_files_struct(displaced);
+	return retval;
+
+	...
 
 }
 ```
+
+整个 do_execveat_common 的实现流程在上面的源代码中展现得比较清楚,总共分为三部分:
+* 文件的打开,读写以及参数的处理,构建一个 bprm 结构
+* 以构建的 bprm 为参数执行程序加载的主要函数:exec_binprm
+* 加载的收尾工作,释放资源等. 
+
+接下来自然是进入到 exec_binprm 中一探究竟:
+
+```C++
+static int exec_binprm(struct linux_binprm *bprm)
+{
+	int ret;
+	/* PID 相关操作 */
+
+	ret = search_binary_handler(bprm);
+	
+	/* 错误处理 */
+}
+```
+
+exec_binprm 主要调用了 search_binary_handler 函数:
+
+```c++
+int search_binary_handler(struct linux_binprm *bprm)
+{
+	bool need_retry = IS_ENABLED(CONFIG_MODULES);
+	struct linux_binfmt *fmt;
+	int retval;
+
+	/* 错误检查部分 */
+
+ retry:
+	/* 遍历加载器列表 */
+	list_for_each_entry(fmt, &formats, lh) {
+		if (!try_module_get(fmt->module))
+			continue;
+		bprm->recursion_depth++;
+		/* 尝试调用加载器的 load_binary 回调函数 */
+		retval = fmt->load_binary(bprm);
+		put_binfmt(fmt);
+		bprm->recursion_depth--;
+		if (retval < 0 && !bprm->mm) {
+			/* we got to flush_old_exec() and failed after it */
+			force_sigsegv(SIGSEGV, current);
+			return retval;
+		}
+		if (retval != -ENOEXEC || !bprm->file) {
+			return retval;
+		}
+	}
+
+	/* 再尝试一次,跳转到 retry */
+
+	return retval;
+}
+```
+search_binary_handler 函数的工作就是遍历系统中已注册的加载器,尝试对当前可执行文件进行解析并加载.  
+
+formats 为全局链表,在上文 注册可执行文件加载程序 小节中提到,每一种可执行文件格式都会在系统启动时向内核注册对应的加载程序,而这些加载程序由 struct linux_binfmt 结构描述,以回调函数的形式提供,所有类型的 linux_binfmt 都会链接到一个全局链表中,这个链表头就是 formats.  
+
+fmt 是全局链表 formats 中链表节点,struct linux_binfmt 类型,每一个 fmt 对应一种加载器.  
+
+list_for_each_entry(fmt, &formats, lh) 指令的作用就是遍历所有加载器,并调用 load_binary 回调函数,看是否能找到一种加载器可以处理保存在 bprm 中的文件.也就是执行 execve 系统调用传入的文件.在 do_execveat_common->prepare_binprm 函数中,读取了当前可执行文件的前 128 字节到 bprm->buf 中,通过该 128 字节的文件头可以快速地判断当前文件是哪种类型,从而快速地找到对应的加载器.   
+
+本章节基于 elf 格式的可执行文件讨论,因此,当我们调用 execve 并传入 elf 格式的文件时,对应的 elf 加载器自然是可以对其进行处理的,于是我们将目光转移到 elf 加载器的 load_binary 回调函数:
+
+```c++
+static struct linux_binfmt elf_format = {
+	...
+	.load_binary	= load_elf_binary,      
+	...
+};
+```
+
+因此,执行 elf 格式可执行文件的真正加载操作的就是 load_elf_binary 函数.这个函数被定义在 fs/binfmt_elf.c 中.  
+
+## load_elf_binary 函数解析
+
+load_elf_binary 并不是一个简单的函数,一种 500 多行,涉及到
+
+
 
 
 系统调用返回到了哪里？
