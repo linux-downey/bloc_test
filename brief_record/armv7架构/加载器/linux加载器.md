@@ -253,11 +253,106 @@ static struct linux_binfmt elf_format = {
 
 ## load_elf_binary 函数解析
 
-load_elf_binary 并不是一个简单的函数,一种 500 多行,涉及到
+load_elf_binary 函数直接操作 elf 文件，对文件中的段进行加载，分析 load_elf_binary 函数之前，需要对 elf 可执行文件格式有一定的了解，对于 elf 文件的加载格式，这里做一个简要的介绍：
+
+首先，编译过程中产生的目标文件是以段(section)的形式组织的，所有的段大致可以分为三种类型：
+* 数据段，程序数据，典型的比如 .data、.bss
+* 代码段，指令数据，典型的比如 .text、.init
+* 针对链接阶段的辅助信息，典型的比如重定位表、符号表等。  
+
+文件附带的还有一个段表(section header table)，分别描述各个段的信息，相当于一个目录。  
+
+目标文件并不是最终的形式，它经过链接过程产生可执行文件，可以说，目标文件一定程度上为程序的链接服务，而可执行文件为程序的加载服务，加载是加载到内存中，对于内存而言，并不关心程序有多少个段，它所关心的是可执行文件中的内存访问属性。  
+
+所以，在可执行文件中，数据不再以段为划分，而是以内存访问权限划分，比如所有的指令数据段，拥有 RX(读执行)权限，就合并成一个部分，这种合并的结果称为 segment，可执行文件中存在多个 segment，一个 segment 由多个段合成，而段信息默认情况下依旧保存。  
+
+可执行文件用一个 segment header table 描述所有的 segment，程序的加载就是针对 segment 的操作，所有对于加载过程而言，最核心的操作分为两步：一是读取 elf header 获取整个 elf 文件的相关信息，二是读取 segment header table，然后根据其给出的信息将各个 segment 放置到不同的内存区域中。   
+
+segment header table 对应的数据结构为：
+
+```
+typedef struct elf32_hdr{
+  unsigned char	e_ident[EI_NIDENT];   // ELF 魔数以及其他用于识别的字段
+  Elf32_Half	e_type;               // ELF 类型
+  Elf32_Half	e_machine;            // 机器类型
+  Elf32_Word	e_version;            // 版本
+  Elf32_Addr	e_entry;              // 入口地址
+  Elf32_Off	e_phoff;                  // program header table 偏移地址
+  Elf32_Off	e_shoff;                  // section header table 偏移地址
+  Elf32_Word	e_flags;              // 标志位
+  Elf32_Half	e_ehsize;             // elf 头部 size
+  Elf32_Half	e_phentsize;          // program header table 的 size
+  Elf32_Half	e_phnum;              // program header table 的数量
+  Elf32_Half	e_shentsize;          // section header table 的 size
+  Elf32_Half	e_shnum;              // section header table 的数量
+  Elf32_Half	e_shstrndx;           // section header table 中 string table 的位置，该段用于保存字符串
+} Elf32_Ehdr;
+```
+
+```
+typedef struct elf32_phdr{
+  Elf32_Word	p_type;            //program header 类型，比如可加载的 segment、动态加载器信息 segment、加载辅助信息 segment 等
+  Elf32_Off	p_offset;              // segment 在文件中的偏移
+  Elf32_Addr	p_vaddr;           // 虚拟地址
+  Elf32_Addr	p_paddr;           // 加载地址
+  Elf32_Word	p_filesz;          // segment 的 size
+  Elf32_Word	p_memsz;           // 对应虚拟内存的 size
+  Elf32_Word	p_flags;           // 标志位
+  Elf32_Word	p_align;           // 对齐参数
+} Elf32_Phdr;
+```
+
+先熟悉 elf 文件相关概念有利于接下来的文件加载分析，也算是磨刀不误砍柴工。更详细的 elf 格式信息可以参考这一些博客：TODO。   
+
+接下来我们进入正文：分析 load_elf_binary 函数，与往常一样，省去一些错误检查和一些与主逻辑关联不大的分支代码，专注于加载过程的剖析。  
+
+```C++
+static int load_elf_binary(struct linux_binprm *bprm)
+{
+	struct elf_phdr *elf_ppnt, *elf_phdata, *interp_elf_phdata = NULL;
+	char * elf_interpreter = NULL;
+
+	struct {
+		/* 保存可执行文件的 program header */
+		struct elfhdr elf_ex;
+		/* 保存动态加载器的 program header */
+		struct elfhdr interp_elf_ex;
+	} *loc;
+
+	/* 为两种 program header 结构申请内存空间 */
+	loc = kmalloc(sizeof(*loc), GFP_KERNEL);
+
+	/* bprm->buf 中保存的是 128 字节的文件头，将 bprm->buf 的前 52 字节数据赋值给 loc->elf_ex ，gcc 中结构体是可以直接使用 = 赋值的。*/
+	loc->elf_ex = *((struct elfhdr *)bprm->buf);
+
+	/* 对 elf 头部字段作各种检查 */
+	...
+
+	/* 根据 elf 文件头的 e_phoff 字段(即program header table 偏移地址)，从可执行文件中读取 program header table，返回其首地址 */
+	/* program header table 的初始地址保存在 struct elf_phdr 指针类型的 elf_phdata 中 */
+	elf_phdata = load_elf_phdrs(&loc->elf_ex, bprm->file);
+
+	/* 第一次遍历 program header table */
+	elf_ppnt = elf_phdata;
+	for (i = 0; i < loc->elf_ex.e_phnum; i++) {
+		/* 第一次遍历只针对 PT_INTERP 类型的 segment 做处理，这个 segment 中保存着动态加载器在文件系统中的路径信息*/
+		if (elf_ppnt->p_type == PT_INTERP) {
+			/* 从该 segment 中读出动态加载器的路径名，并保存在 char 类型的 elf_interpreter 指针处 */
+			elf_interpreter = kmalloc(elf_ppnt->p_filesz,GFP_KERNEL);
+			retval = kernel_read(bprm->file, elf_interpreter,elf_ppnt->p_filesz, &pos);
+
+			/* 打开 */
+			interpreter = open_exec(elf_interpreter);
+		}
+		elf_ppnt++;
+	}
+
+
+}
+
+```
 
 
 
-
-系统调用返回到了哪里？
 
 
