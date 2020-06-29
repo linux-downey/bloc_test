@@ -386,10 +386,29 @@ static int load_elf_binary(struct linux_binprm *bprm)
 
 	/* 上文中所贴出的代码都是针对可执行文件和加载器文件的读取,是整个加载过程的第一个准备阶段,接下来进入加载过程的第二个准备阶段:进程环境的准备. */
 
-	/*  */
+	/* 所有新进程(除第一个进程)的创建都是通过 fork 由父进程复制而来，因此继承了父进程的很多资源，既然要重新加载一个完全不同的程序，就需要释放从父进程继承而来的所有资源，创造一个全新的进程(进程号不变)，包括但不限于：
+	** 1、重新初始化进程的信号表
+	** 2、将 (struct mm_struct)mm->exe_file 替换成新的可执行文件
+	** 3、将 curent->mm 结构替换成 bprm->mm 结构，bprm->mm 是新创建的 mm 结构
+	** 4、发送信号退出所有的子线程，初始化 tls
+	** 5、关闭原进程所有的文件，并释放资源
+	** 6、...
+	*/
 	retval = flush_old_exec(bprm);
 	
+	/* 设置新的可执行文件环境，初始化部分进程资源 */
+	setup_new_exec(bprm);
 
+	/* 为当前进程安装进程信任状，进程信任状保存在 bprm->cred，为 execve 系统调用开始时根据当前进程环境新创建 */
+	install_exec_creds(bprm);
+
+	/* 设置栈空间 TODO */
+	retval = setup_arg_pages(bprm, randomize_stack_top(STACK_TOP),executable_stack);
+	current->mm->start_stack = bprm->p;
+
+	/* 设置完整个进程的内存空间，意味着准备工作已经完成，接下来就进入了程序加载的正题：执行程序的加载，这是一个复杂而繁琐的工作 */
+
+	
 }
 
 ```
