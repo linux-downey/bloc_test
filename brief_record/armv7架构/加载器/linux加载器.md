@@ -335,18 +335,60 @@ static int load_elf_binary(struct linux_binprm *bprm)
 	/* 第一次遍历 program header table */
 	elf_ppnt = elf_phdata;
 	for (i = 0; i < loc->elf_ex.e_phnum; i++) {
-		/* 第一次遍历只针对 PT_INTERP 类型的 segment 做处理，这个 segment 中保存着动态加载器在文件系统中的路径信息*/
+		/* 第一次遍历只针对 PT_INTERP 类型的 segment 做处理，这个 segment 中保存着动态加载器在文件系统中的路径信息,通常为 ld-linux.so.x,动态加载器也是一个共享库 */
 		if (elf_ppnt->p_type == PT_INTERP) {
 			/* 从该 segment 中读出动态加载器的路径名，并保存在 char 类型的 elf_interpreter 指针处 */
 			elf_interpreter = kmalloc(elf_ppnt->p_filesz,GFP_KERNEL);
 			retval = kernel_read(bprm->file, elf_interpreter,elf_ppnt->p_filesz, &pos);
 
-			/* 打开 */
+			/* 打开动态加载器文件,将返回的 struct file 结构赋值给 interpreter, */
 			interpreter = open_exec(elf_interpreter);
+
+			/* 从动态链接程序中读取处 elf 文件头保存在 loc->interp_elf_ex 中. */
+			retval = kernel_read(interpreter, &loc->interp_elf_ex,sizeof(loc->interp_elf_ex), &pos);
 		}
 		elf_ppnt++;
 	}
 
+	// 第二次遍历 program header table.做一些特殊处理.  
+	elf_ppnt = elf_phdata;
+	for (i = 0; i < loc->elf_ex.e_phnum; i++, elf_ppnt++)
+		switch (elf_ppnt->p_type) {
+		/* 描述程序栈的 segment,正常情况下不使用该类型的 segment*/
+		case PT_GNU_STACK:
+			if (elf_ppnt->p_flags & PF_X)
+				executable_stack = EXSTACK_ENABLE_X;
+			else
+				executable_stack = EXSTACK_DISABLE_X;
+			break;
+		/* 为特定的处理器保留,在 arm 中不使用该类型的 segment */
+		case PT_LOPROC ... PT_HIPROC:
+			retval = arch_elf_pt_proc(&loc->elf_ex, elf_ppnt,
+						  bprm->file, false,
+						  &arch_state);
+			if (retval)
+				goto out_free_dentry;
+			break;
+		}
+
+	/* 如果程序中指定了动态链接器,就将动态链接器程序读出来,需要一并加载 */
+	if (elf_interpreter) {
+		/* 再次检查文件 */
+		...
+		
+		/* 读取动态链接器文件的,根据上面读取到的动态链接器 elf 文件头提供的 elf 文件系统,定位到 Program header tables 地址并读出到内存,并使用指针  interp_elf_phdata 指向该片内存以备后续访问. */
+		interp_elf_phdata = load_elf_phdrs(&loc->interp_elf_ex,
+						   interpreter);
+		
+		/* 遍历动态链接器的 Program header table,对一些特殊字段做处理,处理内容和上一段代码 第二次遍历可执行文件的 Program header table 一致.*/
+		...
+	}
+
+	/* 上文中所贴出的代码都是针对可执行文件和加载器文件的读取,是整个加载过程的第一个准备阶段,接下来进入加载过程的第二个准备阶段:进程环境的准备. */
+
+	/*  */
+	retval = flush_old_exec(bprm);
+	
 
 }
 
