@@ -311,6 +311,8 @@ static int load_elf_binary(struct linux_binprm *bprm)
 {
 	struct elf_phdr *elf_ppnt, *elf_phdata, *interp_elf_phdata = NULL;
 	char * elf_interpreter = NULL;
+	unsigned long start_code, end_code, start_data, end_data;
+	unsigned long elf_bss, elf_brk,elf_entry;
 
 	struct {
 		/* 保存可执行文件的 program header */
@@ -407,8 +409,149 @@ static int load_elf_binary(struct linux_binprm *bprm)
 	current->mm->start_stack = bprm->p;
 
 	/* 设置完整个进程的内存空间，意味着准备工作已经完成，接下来就进入了程序加载的正题：执行程序的加载，这是一个复杂而繁琐的工作 */
+	/*******************************************************************************************************/
 
-	
+	/* 遍历可执行文件的 Program header */
+	for(i = 0, elf_ppnt = elf_phdata;
+	    i < loc->elf_ex.e_phnum; i++, elf_ppnt++) {
+
+		/* 该 segment 如果不是 PT_LOAD 类型,就不作加载处理,转到下一个 Program header
+		** segment 类型有:PT_LOAD(可加载),PT_DYNAMIC(动态链接相关信息),PT_INTERP(动态链接器信息),PT_NOTE(辅助加载信息)等
+		** 只需要将 PT_LOAD 类型的数据加载到对应的内存空间
+		*/
+		if (elf_ppnt->p_type != PT_LOAD)
+				continue;
+
+		/* elf_bss 和 elf_brk 对应加载数据部分和bss部分的游标,即记录上一次加载完之后 bss 和 brk 的值,作为下一次加载的开始地址, 
+		** 一般情况下,链接器会将所有的代码,只读数据,读写数据,bss段划分为两个 segment,一个是只读代码和只读数据部分,一个是读写数据部分(包括bss)
+		** 在加载完 bss 段之后,会出现 elf_brk > elf_bss 的情况.
+		** 但是在实际的链接过程中,只读的 segment 作为第一个 PT_LOAD 属性的 segment,而读写数据对应的 segment 作为第二个 PT_LOAD 属性的 segment
+		** 通常可执行文件中也只存在这两个 PT_LOAD 类型的 segment,而数据 segment(包含bss) 放在最后加载,因为找不到第三个 PT_LOAD 类型的 segment 而退出整个循环,并不会执行到这里.
+		** 这也是为什么使用 unlikely 修饰这段指令的原因,unlikely 在内核中表示进入该分之的情况很少.  
+		** 对于某些特殊的平台,或者用户自定义链接脚本的情况下,才会出现 bss 所属的 segment 加载完成之后还有其它的 segment 需要加载.   
+		*/
+		if (unlikely (elf_brk > elf_bss)) {
+			/* 如果执行到这里,映射匿名页面,设置brk,并清除bss数据区域 */
+		}
+
+		/* 设置标志位以及 flag */
+
+		/* 可执行文件的类型为 ET_EXEC,共享库的类型为 ET_DYN,因此进入 if 分之而不会进入 else if 分之进行处理 */
+		if (loc->elf_ex.e_type == ET_EXEC || load_addr_set) {
+			elf_flags |= MAP_FIXED;
+		}else if (loc->elf_ex.e_type == ET_DYN) {
+			/* 针对动态库的操作 */
+		}
+
+		/* 为文件中对应的 segment 建立内存的 mmap 
+		** elf_map 调用了 vm_mmap,将文件中的内容映射到虚拟内存空间中,传入可执行文件 file 和该 segment 对应的 Program header.
+		** program header 中有几个字段会使用到:
+		** 1-p_vaddr,内存虚拟地址
+		** 2-p_filesz,该 segment 的 size 
+		** 3-p_offset,当前 segment 在可执行文件中的位置 
+		** 根据这三个参数,就可以定位到可执行文件中该 segment 对应的起始地址和长度,以及需要映射到的虚拟地址和长度
+		** 需要注意的是,vm_mmap 这个接口仅仅是将文件映射到内存中,并没有真正地将文件中的数据拷贝到内存映射区,真正的拷贝在发生内存访问时产生缺页中断,由缺页中断将物理页拷贝到对应的虚拟内存地址处. 
+		*/
+		error = elf_map(bprm->file, load_bias + vaddr, elf_ppnt,
+				elf_prot, elf_flags, total_size);
+
+		/* 在加载第一个类型为 PT_LOAD 的 segment 时,需要确定加载地址,这个加载地址并不是该 segment 对应的虚拟地址,而是针对整个文件的虚拟地址 
+		** 计算方式为:load_addr = 当前 segment 虚拟地址 - 该 segment 在文件中的偏移地址.
+		** 在 load_elf_binary 函数中,只会加载可执行文件中类型为 PT_LOAD 的 segment 以及加载动态链接器到指定内存中
+		** 而可执行文件的其它 segment 由动态链接器进行处理,在动态链接的处理过程中需要为整个文件留出空间而不仅仅是 PT_LOAD 类型的 segment.
+		*/
+		if (!load_addr_set) {
+			load_addr_set = 1;
+			//虚拟地址减去文件内偏移?
+			load_addr = (elf_ppnt->p_vaddr - elf_ppnt->p_offset);
+			//不是 ET_DYN,不执行
+			if (loc->elf_ex.e_type == ET_DYN) {
+				...
+			}
+		}
+		
+		k = elf_ppnt->p_vaddr;
+		/* 更新 start_code 的地址,也就是代码段开始地址,更准确的说法是包含代码段的 读/执行 属性的 segment 而不单单是 .text 段
+		** 加载中使用 segment 的概念,一个 segment 通常是多个段的组合.
+		*/
+		if (k < start_code)
+			start_code = k;
+		//更新 start_data 的地址,也就是数据部分(包含 .data,.bss)开始地址
+		if (start_data < k)
+			start_data = k;
+
+		/* bss 地址等于数据 segment 虚拟地址+filesz,因为在可执行文件中,bss 并不占实际的空间,长度为 0 
+		** 而且 .bss 段被放置在数据 segment 的最后,因此 bss 地址 = 虚拟地址 + segment 占用文件长度
+		*/
+		k = elf_ppnt->p_vaddr + elf_ppnt->p_filesz;
+		if (k > elf_bss)
+			elf_bss = k;
+		/* 更新 end_code */
+		if ((elf_ppnt->p_flags & PF_X) && end_code < k)
+			end_code = k;
+
+		/* 更新 end_data */
+		if (end_data < k)
+			end_data = k;
+
+		/* 更新 brk , brk 是整个数据 segment 的结束虚拟地址,尽管 bss 不占可执行文件的空间,但是在链接时会为其分配虚拟内存地址空间 
+		** p_memsz 是当前 segment 所占用的内存空间, p_memsz - p_filesz = sizeof(.bss)
+		*/
+		k = elf_ppnt->p_vaddr + elf_ppnt->p_memsz;
+		if (k > elf_brk) {
+			bss_prot = elf_prot;
+			elf_brk = k;
+		}
+		/* 当前 segment 处理结束,回到 for 循环,找到下一个 segment 对应的 Program header,查看类型是否为 PT_LOAD,如果是,继续解析,如果不是,跳过 segment 继续找,直到遍历过所有的 PT_LOAD.通常 arm 中一个可执行文件只包含两个 segment. */
+	}
+
+	/* 到这里,所有 PT_LOAD 类型的 segment 已经被加载完成 */
+
+	/* load_bias 表示偏移地址,对于 arm32 下的可执行文件加载,并没有设置偏移地址,对于 64 系统或者有针对性的安全策略系统,会在加载时添加一个随机的偏移地址,攻击者无法通过可执行文件的信息定位到程序在内存中的运行位置.
+	** 在加载动态库时,load_bias 也是有意义的,动态库的加载位置有一个固定的偏移地址.  
+	*/
+	loc->elf_ex.e_entry += load_bias;
+	elf_bss += load_bias;
+	elf_brk += load_bias;
+	start_code += load_bias;
+	end_code += load_bias;
+	start_data += load_bias;
+	end_data += load_bias;
+
+	/* 设置 current->mm->start_brk =  elf_brk */
+	retval = set_brk(elf_bss, elf_brk, bss_prot);
+
+	/* 可执行文件的 PT_LOAD segment 加载完成,接下来需要加载动态加载器到内存中 */
+	/*****************************************************************/
+
+	/* elf_interpreter 在前文中被赋值为动态链接器路径+文件名.
+	** 默认情况下,可执行文件至少会依赖 glibc 动态库,因此都是需要动态加载器的.
+	** 如果在编译时指定 -static 选项,表示编译静态可执行文件,就不需要使用到动态链接器.
+	*/
+	if (elf_interpreter) {
+		/* load_elf_interp 函数负责加载动态加载器到内核中,动态加载器也是个动态库,这看起来有点奇怪:动态库由动态加载器加载,而动态加载器本身就是个动态库,它被谁加载呢?  
+		** 解决方案是:动态加载器有一段自举代码,也就是自己加载自己,前提是它被 elf 加载器加载到内存中并执行.  
+		** 总的来说, load_elf_interp 对动态加载器的加载和加载可执行文件是差不多的过程,可以参考上面可执行文件的加载,加载流程如下:
+		** 1,在上面的准备工作中,已经把动态加载器的 elf 头部和 Program header table 基地址读取到了.
+		** 2,遍历每个 Program header(Program header 用于描述 segment),检查 segment 类型是不是 PT_LOAD,同样只操作 PT_LOAD 类型的 segment.
+		** 3,调用 elf_map 对动态加载器文件中 PT_LOAD 类型的 segment 进行映射
+		** 4,与可执行文件不同的是,动态加载器的加载不需要记录 start_code,start_data,bss 等内存参数
+		** 5,返回动态链接器的加载地址,这个地址也是动态链接器代码段的开始地址,当整个 execve 系统调用执行完成之后,并不是马上执行可执行文件中的代码,而是执行动态链接器的启动代码,也就是这个返回的地址.
+		*/
+		elf_entry = load_elf_interp(&loc->interp_elf_ex,
+					    interpreter,
+					    &interp_map_addr,
+					    load_bias, interp_elf_phdata);
+		/* 保存返回地址/偏移地址 */
+		interp_load_addr = elf_entry;
+		elf_entry += loc->interp_elf_ex.e_entry;
+		reloc_func_desc = interp_load_addr;
+
+		/* 设置写权限 */
+		allow_write_access(interpreter);
+	}
+	/****************************************** 动态链接器加载完成 ******************************/
+
 }
 
 ```
