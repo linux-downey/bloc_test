@@ -313,6 +313,7 @@ static int load_elf_binary(struct linux_binprm *bprm)
 	char * elf_interpreter = NULL;
 	unsigned long start_code, end_code, start_data, end_data;
 	unsigned long elf_bss, elf_brk,elf_entry;
+	struct pt_regs *regs = current_pt_regs();
 
 	struct {
 		/* 保存可执行文件的 program header */
@@ -404,7 +405,10 @@ static int load_elf_binary(struct linux_binprm *bprm)
 	/* 为当前进程安装进程信任状，进程信任状保存在 bprm->cred，为 execve 系统调用开始时根据当前进程环境新创建 */
 	install_exec_creds(bprm);
 
-	/* 设置栈空间 TODO */
+	/* 设置栈空间,栈的设置支持加上一个随机偏移地址作为一种安全措施 
+	** 设置参数的起始地址,参数包括命令行参数和环境变量
+	** 
+	*/
 	retval = setup_arg_pages(bprm, randomize_stack_top(STACK_TOP),executable_stack);
 	current->mm->start_stack = bprm->p;
 
@@ -507,7 +511,7 @@ static int load_elf_binary(struct linux_binprm *bprm)
 
 	/* 到这里,所有 PT_LOAD 类型的 segment 已经被加载完成 */
 
-	/* load_bias 表示偏移地址,对于 arm32 下的可执行文件加载,并没有设置偏移地址,对于 64 系统或者有针对性的安全策略系统,会在加载时添加一个随机的偏移地址,攻击者无法通过可执行文件的信息定位到程序在内存中的运行位置.
+	/* load_bias 表示偏移地址,对于 arm32 下的可执行文件加载,默认并没有设置偏移地址,对于 64 系统或者有针对性的安全策略系统,会在加载时添加一个随机的偏移地址,攻击者无法通过可执行文件的信息定位到程序在内存中的运行位置.
 	** 在加载动态库时,load_bias 也是有意义的,动态库的加载位置有一个固定的偏移地址.  
 	*/
 	loc->elf_ex.e_entry += load_bias;
@@ -550,11 +554,84 @@ static int load_elf_binary(struct linux_binprm *bprm)
 		/* 设置写权限 */
 		allow_write_access(interpreter);
 	}
-	/****************************************** 动态链接器加载完成 ******************************/
+	/* 如果可执行文件依赖于动态库,存在动态加载器,程序的入口地址就是动态加载器的入口地址,否则就是可执行文件的可执行地址 */
+	else {
+		elf_entry = loc->elf_ex.e_entry;
+		if (BAD_ADDR(elf_entry)) {
+			retval = -EINVAL;
+			goto out_free_dentry;
+	}
+	/************************************* 动态链接器加载完成 ******************************/
+	/* 设置 mm->binfmt 为当前的 binfmt,binfmt 用于描述一个加载器以及对应的解析函数 */
+	set_binfmt(&elf_format);
 
+	/* 该函数主要负责处理用户空间参数的传递
+	** 构建一个 elf_info 结构
+	** 将保存在 bprm 中的用户空间参数保存到用户空间栈中
+	** 将保存在 bprm 中的用户空间环境变量保存到用户空间栈中
+	** 将 elf_info 结构数据保存到用户空间栈中 
+	** 用户空间栈地址保存在 bprm->p 中.
+	** 程序员并不会实际接触到保存栈上的参数,这些参数被 glibc 处理过后作为参数传递给 main 函数,所以这些参数对于应用程序员来说是无感的. 
+	*/
+	retval = create_elf_tables(bprm, &loc->elf_ex,load_addr, interp_load_addr);
+
+	/* 将加载过程中生成的内存信息赋值到 current->mm 中. */
+	current->mm->end_code = end_code;
+	current->mm->start_code = start_code;
+	current->mm->start_data = start_data;
+	current->mm->end_data = end_data;
+	current->mm->start_stack = bprm->p;
+
+	/* 这是一个宏定义,接受三个参数:寄存器列表基地址,pc寄存器,sp寄存器,该宏的功能在于重新设置用户空间的运行信息.
+	*/
+	start_thread(regs, elf_entry, bprm->p);
+
+	/* 异常处理和资源释放 */
+	...
+	/* ending */
 }
 
 ```
+
+对于 start_thread 这个接口的实现,完全有必要详细解释一下,它涉及当新程序加载完成之后是如何跳转到新的程序执行的,同时涉及必要多的底层知识,有些难理解.   
+
+首先,我们需要了解系统调用的基本知识:用户空间发起 execve 系统调用陷入内核,内核所做的第一件事就是保存用户空间的断点信息到内核栈上,这些断点信息为 18 个寄存器值,然后内核在做完一系列检查和设置后,就会根据用户空间传入的系统调用号执行对应的系统调用,系统调用完成之后,再根据原来保存在内核栈上的断点信息恢复用户空间程序的执行.
+
+关于系统调用的详细流程可以参考另一篇博客:TODO.  
+
+而 execve 系统调用是一个例外,execve系统调用的作用就是替换掉用户空间程序并执行新的程序,自然不再需要回到原来的程序中执行,理解了这个概念之后再来看 start_thread 的实现就比较简单了,这个函数就是修改保存在内核栈上的断点信息,当系统调用完成之后就会执行我们指定的用户程序中,从而完成程序的完整替换并重新执行.    
+
+
+```c++
+/* 传入三个参数:regs,elf_entry,bprm->p 对应 regs,pc,sp
+** regs 是在 load_elf_binary 开始部分定义并赋值的:struct pt_regs *regs = current_pt_regs();这个函数返回内核栈上保存断点参数的基地址
+** elf_entry 赋值给用户空间的 pc 寄存器,也就是返回用户空间时,程序从 elf_entry 开始执行,在可执行文件依赖于动态库时,elf_entry 为动态库入口地址,否则为可执行文件入口地址.
+** bprm->p 赋值给用户空间的 sp,确定了用户空间的栈地址.
+*/
+#define start_thread(regs,pc,sp)					\
+({									\
+	/* 清除所有寄存器值 */
+	memset(regs->uregs, 0, sizeof(regs->uregs));			\
+	/* 初始化用户空间的 APSR 寄存器*/
+	if (current->personality & ADDR_LIMIT_32BIT)			\
+		regs->ARM_cpsr = USR_MODE;				\
+	else								\
+		regs->ARM_cpsr = USR26_MODE;				\
+	if (elf_hwcap & HWCAP_THUMB && pc & 1)				\
+		regs->ARM_cpsr |= PSR_T_BIT;				\
+	regs->ARM_cpsr |= PSR_ENDSTATE;					\
+
+	/* 设置用户空间 pc 指针 */
+	regs->ARM_pc = pc & ~1;		/* pc */			\
+	/* 设置用户空间栈指针 */
+	regs->ARM_sp = sp;		/* sp */			\
+
+	/* 在带有 MMU 的 linux 下为空指令 */
+	nommu_start_thread(regs);					\
+})
+```
+
+对于整个 execve 的实现分析到这里就告一段落了.  
 
 
 
