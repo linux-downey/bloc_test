@@ -1,0 +1,11 @@
+netlink
+kmod
+inotify
+
+
+最主要的是 uevent 机制.
+
+udevadm
+
+相关博客:https://blog.csdn.net/scdxmoe/article/details/27711205
+
