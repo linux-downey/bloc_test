@@ -1,0 +1,56 @@
+http://0pointer.de/blog/projects/systemd.html  systemd 官方文档。
+
+fd_uevent 是 netlink 类型的套接字
+
+fd_ctrl 是 AT_LOCAL 类型的套接字
+
+
+
+创建 manager：  
+
+manager->monitor  使用 fd_uevent
+manager->control  使用 fd_ctrl
+
+manager->worker 是一对匿名 socket
+
+
+manager->event.signal_sources
+
+
+主要工作应该就是这三个函数了。
+on_ctrl_msg
+on_uevent
+on_worker
+
+
+
+
+执行逻辑：
+
+1、在 run 中调用 manager_new
+	manager_new 中使用 sd_event_add_io 等接口设置 envents，将 fd_uevent 和 fd_ctrl 添加到 poll 中
+	
+	sd_event_loop ：事件轮询，其实就是监听所有 fd，在 while(e->state != SD_EVENT_FINISHED )循环中调用 sd_event_run
+		sd_event_run：查看是否有信息准备好，如果没有，调用 sd_event_wait 等待
+			sd_event_wait：调用 epoll_wait ，在 epoll_fd 上监听所有添加到 poll 中的 fd，epoll_wait返回并进行预处理。
+			sd_event_dispatch：当收到数据时，将这些数据分发到对应的事件上。 
+				source_dispatch：分发数据
+					
+					case SOURCE_IO:r = s->io.callback(s, s->io.fd, s->io.revents, s->userdata);
+					//IO 类型数据，就调用 callback
+					case SOURCE_SIGNAL:s->signal.callback(s, &s->signal.siginfo, s->userdata);	
+					// 信号类型的数据，调用对应的 callback
+					// 这些 callback 就是 manager_new 中注册的。  
+					
+主要关注的部分就是 fd_uevent 和 fd_ctrl 这两个 fd，对应 AF_LOCAL 和 NETLINK 的数据。
+
+主要看这几个函数：
+on_ctrl_msg ：AF_LOCAL,主要接受用户空间来的 udevd 信息。  
+on_uevent:NETLINK，主要接受来自内核空间的 uevent 信息。  
+on_worker:pairsocket
+
+
+
+
+
+
