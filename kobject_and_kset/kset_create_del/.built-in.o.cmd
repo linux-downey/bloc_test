@@ -1,0 +1,1 @@
+cmd_/home/hzh/imx8_sdk/kernel/4.14.98/linux-imx/drivers/my_driver/kobject_and_kset/kset_create_del/built-in.o :=  rm -f /home/hzh/imx8_sdk/kernel/4.14.98/linux-imx/drivers/my_driver/kobject_and_kset/kset_create_del/built-in.o; aarch64-poky-linux-ar rcSTPD /home/hzh/imx8_sdk/kernel/4.14.98/linux-imx/drivers/my_driver/kobject_and_kset/kset_create_del/built-in.o
