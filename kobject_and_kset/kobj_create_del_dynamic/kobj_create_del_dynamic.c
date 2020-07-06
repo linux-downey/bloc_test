@@ -7,62 +7,56 @@
 
 MODULE_LICENSE("GPL"); 
 
-static ssize_t kobj_attr_show(struct kobject *kobj, struct attribute *attr,
-			      char *buf)
+
+static ssize_t foo_show(struct kobject *kobj,struct kobj_attribute *attr,char *buf)
 {
-	printk("Call show!\n");
+	printk("Call foo show!\n");
 	return 1;
 }
 
-static ssize_t kobj_attr_store(struct kobject *kobj, struct attribute *attr,
-			       const char *buf, size_t count)
+static ssize_t bar_show(struct kobject *kobj,struct kobj_attribute *attr,char *buf)
 {
-	printk("Call store!\n");
+	printk("Call bar show!\n");
+	return 1;
+}
+
+static ssize_t foo_store(struct kobject *kobj,struct kobj_attribute *attr,const char *buf, size_t count)
+{
+	printk("Call foo store!\n");
 	return count;
 }
-static const struct sysfs_ops static_kobj_sysfs_ops = {
-	.show	= kobj_attr_show,
-	.store	= kobj_attr_store,
-};
 
-static void static_kobj_release(struct kobject *kobj)
+static ssize_t bar_store(struct kobject *kobj,struct kobj_attribute *attr,const char *buf, size_t count)
 {
-	printk("Call release\n");
-}             
+	printk("Call bar store!\n");
+	return count;
+}
 
-static struct kobj_type ktp = {
-	.release	= static_kobj_release,
-	.sysfs_ops	= &static_kobj_sysfs_ops,
-};
 
-static struct attribute foo_attr = {
-	.name = "foo",
-	.mode = 0664,
-};
-static struct attribute bar_attr = {
-	.name = "bar",
-	.mode = 0664,
-};
+
+struct kobj_attribute foo_attr = __ATTR(foo, 0644, foo_show, foo_store);
+struct kobj_attribute bar_attr = __ATTR(bar, 0644, bar_show, bar_store);
+
 
 static const struct attribute *attrs[] = {
-	&foo_attr,
-	&bar_attr,
+	&foo_attr.attr,
+	&bar_attr.attr,
 	NULL,
 };
 
-static struct kobject kobj;
+static struct kobject *kobj;
 static int __init kobj_create_static_init(void)
 {
 	int ret = 0;
-	ret = kobject_init_and_add(&kobj, &ktp, NULL, "%s", "test_kobj");
-	if(ret){
-		kobject_put(&kobj);
+	kobj = kobject_create_and_add("test_kobj", NULL);
+	if(NULL == kobj){
+		printk("Failed to create kobj\n");
 		return -EINVAL;
 	}
-	ret = sysfs_create_files(&kobj,attrs);
+	ret = sysfs_create_files(kobj,attrs);
 	if(ret) {
 		printk("Error to create files\n");
-		kobject_put(&kobj);
+		kobject_put(kobj);
 		return -EINVAL;
 	}
 
@@ -71,7 +65,7 @@ static int __init kobj_create_static_init(void)
 
 static void __exit kobj_create_static_exit(void)
 {
-	kobject_put(&kobj);
+	kobject_put(kobj);
 }
 
 module_init(kobj_create_static_init);
