@@ -416,4 +416,115 @@ static int __init sysfs_ctrl_init(void){
 ## 从用户空间到内核
 在上面的分析中,我们做了一个经验使然的假设:用户对文件的读写将会调用对应 kobject 中的 sysfs_ops 结构中的回调函数,用户空间的读是如何调用到 sysfs_ops->show 的呢?   
 
+/dev 下的设备文件是通过 file_operations 结构体来设置读写函数，用户空间通过 read/write 系统调用间接地调用到 file_operations->read/write,对应的调用路径如下：
+
+```
+用户空间 read 触发系统调用
+                ->sys_read
+                    ->vfs_read
+                        ->file->f_op->read
+```
+
+实际上，对于 sysfs 下的 kobject 而言，同样是通过 file_opertions 结构进行调用传递的，只是系统进行了封装。  
+
+这个 file_operations 结构体被定义在 fs/kernfs/file.c 中：
+
+```c++
+const struct file_operations kernfs_file_fops = {
+	.read		= kernfs_fop_read,
+	.write		= kernfs_fop_write,
+	.llseek		= generic_file_llseek,
+	.mmap		= kernfs_fop_mmap,
+	.open		= kernfs_fop_open,
+	.release	= kernfs_fop_release,
+	.poll		= kernfs_fop_poll,
+	.fsync		= noop_fsync,
+};
+```
+
+我们通过其中的 .read 函数进行分析:
+
+```c++
+static ssize_t kernfs_fop_read(struct file *file, char __user *user_buf,size_t count, loff_t *ppos)
+{
+    ...
+    return kernfs_file_direct_read(of, user_buf, count, ppos);
+}
+
+static ssize_t kernfs_file_direct_read(struct kernfs_open_file *of,char __user *user_buf, size_t count,loff_t *ppos)
+{
+    ...
+    const struct kernfs_ops *ops;
+    /* 获取 struct kernfs_ops 类型的 ops */
+    ops = kernfs_ops(of->kn);
+    /* 调用 ops->read 接口 */
+	if (ops->read)
+		len = ops->read(of, buf, len, *ppos);
+
+    /* 将 ops->read 读到的数据 copy 到用户空间 */
+    copy_to_user(user_buf, buf, len)
+    ...
+}
+```
+
+从上述的 read 源码可以看到， file_operations->read 函数并没有调用 kobject->sysfs_ops ，而是调用了一个 kernfs_ops->read 接口,接下来就来看看这两个 ops 有什么关系。  
+
+这一切还要从 kobject_create_and_add 这个添加 kobject 的接口说起，kobject 的添加也就是创建目录和文件的过程，我们来看看它的调用路径：
+
+```
+
+kobject_create_and_add(name,parent)   // 创建和添加 kobject 到内核
+    ->kobject_add(kobj, parent, "%s", name);  //执行添加 kobject，格式化命名
+        ->kobject_add_varg(kobj, parent, fmt, args);  //添加子函数，处理命名
+                ->kobject_add_internal(kobj);          
+                    ->create_dir(kobj);                 //为 kobject 创建目录
+                        ->populate_dir(kobj);             //分配目录资源
+                            ->sysfs_create_file(kobj, attr);    //创建文件
+                                ->sysfs_create_file_ns(kobj, attr, NULL);   //带命名空间的创建文件
+                                    ->sysfs_add_file_mode_ns(kobj->sd, attr, false, attr->mode, ns);
+
+```
+
+通过一系列的调用，kobject_create_and_add 间接调用到了 sysfs_add_file_mode_ns，我们来看看 sysfs_add_file_mode_ns 的执行：
+
+```c++
+int sysfs_add_file_mode_ns(struct kernfs_node *parent,const struct attribute *attr, bool is_bin,umode_t mode, const void *ns)
+{
+    ...
+    const struct kernfs_ops *ops;
+    struct kobject *kobj = parent->priv;
+	const struct sysfs_ops *sysfs_ops = kobj->ktype->sysfs_ops;
+    if (sysfs_ops->show && sysfs_ops->store) {
+        if (mode & SYSFS_PREALLOC)
+            ops = &sysfs_prealloc_kfops_rw;
+    ...
+}
+```
+
+从源码中可以看到，如果 sysfs_ops->show/store 被设置，struct kernfs_ops 类型的 *ops 就被赋值为 sysfs_prealloc_kfops_rw：
+
+```c++
+static const struct kernfs_ops sysfs_prealloc_kfops_rw = {
+	.read		= sysfs_kf_read,
+	.write		= sysfs_kf_write,
+	.prealloc	= true,
+};
+
+static ssize_t sysfs_kf_read(struct kernfs_open_file *of, char *buf,
+			     size_t count, loff_t pos)
+{
+	const struct sysfs_ops *ops = sysfs_file_ops(of->kn);
+	struct kobject *kobj = of->kn->parent->priv;
+	len = ops->show(kobj, of->kn->priv, buf);
+    ...
+}
+```
+
+而 sysfs_kf_read 函数的实现就是调用了 sysfs_ops->read,因此 struct kernfs_ops 类型的 ops 和 kobject->ktype->sysfs 就建立了相互调用的关系，所以，从 file_operations->read 到 sysfs->read 的调用路径就找到了，至于从 sysfs->read 到具体文件的 show 函数，上文中也已经讲到了。  
+
+
+结束！、
+
+
+
 
