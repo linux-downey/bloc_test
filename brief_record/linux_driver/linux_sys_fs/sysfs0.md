@@ -413,6 +413,28 @@ static int __init sysfs_ctrl_init(void){
 }
 ```
 
+## kobject 的释放
+作为一名驱动工程师,有一个比较重要的原则是:保持内核的干净. 通俗地说,就是驱动代码不能首先不能破坏内核,其次要注意资源的释放,因为内核中并不像用户空间那样,进程结束会自动回收所有内存.   
+
+与 kset/kobject 的创建相对应的就是资源的释放,linux 内核采用的是引用计数机制来管理资源,当资源被引用时,引用计数加1,而解引用就是将引用计数减1,当某一个模块或者结构的引用计数为正时,表示当前模块正在被其它模块引用,是不能被删除的,强行地删除可能导致其它模块无法正常工作,所以对于驱动工程师而言,尝试删除设备时通常调用的接口是 xxx_put(),而不是使用 xxx_delete() 或者 xxx_remove 类似的接口直接删除,xxx_put 中会将引用计数减一并且检查引用计数是否为 0,为 0 再执行资源的释放,内核中的模块通常是相互依赖的,这种方式有效地避免了依赖模块的丢失.  
+
+另一个释放的基本规则是:一般来说,调用系统接口申请的内存资源通常也只需要调用系统接口就可以释放,而手动申请的资源也需要在最后手动地释放.    
+这两种规则适用于大多数的内核模块处理.  
+
+相对与 kset_create_and_add() 的释放接口为 kset_unregister(),kset 是比较特殊的结构,一方面,kset 被设计为应用于 uevent 的结构,负责管理 uevent 相关资源,并将该 kset 注册到内核中,另一方面,kset->kobject 负责组织文件结构,如果只是调用 kset_put() 并不会将 kset 从内核中注销,所以需要调用 kset_unregister,一方面将 kset 从内核中注销,同时也调用了 kobject_put(kset->kobject).  
+
+对应于 kobject_create_and_add 的注销接口为 kobject_put,当引用计数为 0 时释放 kobject,并删除所有的属性文件.尽管这个接口是返回一个 kobject 指针,我们也很清楚这个 kobject 指针指向的实例动态申请的,但是并不需要我们手动地调用 kfree() 释放该 kobject,系统会自动释放,这就是由系统接口申请也由系统自动释放.  
+
+举一个需要程序员自己释放的示例:
+
+```
+struct kobject *kobj = kzalloc(sizeof(struct kobject),GFP_KERNEL);
+kobject_init_and_add(kobj,ktype,NULL,"test");
+```
+
+这个 kobj 是手动申请的结构体,kobject_put 并不会主动帮你释放,这时需要实现 kobject->ktype->release 函数,在 release 中调用 kfree 对 kobj 进行释放.  
+
+
 ## 从用户空间到内核
 在上面的分析中,我们做了一个经验使然的假设:用户对文件的读写将会调用对应 kobject 中的 sysfs_ops 结构中的回调函数,用户空间的读是如何调用到 sysfs_ops->show 的呢?   
 
