@@ -45,7 +45,7 @@ on_worker
 主要关注的部分就是 fd_uevent 和 fd_ctrl 这两个 fd，对应 AF_LOCAL 和 NETLINK 的数据。
 
 主要看这几个函数：
-on_ctrl_msg ：AF_LOCAL,主要接受用户空间来的 udevd 信息。  
+on_ctrl_msg ：AF_LOCAL,主要接受用户空间来的 udevd 信息。绑定到 /run/udev/control  
 on_uevent:NETLINK，主要接受来自内核空间的 uevent 信息。  
 on_worker:pairsocket
 
