@@ -9,6 +9,8 @@
 #include <linux/netlink.h>
 #include <linux/socket.h>
 #include <errno.h>
+#include <sys/types.h>
+#include <arpa/inet.h>
 
 #define  MSGLEN 512 
 #define  SRC_PID  101
@@ -21,6 +23,9 @@ int init_netlink(void)
 	struct nlmsghdr *nlhdr = NULL;
 	struct sockaddr_nl src_addr,dest_addr;
 	
+	printf("sizeof(struct sockaddr_nl) = %d\n",sizeof(struct sockaddr_in));
+	//while(1);
+
 	nlfd = socket(AF_NETLINK, SOCK_RAW, NETLINK_USERSOCK);
 	if(nlfd < 1) return -1;
 	

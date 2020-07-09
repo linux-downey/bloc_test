@@ -1,0 +1,57 @@
+netlink 通信和其它的 socket 通信流程差不多,调动接口差不多,只是参数不一样.  
+
+int socket(int domain, int type, int protocol)
+
+domain:AF_NETLINK
+type:SOCK_RAW 或者 SOCK_DGRAM
+protocol:protocol 由内核定义,在 include/linux/netlink.h 中.最多 32 个.
+
+int bind (int fd, struct sockaddr* addr, socklen_t len)
+
+fd:sock 对应的 fd,由 socket() 返回的值
+addr:主要用于地址设定,这里的 struct sockaddr* 类型只是泛指,对于不同的协议有不同的格式,
+    网络套接字里面通常使用 sockaddr_in,netlink 中使用 sockaddr_nl,再强制转换成 sockaddr 类型.
+    sockaddr_nl 是 12 个字节. 
+
+```c++
+struct sockaddr_nl {
+	__kernel_sa_family_t	nl_family;	 //设置为 AF_NETLINK
+	unsigned short	nl_pad;		         //恒为 0 
+	__u32		nl_pid;		             // pid(port ID)唯一识别号
+       	__u32		nl_groups;	         //组掩码,最多支持 32 个组
+};
+```
+
+netlink 不需要 accept.  
+
+## 收发数据
+收发数据通过 struct nlmsghdr 和 struct msghdr 实现. 
+
+```
+struct nlmsghdr {
+	__u32		nlmsg_len;	    //整个 nlmsg 的长度,包括头部
+	__u16		nlmsg_type;	    //
+	__u16		nlmsg_flags;	//额外的标志位
+	__u32		nlmsg_seq;	    //序号
+	__u32		nlmsg_pid;	    //发送放的 pid
+};
+```
+
+nlmsghdr 用于描述一个消息
+
+nlmsghdr 不仅仅是 netlink 的头部,数据部分 msg 就紧随着 pid 成员,
+所以在动态申请的时候需要申请整个 netlink 需要的空间.下面是一些 netlink 的宏:
+
+#define NLMSG_HDRLEN	     //nlmsghdr 的长度
+#define NLMSG_LENGTH(len)    // len + 头部长度
+#define NLMSG_SPACE(len)     // NLMSG_LENGTH(len) 向四字节对齐
+#define NLMSG_DATA(nlh)      // 指向紧随着 nlmsg_pid 之后的空间
+#define NLMSG_NEXT(nlh,len)	 //下一个消息的首地址
+#define NLMSG_OK(nlh,len)    //判断消息是否有 len 这么长
+
+
+
+recvmsg
+
+sendmsg
+

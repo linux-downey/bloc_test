@@ -23,7 +23,7 @@ int init_netlink(void)
 	struct msghdr msg;
 	int state;
 	
-	nlfd = socket(AF_NETLINK, SOCK_RAW, NETLINK_USERSOCK);
+	nlfd = socket(AF_NETLINK, SOCK_RAW, 2);
 	if(nlfd < 1) return -1;
 	
 	memset(&src_addr,0,sizeof(src_addr));
@@ -31,7 +31,7 @@ int init_netlink(void)
 	
 	src_addr.nl_family = AF_NETLINK;
 	src_addr.nl_pid = SRC_PID;
-	src_addr.nl_groups = 0;
+	src_addr.nl_groups = 1;
 	
 	
 	ret = bind(nlfd, (struct sockaddr *)&src_addr,
