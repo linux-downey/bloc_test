@@ -27,14 +27,21 @@ static void my_netlink_rcv(struct sk_buff *skb)
 	int len = strlen(back_str);	
 
 	struct sk_buff *send_skb;
-	send_skb = alloc_skb(len,GFP_KERNEL);
+	
+	send_skb = nlmsg_new(len,GFP_KERNEL);
 	if(send_skb){
 		char *scratch;
-		scratch = skb_put(send_skb, len);
-		sprintf(scratch, "%s",back_str);
+		struct nlmsghdr *send_nlh;
+		send_nlh = nlmsg_put(send_skb,100,0,NLMSG_DONE,len,0);
+		if(!send_nlh){
+			kfree_skb(send_skb);
+			return ;
+		}
+		scratch = nlmsg_data(send_nlh);
+		memcpy(scratch,back_str,len);		
 		NETLINK_CB(send_skb).dst_group = 1;
-//		ret = netlink_broadcast(sock,send_skb,100,1,GFP_KERNEL);
-		ret = netlink_unicast(sock,send_skb,100,GFP_KERNEL);
+		ret = netlink_broadcast(sock,send_skb,0,1,MSG_DONTWAIT);
+//		ret = netlink_unicast(sock,send_skb,100,MSG_DONTWAIT);
 		if(ret == -ENOBUFS || ret == -ESRCH){
 			pr_err("Failed to broadcast,ret = %d\n",ret);
 		}

@@ -11,10 +11,11 @@
 #include <errno.h>
 
 #define  MSGLEN 512 
-#define  SRC_PID  100
 #define  DST_PID  101
 
 #define MY_NETLINK 28
+
+unsigned long int src_pid;
 
 int init_netlink(void)
 {
@@ -32,7 +33,7 @@ int init_netlink(void)
 	memset(&dest_addr,0,sizeof(dest_addr));
 	
 	src_addr.nl_family = AF_NETLINK;
-	src_addr.nl_pid = SRC_PID;
+	src_addr.nl_pid = src_pid;
 	src_addr.nl_groups = 1;
 		
 	ret = bind(nlfd, (struct sockaddr *)&src_addr,
@@ -62,20 +63,15 @@ int init_netlink(void)
 	while(1){
 		state = recvmsg(nlfd, &msg, 0);
 		if(state < 0){
-
+			printf("recv error!\n");
 		}
 		else{
-			
+			printf("/**********************************************************/\n");
 			printf("recieve message:%s\n",(char *) NLMSG_DATA(nlhdr));
-			//struct sockaddr_nl *dst  = (struct sockaddr_nl *)msg.msg_name;
 			printf("recv pid :%d\n",nlhdr->nlmsg_pid);
 			printf("recv pid :%d\n",nlhdr->nlmsg_len);
 			printf("recv pid :%d\n",nlhdr->nlmsg_type);
-			/*
-			dest_addr.nl_family = AF_NETLINK;
-			dest_addr.nl_pid = nlhdr->nlmsg_pid; // 0 - kernel
-			dest_addr.nl_groups = 0;
-			*/
+			printf("/**********************************************************/\n");
 		}
 	}
 	return 0;
@@ -83,9 +79,14 @@ int init_netlink(void)
 
 
 
-int main(void)
+int main(int argc,char *argv[])
 {
 	int ret = 0;
+	if(argc != 2){
+		printf("Usage:\n ./server <PID_NUM>\n");
+		return -1;
+	}
+	src_pid = strtoul(argv[1],NULL,0);
 	ret = init_netlink();
 	printf("ret = %d\n",ret);
 	return 1;

@@ -13,10 +13,10 @@
 #include <arpa/inet.h>
 
 #define  MSGLEN 512 
-#define  SRC_PID  101
-#define  DST_PID  100
+#define  SRC_PID  88
 
 #define MY_NETLINK 28
+unsigned long int dst_pid;
 
 int init_netlink(void)
 {
@@ -34,9 +34,9 @@ int init_netlink(void)
 	memset(&src_addr,0,sizeof(src_addr));
 	memset(&dest_addr,0,sizeof(dest_addr));
 	
-	src_addr.nl_family = AF_NETLINK;
+	/*src_addr.nl_family = AF_NETLINK;
 	src_addr.nl_pid = SRC_PID;
-	src_addr.nl_groups = 0;
+	src_addr.nl_groups = 1;
 	
 	
 	ret = bind(nlfd, (struct sockaddr *)&src_addr,
@@ -44,7 +44,7 @@ int init_netlink(void)
 	if(ret < 0 ) {
 		close(nlfd);
 		return -2;
-	}
+	}*/
 	
 	nlhdr = malloc(NLMSG_SPACE(MSGLEN));
 	if(!nlhdr) {
@@ -60,7 +60,7 @@ int init_netlink(void)
 	int state_smg = 0;
 
 	dest_addr.nl_family = AF_NETLINK;
-	dest_addr.nl_pid = 0; // 0 - kernel
+	dest_addr.nl_pid = dst_pid; // 0 - kernel
 	dest_addr.nl_groups = 0;
 	
 	nlhdr->nlmsg_len = NLMSG_SPACE(MSGLEN);
@@ -99,10 +99,16 @@ int init_netlink(void)
 
 
 
-int main(void)
+int main(int argc,char *argv[])
 {
 	int ret = 0;
+	if(argc != 2){ 
+                printf("Usage:\n ./server <PID_NUM>\n");
+                return -1; 
+        }
+	dst_pid = strtoul(argv[1],NULL,0);
 	ret = init_netlink();
+	
 	printf("ret = %d\n",ret);
 	return 1;
 }
