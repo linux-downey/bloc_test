@@ -22,8 +22,8 @@ static void my_netlink_rcv(struct sk_buff *skb)
 
 	nlh = nlmsg_hdr(skb);
 	data = NLMSG_DATA(nlh);
+	pr_info("Recv from = %d\n",nlh->);
 	pr_info("Recv data = %s\n",data);
-
 	int len = strlen(back_str);	
 
 	struct sk_buff *send_skb;
@@ -48,6 +48,7 @@ static void my_netlink_rcv(struct sk_buff *skb)
 	}
 
 }
+
 
 static int __init mnetlink_init(void)
 {
