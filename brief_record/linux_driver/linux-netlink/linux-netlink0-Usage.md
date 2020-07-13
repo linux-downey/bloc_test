@@ -173,7 +173,13 @@ struct msghdr
 
 在具体的实现中，源的处理要特殊一些，对于某些协议，比如 UDP 中，发送方不需要提供源的信息提供，而 netlink 中需要提供发送源地址，这并不代表 UDP 中接收方不需要知道发送源，而是协议中自动添加了发送源的信息，这是由协议实现的。   
 
-在 struct msghdr 结构中，msg_name 描述发送的目的地址，msg_iov 描述发送的数据以及长度，但是源并没有被指定，netlink 的实现中，源由一个 struct nlmsghdr 类型的结构体进行描述，相对于 struct msghdr 的命名，多了一个 nl 前缀，可以知道这是专门针对 netlink 的结构：
+在 struct msghdr 结构中，msg_name 描述发送的目的地址，msg_iov 描述发送的数据以及长度，但是源并没有被指定，netlink 的实现中，源由一个 struct nlmsghdr 类型的结构体进行描述，相对于 struct msghdr 的命名，多了一个 nl 前缀，可以知道这是专门针对 netlink 的结构.  
+
+
+### struct nlmsghdr
+struct nlmsghdr 这个结构在整个非常重要,需要拿出来单独讲一讲,首先你需要记住一句话:不论是内核与用户之间的交互,还是用户进程之间的 netlink 交互,所传递的数据都是遵循 struct nlmsghdr 的结构.  
+
+它的结构是这样的:
 
 ```c++
 struct nlmsghdr {
@@ -188,9 +194,11 @@ TCP/IP 协议中用于标识发送方和接收方使用的是 ip+port，这是�
 
 该结构的 nlmsg_pid 字段保存着发送方的 pid，在发送时需要将自己的 PID 填充到该字段
 
-看起来整个 struct nlmsghdr 结构并不复杂，描述了发送消息的各种属性，实际上这个结构并不简单，除了头部部分，该结构还包含了数据部分，数据部分并没有在结构体中体现出来，它的实现是这样的：
+看起来整个 struct nlmsghdr 结构并不复杂，描述了发送消息的各种属性,而且压根就没看到哪里有数据部分,连个指针都没有，实际上这个结构并不简单，除了头部部分，该结构还隐含了数据部分，数据部分并没有在结构体中体现出来，它的实现是这样的：
 
 在为 struct nlmsghdr 结构申请内存空间的时候需要多申请一部分空间，这部分空间用来保存数据，即数据部分的开始是该结构体最后一个成员 nlmsg_pid 的下一个字节，也就是这个结构最后还有一个隐形的 buffer 用来保存数据部分。   
+
+它的结构是这样的:TODO
 
 glibc 中提供一系列的宏用于操作 struct nlmsghdr 结构：
 
@@ -208,6 +216,7 @@ glibc 中提供一系列的宏用于操作 struct nlmsghdr 结构：
 ```
 建议使用官方提供的这些宏进行操作，而不是按照既往的经验进行处理，毕竟相对其它结构而言，它的实现要相对特殊一些。  
 
+struct msghdr 结构和 struct mlmsghdr 结构的关系为:TODO.
 
 ### server 端实现
 server 端实现主机的绑定、接收与发送，为了简化代码，删除一些错误判断及一些不需要的说明，需要注意的是， server 端的实现依赖于上文中在内核中创建并注册的协议号，文章中只提供一些必要的代码片段，完整的源码实现可以在我的代码仓库中下载：TODO。  
@@ -413,6 +422,9 @@ void send_data(void)
         // 设置需要广播的组，0 表示不广播
 		NETLINK_CB(send_skb).dst_group = 0;
 
+        //设置发送源的 pid 为0.
+        send_nlh->nlmsg_pid = 0;
+
         // 如果设定了需要发送的广播组，就发送广播数据
         //ret = netlink_broadcast(sock,send_skb,0,1,MSG_DONTWAIT);
         
@@ -434,8 +446,3 @@ void send_data(void)
 
 PS：内核中编程最实用的一个技巧就是看看别人怎么写的，毕竟能添加到内核中的代码都是经过严格检验的。  
 
-
-需要验证：
-* 发送方是否需要添加发送源 pid 信息
-* 是否一定需要 src pid
-* 内核中的 groups 是不是只支持的组数，能不能大于 32
