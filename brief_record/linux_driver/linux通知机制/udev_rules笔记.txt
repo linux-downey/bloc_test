@@ -1,0 +1,40 @@
+udev 可以实现的内容:
+* 重新为设备节点命名
+* 通过创建链接的方式针对同一个设备提供一个持久化的命名
+* 根据程序输出命令设备节点
+* 设置设备节点的权限
+* 当设备修改的时候,执行指定的脚本程序
+* 为网络接口重新命名
+
+rules 文件被保存在 /etc/udev/rules.d 目录下
+/lib/udev/rules.d/
+/usr/lib/udev/rules.d/ , /etc 有更高优先级
+
+rules 文件以词法顺序进行解析,
+
+
+基本规则:
+KERNEL-匹配内核名称
+subsystem-匹配子系统名称
+driver-与支持设备的驱动程序名称匹配
+
+分配系统资源:
+* name:创建的设备名称
+* symlink:创建的软链接列表
+
+创建的文件都在 /dev 目录下.  
+
+一个比较重要的规则:当设备找到对应的 rule 时,并不会停止该节点的处理,而是继续搜寻匹配所有的 rules 文件,
+所以一个变动的设备可以有多次匹配.  
+
+
+PROGRAM 关键字是执行脚本用于取名
+RUN     关键字是执行脚本
+
+
+https://www.freedesktop.org/software/systemd/man/udev.html
+https://wiki.archlinux.org/index.php/Udev
+
+
+
+
