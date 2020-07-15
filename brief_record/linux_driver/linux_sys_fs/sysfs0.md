@@ -67,8 +67,20 @@ struct kobject{
     /* kobj 对应的目录节点 */
     struct kernfs_node	*sd;
 
-    /*一些标志位*/
-    ...
+    
+    /* 记录是否发送 uevent 到用户空间的标志位,如果发送了 add 事件而没有发送 remove 事件到用户空间,系统会根据这两个标志位在资源回收时自动发送.*/
+    unsigned int state_add_uevent_sent:1;
+	unsigned int state_remove_uevent_sent:1;
+
+    /* 是否初始化标志位,调用 kobject_init 时初始化为1,其它标志位初始化为 0 */
+    unsigned int state_initialized:1;
+
+    /* 是否在 sysfs 下创建对应的节点,有则为1,在资源回收时需要根据该标志位释放 */
+	unsigned int state_in_sysfs:1;
+
+    /* 该标志位决定是否发送 uevet 到用户空间,1表示不发送. */
+    unsigned int uevent_suppress:1;
+    
 }
 ```
 
