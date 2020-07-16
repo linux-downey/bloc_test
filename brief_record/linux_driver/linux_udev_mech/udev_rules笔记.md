@@ -38,7 +38,8 @@ https://wiki.archlinux.org/index.php/Udev
 
 如果手动地发送了 add,系统会自动发送 remove.  
 
-
+/etc/udev/rules.d 中的会覆盖掉 /lib/udev/rules.d/ 中的同名 rules
+所有的 rules 文件都会按照字典顺序被加载执行.  
 
 使用 netlink 应用层程序可以监听udev 的所有事件并打印出来. 
 
@@ -64,6 +65,8 @@ DEVPATH:匹配消息中的 DEVPATH.
 NAME:针对网络设备,匹配消息中的 NAME 字段. 
 
 ENV 表示全局变量,可以直接设置全局变量,也可以直接使用全局变量,这个全局变量不是系统级别的,而是 udev rules 的全局变量. 
+注意:通过内核发送过来的键值对中的 key 会被自动设定为全局变量,比如 SUBSYSTEM,DEVPATH 等. 
+
 
 GOTO:与 LABEL 相对应,跳转到 LABEL 处.  
 
@@ -102,6 +105,104 @@ nowatch
 db_persist:将消息一直保存在 udev 数据库中,即使使用 udevadm info --cleanup-db 也不能删除.
 
 static_node:创建静态的设备节点.  
+
+
+
+
+
+主要是通过 udev_device_new_from_syspath  获取对应的 device 
+
+
+properties 表示属性,也是全局变量 ENV{},这个可以是从内核发出的键值对中的 key,也可以是 udevd 中设置的.  
+
+所有 properties 通过 list 的形式挂在内核上.  
+
+udevadm 源码:
+
+/etc/udev/udev.conf  在 udev_new 中设置 log 等级.  
+
+udevadm 相关的 command 被保存在全局数组 udevadm_cmds 中. 
+
+udevadm info -c 清除所有的 udev db,由此源代码可以找到数据库存放位置.
+    **/run/udev/data:保存数据库位置,保存的是在解析中生成的 properties,内核发过来的 propertie 保存在对应的 uvent 文件中.**  
+    /run/udev/links:链接
+    /run/udev/tags:tags
+    /run/udev/static_node-tags:
+    /run/udev/watch:文件监测
+
+udevadm info -e 将数据库全部导出,数据库为内核发过来的信息以及 /run/udev/data 中的数据.
+
+udevamd info -a 将所有匹配项打印出来,用户可以根据这些匹配项去编写 rules 文件.  
+
+
+udevadm trigger 通过往对应的 uevent 文件中写入 add/change.. 来实现 trigger 的操作. 
+
+
+
+udevadm test,测试一个 uevent 事件的执行过程,可以看到哪些 rules 文件被解析.  
+
+
+
+
+*******************************builtin function*******************************
+src/udev/udev-builtin.c :
+
+usb_id:
+通过读取一系列的文件,添加一些环境变量:
+ID_VENDOR  ID_VENDOR_ENC  ID_VENDOR_ID  ID_MODEL
+ID_MODEL_ENC  ID_MODEL_ID  ID_REVISION  ID_SERIAL
+ID_SERIAL_SHORT  ID_TYPE  ID_INSTANCE  ID_BUS
+ID_USB_INTERFACES  ID_USB_INTERFACE_NUM  ID_USB_DRIVER
+
+hwdb:
+hwdb:搜索 /etc/udev/hwdb.d 和 /lib/udev/hwdb.d 中的文件,匹配其中的 hwdb 文件,将匹配上的键值对设置为全局变量.   
+
+path_id:
+根据不同的 subsystem 执行不同的程序生成 ID_PATH 和 ID_PATH_TAG 两个全局变量
+
+net_id:
+读取 type
+读取 ifindex
+读取 iflink
+
+可以设置 DEVTYPE 为 wlan,wwan,如果没有设置,DEVTYPE 就是 eth.   
+如果 addr_assign_type 被设置为 0,网口的 mac 地址就会从 address 文件中读.  
+并且将 mac 地址赋值给全局变量 ID_NET_NAME_MAC  
+并根据 mac 地址的前三个字节找到 hwdb:20-OUI.hwdb 中对应的厂商,当前 imx8 的 mac 为 00:04:9f:05:93:e6,对应的 hwdb 匹配为:
+ID_OUI_FROM_DATABASE=Freescale Semiconductor
+
+针对不同的通信协议做不同处理,ccw(ccwgroup device)/pci/usb,并导出一些全局变量.   
+
+网卡路径:/sys/devices/platform/30be0000.ethernet/net/eth0
+
+
+input_id:
+
+读取 
+capabilities/ev
+capabilities/abs
+capabilities/rel
+capabilities/key
+properties   //父级
+
+
+设置 ID_INPUT_KEY 全局变量
+设置 ID_INPUT 全局变量
+
+
+net_setup_link:
+
+根据 DRIVER 的值设置 ID_NET_DRIVER.  
+
+设置 ID_NET_LINK_FILE ID_NET_NAME
+
+设置名称,设置 mac.
+
+
+
+kmod:
+    直接调用 load_module,加载模块. 
+
 
 
 
