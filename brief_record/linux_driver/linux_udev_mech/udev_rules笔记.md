@@ -196,6 +196,8 @@ net_setup_link:
 
 设置 ID_NET_LINK_FILE ID_NET_NAME
 
+
+
 设置名称,设置 mac.
 
 
