@@ -54,7 +54,77 @@ systemd 到底受不受开发者的喜欢，这是个见仁见智的问题，但
 
 
 ## systemd 的基本使用
-上文中只是对 systemd 做了一个大概的介绍，对于系统管理员而言还是需要落实到怎么用，接下来就介绍 systemd 的基本使用。  
+上文中只是对 systemd 做了一个大概的介绍，对于系统管理员而言还是需要落实到怎么用，systemd 是一个庞大的系统，同时也是一个守护进程，就像 linux 中常见的 daemon 与客户端程序模式一样，守护进程提供接口，而真正起到控制 systemd 中服务和系统管理的指令为 systemdctl。   
 
 
+对于一个基本的服务而言，使用者最关心的操作就是服务的开启、停止、设置开机启动以及状态管理，systemdctl 中自然是有对应的实现的。   
+
+以名为 foo 的服务为例.   
+
+服务的开启关闭指令为：
+
+```
+systemctl start foo.service
+systemctl stop foo.service
+```
+
+服务的开机启动设置指令:
+```
+systemctl enable foo.service
+systemctl disable foo.service
+```
+
+查看对应服务的状态，包括运行状态、启动信息、属主信息等：
+
+```
+systemctl status foo.service
+```
+
+对于系统的服务，操作起来是非常方便的，基本上都是一两条指令就完成，这是因为系统已经对这些服务进行了完善的配置。  
+
+按照平常的开发经验来说，一个服务其实就是对应一个或者一系列程序集合，比如 ssh 服务对应 daemon 程序 sshd，以及可能存在的其他辅助程序，对服务的管理本质就是如何对这部分程序进行启停操作，以及做相应的配置，因此，如果需要将一个服务交给 systemd 进行托管，自然是需要通过 systemd 提供的接口做相应的配置，这样 systemd 才知道用户使用 systemctl 对该服务进行操作时，对应执行哪些底层操作。    
+
+不难发现，在上述的服务启动中，指定的服务名都带了一个后缀：.service，这个 service 文件正是 foo 服务针对 systemd 系统的配置文件，下面是一个最简单的 service 文件示例：
+
+```
+[Unit]
+Description=Foo
+
+[Service]
+ExecStart=/usr/sbin/foo-daemon
+
+[Install]
+WantedBy=multi-user.target
+```
+
+对于一个 service 文件而言，通常包含三个小节(section)：
+* Unit：该服务的通用配置，比如启动顺序、依赖条件、环境检查等
+* Service：针对具体服务的配置，也是比较核心的部分，指定服务启停时的执行命令以及相应配置
+* Install：主要是针对开机自启动的服务
+
+对于上述的 service 文件而言，各字段的含义分别如下：
+* Description：是该服务的描述字段，仅仅作为一个描述字符串，没有实际功能
+* ExecStart：该字段指定一个执行命令，在用户执行 systemctl start foo 时会调用到该命令。  
+* WantedBy：用于标识在开机自启动时的顺序，指定该字段并不意味着设置了开机自启动，而是在用户执行 systemdctl enable foo 时会读取该字段以确定启动顺序。  
+
+对于一个 service 文件而言，service 字段是必须的，否则服务无法正常执行，而 Unit 和 Install 字段是可选的，如果没有指定 Install 字段也并不一定表示该服务无法开机自启动，它可能通过其他的依赖方式而被启动，这部分将在后文中详细讨论。  
+
+除了 service 文件之外，systemd 实际上还支持多个种类的配置文件，比如：.target、.mount、.socket 等等，这些配置文件都是 ini 风格的纯文本文件，这些文件统称为单元文件(unit 注意和 service 文件中的 Unit 节不是一个概念)。  
+
+不同的配置文件封装了服务不同的信息，在上文中有提到，systemd 接管了系统中的大量服务，除了最常见的 daemon(守护进程)之外还有文件系统挂载、系统定时服务等，所以存在多种类型的配置文件，只是用户最常接触到的是 service 文件罢了。  
+
+
+除了服务的启停之外，系统中还有一个比较重要的部分：日志管理，日志的重要性不言而喻，systemd 实现了日志的统一管理，所有由 systemd 管理的服务，其对应调试信息以及日志都会被 systemd 记录，而对应的客户端程序为 journalctl，使用该程序可以查看 systemd 中所有的日志信息，当然也是可以对日志进行过滤和匹配，以查看自己需要的那部分日志信息。  
+
+
+## 小结
+在本章中，对 systemd 的产生、发展作了简要的介绍，同时也演示了 systemd 最基础的使用，对 systemd 建立一个大概的印象，但是，systemd 作为一个复杂的系统，值得我们去深入发掘。  
+
+同时，作为驱动工程师，知其然并知其所以然才是我们的学习原则，所以，更多的应该是探究一项技术的背后实现机制，必要的时候结合源码进行分析。  
+
+在接下来的文章中，我们一起来走进 systemd 的世界。   
+
+
+
+systemd 源码地址：https://github.com/systemd/systemd
 参考：https://www.ibm.com/developerworks/cn/linux/1407_liuming_init2/index.html
