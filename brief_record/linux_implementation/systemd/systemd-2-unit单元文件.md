@@ -29,17 +29,23 @@
 
 当 systemd 以用户模式运行时，加载单元的目录(优先级从高到低排列)：TODO
 
-
+上表中的 XDG_RUNTIME_DIR、XDG_CONFIG_HOME 是系统中的环境变量，环境变量可以通过特定的程序生成，systemd 中允许使用环境变量生成器来给环境变量赋值，生成器是 systemd 中一系列执行程序，这些程序在单元文件加载之前被执行，生成动态的单元文件或者环境变量。  
 
 
 
 
 ## 单元文件内容
-单元文件被 systemd 读取，正如一节的介绍，不同的单元文件对应不同的功能，尽管不同类型的单元文件有不同的配置，但是其格式是一样的，单元文件分为两个部分：
+单元文件被 systemd 读取，正如上文中的介绍，不同的单元文件对应不同的功能，尽管不同类型的单元文件有不同的配置，但是其格式是一样的，单元文件分为两个部分：
 * 使用 [ ] 包括的 section，即小节，一个小节可包含多个描述字段
 * 描述字段，也被称作指令，以键值对的形式，值可以是列表的形式
 
-其中，小节是对多个描述字段的组织，就像书本中的目录，而描述字段负责具体的功能描述，比如 service 文件中的 ExecStart=/bin/bash /bin/foo 表示开启该服务对应的指令为 /bin/bash /bin/foo. 在 systemd 的[指令手册]中，详细地列出了所有的指令， 
+其中，小节是对多个描述字段的组织，而描述字段负责具体的功能描述，比如 service 文件中的 ExecStart=/bin/foo 表示开启该服务对应的指令为 /bin/foo. 在 systemd 的[指令手册](https://www.freedesktop.org/software/systemd/man/systemd.directives.html)中，详细地列出了所有的指令.  
+
+无法识别的指令不会中断单元文件的加载，但是 systemd 会输出一条警告日志。 如果选项或者小节的名字以 X- 开头， 那么 systemd 将会完全忽略它。 以 X- 开头的小节中的选项没必要再以 X- 开头， 因为整个小节都已经被忽略。 应用程序可以利用这个特性在单元文件中包含额外的信息。  
+
+如果想要给一个单元赋予别名，那么可以按照需求，在系统单元目录或用户单元目录中， 创建一个软连接(以别名作为文件名)，并将其指向该单元的单元文件。 例如 systemd-networkd.service 在安装时就通过 /usr/lib/systemd/system/dbus-org.freedesktop.network1.service 软连接创建了 dbus-org.freedesktop.network1.service 别名。   
+
+此外，还可以直接在单元文件的 [Install] 小节中使用 Alias= 创建别名。 注意，单元文件中设置的别名会随着单元的启用(enable)与禁用(disable)而生效和失效， 也就是别名软连接会随着单元的启用(enable)与禁用(disable)而创建与删除。 例如，因为 reboot.target 单元文件中含有 Alias=ctrl-alt-del.target 的设置，。单元的别名可以用于 enable, disable, start, stop, status, … 这些命令中，也可以用于 Wants=, Requires=, Before=, After=, … 这些依赖关系选项中。 但是务必注意，不可将单元的别名用于 preset 命令中。 再次提醒，通过 Alias= 设置的别名仅在单元被启用(enable)之后才会生效。
 
 
 
