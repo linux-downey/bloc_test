@@ -45,8 +45,13 @@
 
 如果想要给一个单元赋予别名，那么可以按照需求，在系统单元目录或用户单元目录中， 创建一个软连接(以别名作为文件名)，并将其指向该单元的单元文件。 例如 systemd-networkd.service 在安装时就通过 /usr/lib/systemd/system/dbus-org.freedesktop.network1.service 软连接创建了 dbus-org.freedesktop.network1.service 别名。   
 
-此外，还可以直接在单元文件的 [Install] 小节中使用 Alias= 创建别名。 注意，单元文件中设置的别名会随着单元的启用(enable)与禁用(disable)而生效和失效， 也就是别名软连接会随着单元的启用(enable)与禁用(disable)而创建与删除。 例如，因为 reboot.target 单元文件中含有 Alias=ctrl-alt-del.target 的设置，。单元的别名可以用于 enable, disable, start, stop, status, … 这些命令中，也可以用于 Wants=, Requires=, Before=, After=, … 这些依赖关系选项中。 但是务必注意，不可将单元的别名用于 preset 命令中。 再次提醒，通过 Alias= 设置的别名仅在单元被启用(enable)之后才会生效。
+此外，还可以直接在单元文件的 [Install] 小节中使用 Alias= 创建别名。 注意，单元文件中设置的别名会随着单元的启用(enable)与禁用(disable)而生效和失效， 也就是别名软连接会随着单元的启用(enable)与禁用(disable)而创建与删除。 例如，因为 reboot.target 单元文件中含有 Alias=ctrl-alt-del.target 的设置，。单元的别名可以用于 enable, disable, start, stop, status, … 这些命令中，也可以用于 Wants=, Requires=, Before=, After=, … 这些依赖关系选项中。 但是务必注意，不可将单元的别名用于 preset 命令中。 再次提醒，通过 Alias= 设置的别名仅在单元被启用(enable)之后才会生效。  
 
+除了直接读取单元文件，systemd 还支持读取单元文件的附属配置，对于 foo.service 这样的文件，可以创建一个 foo.service.d/ 目录，将单元文件的配置项放在该目录下的 .conf 文件中，systemd 在解析完主文件之后，将会搜索是否存在同名的 .d/ 目录，如果存在，就读取该目录下的 .conf 为后缀的文件，.conf 文件中的指令和主文件中采用同样的解析规则，这样做的目的在于可以保持主要配置不变的情况下，非常方便地对单元文件增加额外的配置，这种模块化的方式对于移植和维护是有明显的好处的。  
+
+附属配置并不一定要存在于同目录下，它可以放在任何 systemd 支持的系统目录下，比如 /etc/systemd/{systemd,user} 或者是 /usr/lib/systemd/{systemd,user}.  
+
+附属配置的语法和单元文件的语法是一样的，同样是以小节为开头，后面跟着配置项，如果单元文件和附属配置中存在相同的配置项，附属配置会覆盖单元文件中的配置。  
 
 
 
