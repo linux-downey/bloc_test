@@ -50,6 +50,41 @@ systemd 还有一个小型的事务系统： 如果要启动或关闭一个单�
 
 注意， 因为事务的生成独立于单元的状态， 所以， 即使启动一个 已经处于活动(active)状态的单元， 也仍然会生成一个事务， 并启动任何非活动的依赖单元， 而且还会更进一步追随依赖关系， 导致 启动其他被依赖的非活动单元。
 
+
+## /lib/systemd/systemd 控制选项
+以下列出控制 /lib/systemd/systemd 守护进程运行的元素。  
+
+
+### 信号
+下面定义了当 systemd 收到不同信号时，该如何动作：
+* SIGTERM：systemd 系统实例将会保存其当前状态， 然后重新执行它自身，再恢复到先前保存的状态。 基本上相当于 执行 systemctl daemon-reexec 命令。systemd 用户实例将会启动 exit.target 单元。 基本上相当于执行 systemctl --user start exit.target --job-mode=replace-irreversible 命令。
+* SIGINT：systemd 系统实例将会启动 ctrl-alt-del.target 单元。基本上相当于执行 systemctl start ctrl-alt-del.target --job-mode=replace-irreversible 命令。 在控制台上按 Ctrl+Alt+Del 组合键即可触发这个信号。 但是，如果在2秒内连续收到超过7次这个信号，那么将会不顾一切的立即强制重启。 因此，如果系统在重启过程中僵死，那么可以通过在2秒内快速连按7次 Ctrl+Alt+Del 组合键来强制立即重启。systemd 用户实例处理此信号的方式与 SIGTERM 相同。
+* SIGWINCH：systemd 系统实例 将会启动 kbrequest.target 单元。 基本上相当于执行 systemctl start kbrequest.target 命令。systemd 用户实例将会 完全忽略此信号。
+* SIGUSR1：ystemd 将会尝试 重新连接到 D-Bus 总线。
+* SIGHUP：重新加载守护进程的配置文件。 基本上相当于执行 systemctl daemon-reload 命令。
+* ... 更多信号处理可以参考[官方文档](https://www.freedesktop.org/software/systemd/man/systemd.html#)
+
+### 环境变量
+环境变量可以用于控制 systemd 的行为，但是环境变量通常可以被针对同一项设置的命令行设置选项所覆盖：
+* SYSTEMD_LOG_LEVEL：systemd 日志等级。
+* SYSTEMD_LOG_TARGET：systemd 日志目标。
+* SYSTEMD_LOG_LOCATION： systemd 是否应该在日志信息中包含代码位置(code location)。
+* SYSTEMD_UNIT_PATH：单元目录
+* SYSTEMD_SYSVRCND_PATH：SysV 运行级目录
+* ... 更多环境变量的设置可以参考[官方文档](https://www.freedesktop.org/software/systemd/man/systemd.html#)
+
+### 内核引导选项
+当作为系统实例运行的时候， systemd 能够接受下面列出的内核引导选项。
+* systemd.unit=, rd.systemd.unit=：设置默认启动的单元。 默认值是 default.target 。 可用于临时修改启动目标(例如 rescue.target 或 emergency.target )。有 "rd." 前缀的参数专用于 initrd(initial RAM disk) 环境，而无前缀的参数则用于 常规环境。
+* systemd.dump_core：既可以明确设为一个布尔值，也可以仅使用此选项而不设置任何参数(相当于设为 yes )。 设为 yes 表示 systemd(PID=1) 将会在崩溃时进行内存转储，否则不进行任何转储。 默认值是 yes 。 
+* systemd.setenv=：接受 VARIABLE=VALUE 格式的字符串， 可用于为派生的子进程设置默认环境变量。 可以多次使用以设置多个变量。
+
+* quiet：关闭启动过程中的状态输出。相当于 systemd.show_status=no 的效果。 注意，因为此选项也同样被内核所识别， 并用于禁止输出内核日志， 所以使用此选项会导致同时关闭内核与 systemd 的输出。
+* debug：开启调试输出， 等价于设置了 systemd.log_level=debug 。 注意，因为此选项也同样被内核所识别， 并用于开启内核的调试输出， 所以使用此选项会导致 同时开启内核与 systemd 的调试输出。
+* ... 更多内核引导选项可以参考[官方文档](http://www.jinbuguo.com/systemd/systemd.html#)
+
+
+
 ## systemd 的系统实例与用户实例
 /lib/systemd/systemd 是一个静态的二进制程序被放在根文件系统中,当它被加载到内存中运行就对应一个进程,也可以说这个执行进程是对应 /lib/systemd/systemd 的一个执行实例,相对于其它服务进程来说,systemd 的一个特殊之处在于:它不仅仅只运行系统实例,同时在系统中还可能运行着多个用户实例.   
 
@@ -80,7 +115,7 @@ loginctl enable-linger $USERNAME
 
 
 
-## systemd 启动服务
+## systemd 针对其它服务的启动
 linux 系统中大部分需要系统开机启动的服务都是一些守护进程，systemd 负责启动这些守护进程，在传统的 sysvinit 系统上，各个守护进程严格地按照一定的顺序启动，而 systemd 则是采用并行启动、按需启动两种策略，具体的启动过程也有着比较大的差别。  
 
 ### sysvinit 启动过程
@@ -130,7 +165,7 @@ linux 系统中大部分需要系统开机启动的服务都是一些守护进�
 
 
 
-## 启动流程
+## 服务启动流程
 systemd 提供了多种启动机制(见下文)， 而服务单元也经常同时使用其中的几种。 例如 bluetoothd.service 可以在插入蓝牙硬件时被启动， 也可以在某进程访问其 D-Bus 接口时被启动。 又如打印服务可以在IPP端口有流量接入时被启动， 也可以在插入打印机硬件时被启动， 还可以在有文件进入打印机 spool 目录时被启动。 甚至对于必须在系统启动时无条件启动的服务， 为了尽可能并发启动， 也应该使用某些启动机制。 如果某守护进程实现了一个 D-Bus 服务或者监听一个套接字， 那么使用基于 D-Bus 或基于套接字的启动机制， 将允许该进程与其客户端同时并行启动(从而加快启动速度)。 因为所有的通信渠道都已事先建立， 并且不会丢失任何客户端请求， 同时 D-Bus 总线或者内核会将客户端请求排入队列等候， 直到完成启动。
 
 
@@ -160,7 +195,6 @@ systemd 通过 .socket 单元实现该机制。 必须确保所有为支持基�
 
 ### 基于定时器的启动
 对于周期性的操作 (例如垃圾文件清理或者网络对时)， 可以通过基于定时器的启动机制来实现。 这种机制通过 .timer 单元实现。  
-
 
 
 
