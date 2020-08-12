@@ -26,6 +26,56 @@ bootloader 是 linux 最开始执行的程序，在嵌入式领域，通常使�
 下面的图表解释了 这些具有特定含义的 target 单元之间的依赖关系 以及各自在启动流程中的位置。 图中的箭头表示了单元之间的依赖关系与先后顺序， 整个图表按照自上而下的时间顺序执行。
 
 
+正如上文所说，默认启动的服务是 default.target，通常 default.target 是指向 graphical.target 或者 multi-user.target 的软链接，从上图中可以得知，实际上这两个 target 反而是在最后被启动的，这是 systemd 的依赖机制在发挥作用，对于 graphical.target 你可能没什么印象，但是 multi-user.target 应该是经常见到，因为在编写 service 文件时，我们通常会添加这样的 [Install] 小节：
+
+```
+...
+[Install]
+WantedBy=multi-user.target
+```
+
+这样的语句表明当前 service 会在 multi-user.target 之前被启动，以实现开机启动，而整个系统中所有服务的启动基本上都是通过这种环环相扣的依赖关系实现的(参见 Unit 部分：wants、requires、After、before 等依赖配置项)。  
+
+
+通过单元文件中 wants、requires、After 等依赖配置项的追溯，最早被启动的单元为 local-fs-pre.target，这是本地文件系统相关的预设置。  
+
+紧接着，就是一些前期的初始化服务的建立：
+*  local-fs.target：本地文件系统的初始化，要启动用户空间，本地文件系统的挂载和检查工作是必不可少的，linux 的目录结构是非常灵活的，例如很可能 /usr 目录下挂载了另外的磁盘，由于 /usr 是系统启动必须的目录，所以需要检查并处理类似的情况。
+* swap.target：处理交换分区
+* cryptsetup.target：处理加密设备，加解密工作都是在非常早期进行处理。  
+* 底层服务: 底层服务比如 udevd, tmpfiles,random seed,sysctl，通常这些底层服务都与其他服务相关，甚至需要为其它服务提供接口，所以在初始化时就需要将这些服务启动。 
+* 底层虚拟文件系统：虚拟文件系统并不是真实存在在磁盘上的，比如 configfs，debugfs，这些文件系统由内核建立，为开发者或者其它服务提供接口，所以同样需要在初始化阶段将这些服务启动。  
+
+上述这些服务都是并行启动的，这些服务有一个共同的特点，就是被 sysinit.target 单元依赖，可以通过下面两条指令查看到 sysinit.target 之前启动了哪些服务：
+
+```
+cat /lib/systemd/system/sysinit.target           //查看 sysinit.target 文件中静态设置的依赖
+ls /lib/systemd/system/sysinit.target.wants      //查看该目录下的动态依赖，该目录中每一个软链接都是一个依赖项
+```
+
+当 sysinit.target 中依赖项启动过后(不一定启动成功，wants 依赖项启动失败不会影响 sysinit.target 进程，同时，只要没有设置 After= 项，并行启动就一直在发生)，就会进入到下一个阶段，启动 basic.target 以及其依赖项：
+* timers：定时事件，可能是系统自带的，也可以是系统管理员为了满足某些功能新增的 timer
+* paths：系统检测的路径
+* socket：创建 socket，systemd 中一大特点在于，当服务创建 socket 时，建议让 systemd 统一创建所有 socket，这样可以缓解因接口依赖而导致的进程阻塞。 
+* rescue.service：进入救援模式，这是一个独立的分支，通常不会启动该服务。  
+
+如果你直接查看对应的单元文件，比如：
+
+```
+cat /lib/systemd/system/timers.target
+```
+
+在服务文件中基本上不会发现有任何静态定义的 timer 服务，通常，这些对应的单元文件都是动态使能的，如果要查看系统都有哪些 timers，需要查看 timers.target 对应的依赖目录：
+
+```
+ls /lib/systemd/system/timers.target.wants
+```
+当然，/lib/systemd/systemd 只是所有系统目录中的一个，这里只是举个例子，说明 timers.target 是如何影响这些动态定义的 target 的。  
+
+对于 paths.target 和 sockets.target 也是同样的道理。 
+
+在上述这些都启动完成之后，就进入到多用户模式的启动和图形界面的启动了，需要注意的是，在启动图形界面之前，需要先启动各个图形界面的组件，同样是通过依赖关系的设置来实现，对于图形界面的启动，这里就不过多赘述了。  
+
 
 
 
