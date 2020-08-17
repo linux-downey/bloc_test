@@ -17,14 +17,17 @@ udev 的规则遵循以下的原则：
 实际上，我们可以把所有的键看成是 udev 的关键字。  
 
 一方面，从内核发送到用户空间的信息通常是这样的(以 RTC 为例)：
+
 ```
-change@/bus/i2c/drivers/rtc-rv8803 ACTION=change DEVPATH=/bus/i2c/drivers/rtc-rv8803 SUBSYSTEM=drivers SYNTH_UUID=0 SEQNUM=3149
+change@/devices/platform/ocp/44e3e000.rtc/rtc/rtc0/omap_rtc_scratch0 ACTION=change DEVPATH=/devices/platform/ocp/44e3e000.rtc/rtc/rtc0 omap_rtc_scratch0 SUBSYSTEM=nvmemSYNTH_UUID=0SEQNUM=4266
 ```
-在内核信息中，DEVPATH、SUBSYSTEM、SYNTH_UUID 会被自动添加为关键字。     
+
+这是 beaglebone 平台上触发 rtc 时从内核发送到用户空间的设备信息,在内核信息中，DEVPATH、SUBSYSTEM、SYNTH_UUID 会被自动添加为关键字。     
 
 另一方面，udevd 默认提供了许多关键字，比如 SYMLINK 表示软链接，RUN 表示需要执行的程序，同时用户也可以自定义关键字，直接使用 KEY="foo" 就可以定义一个 KEY 关键字。  
 
 看看下面这一条规则示例：
+
 ```
 SUBSYSTEM=="rtc", KERNEL=="rtc0", SYMLINK+="rtc", OPTIONS+="link_priority=-100"
 ```
@@ -309,7 +312,7 @@ sysfs 文件系统的挂载点
 
 尽管规则只能被写作一行，并不代表设备的匹配只能使用一行，udev 也可以通过条规则来处理一个设备事件，比如第二条依赖于第一条的执行结果，以实现更灵活的配置，自然地，也就出现了很多赋值关键字和匹配关键字相同的情况。  
 
-比如，当系统中增加了一个 rtc 设备时，匹配到的第一条规则读取相应的信息，比如 /sys 目录下的文件，内核传递的信息等，然后把某个有用的信息赋值给某个关键字，在后续的规则中，通过判断该关键字的值再执行其它的逻辑，udev 中这种做法很常见。  
+比如，当系统中增加了一个 rtc 设备时，匹配到的第一条规则读取相应的信息，比如 /sys 目录下的文件、内核传递的信息等，然后把某个有用的信息赋值给某个关键字，在后续的规则中，通过判断该关键字的值再执行其它的逻辑，udev 中这种做法很常见。  
 
 
 

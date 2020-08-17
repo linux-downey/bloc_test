@@ -45,7 +45,69 @@ udevadm info 支持以下选项:
 * -e, --export-db:导出数据库的全部内容
 * -c,--cleanup-db:清除 udev 数据库. 
 
+### udevadm trigger
+udev 的另一个调试利器就是 udevadm trigger，在系统启动时 udevd 会在内核驱动都初始化完成之后再启动，也就监听不到系统启动时内核发送的设备信息，正是由 udevadm trigger 重新生成设备事件，对于 udevd 来说，将这些设备信息当成由内核发送的来处理。  
+
+同时，在系统正常运行时，基于调试的目的，也完全可以触发某个设备事件来模拟热插拔，下面是 udevadm trigger 的使用方法：
+* -v, --verbose：显示将会被触发的设备列表，该设备列表对应 /sys/devices 目录下的大部分设备文件。 
+* -n, --dry-run：执行触发的动作，但是最后并不真正触发设备事件，也就是在执行 udevadm trigger 的基础上，最后不将数据发出，其它操作照样执行。   
+* -t, --type=TYPE：仅触发特定类型的设备，TYPE 可以是下列值之一： devices(默认值), subsystems
+* -s, --subsystem-match=SUBSYSTEM：仅触发属于 SUBSYSTEM 子系统的设备事件。 可以在 SUBSYSTEM 中使用shell风格的通配符。 如果多次使用此选项，那么表示以 OR 逻辑连接每个匹配规则， 也就是说，所有匹配的子系统中的设备都会被触发。SUBSYSTEM 的值可以参考 udev 中的 rules 文件。 
+* -S, --subsystem-nomatch=SUBSYSTEM：不触发属于 SUBSYSTEM 子系统的设备事件。 可以在 SUBSYSTEM 中使用shell风格的通配符。 如果多次使用此选项，那么表示以 AND 逻辑连接每个匹配规则， 也就是说，只有不匹配所有指定子系统的设备才会被触发。
+* -a, --attr-match=ATTRIBUTE=VALUE：仅触发那些在设备的sysfs目录中存在 ATTRIBUTE 文件的设备事件。 如果同时还指定了"=VALUE"，那么表示仅触发那些 ATTRIBUTE 文件的内容匹配 VALUE 的设备事件。 注意，可以在 VALUE 中使用shell风格的通配符。 如果多次使用此选项，那么表示以 AND 逻辑连接每个匹配规则， 也就是说，只有匹配所有指定属性的设备才会被触发。
+* -A, --attr-nomatch=ATTRIBUTE=VALUE：不触发那些在设备的sysfs目录中存在 ATTRIBUTE 文件的设备事件。 如果同时还指定了"=VALUE"，那么表示不触发那些 ATTRIBUTE 文件的内容匹配 VALUE 的设备事件。 注意，可以在 VALUE 中使用shell风格的通配符。 如果多次使用此选项，那么表示以 AND 逻辑连接每个匹配规则， 也就是说，只有不匹配所有指定属性的设备才会被触发。
+* -p, --property-match=PROPERTY=VALUE：仅触发那些设备的 PROPERTY 属性值匹配 VALUE 的设备事件。注意，可以在 VALUE 中使用shell风格的通配符。 如果多次使用此选项，那么表示以 OR 逻辑连接每个匹配规则， 也就是说，匹配任意一个属性值的设备都会被触发。
+* -g, --tag-match=PROPERTY：仅触发匹配 PROPERTY 标签的设备事件。如果多次使用此选项， 那么表示以 AND 逻辑连接每个匹配规则，也就是说，只有匹配所有指定标签的设备才会被触发。
+* -y, --sysname-match=SYSNAME：仅触发设备sys名称(也就是该设备在 /sys 路径下最末端的文件名)匹配 SYSNAME 的设备事件。 注意，可以在 SYSNAME 中使用shell风格的通配符。 如果多次使用此选项，那么表示以 OR 逻辑连接每个匹配规则， 也就是说，匹配任意一个sys名称的设备都会被触发。
+* --name-match=DEVPATH：触发给定设备及其所有子设备的事件。DEVPATH 是该设备在 /dev 目录下的路径。 如果多次使用此选项，那么仅以最后一个为准。
+* -b, --parent-match=SYSPATH：触发给定设备及其所有子设备的事件。SYSPATH 是该设备在 /sys 目录下的路径。 如果多次使用此选项，那么仅以最后一个为准。
+* -w, --settle：除了触发设备事件之外，还要等待这些事件完成。 注意，此选项仅等待该命令自身触发的事件完成， 而 udevadm settle 则要一直等到 所有设备事件全部完成。
+* --wait-daemon[=SECONDS]：在触发设备事件之前，等待 systemd-udevd 守护进程完成初始化。 默认等待 5 秒之后超时(可以使用 SECONDS 参数修改)。 此选项等价于在 udevadm trigger 命令之前先使用 udevadm control --ping 命令。
+
+udevadm 的大部分指令都是为了实现灵活地触发设备事件而设计，有个印象就好，需要用到的时候使用 udevadm trigger -h 或者查找[官方手册](https://www.freedesktop.org/software/systemd/man/udevadm.html)就好。  
+
+
+
+### udevadm info 示例
+使用 udevadm info 的目的在于查看设备保存在数据库中的信息，同样以 rtc 为例，看看 udevadm info 所展示的信息是否和内核设备事件发送的信息一致：
+
+```
+udevadm info -n /dev/rtc
+
+P: /devices/platform/ocp/44e3e000.rtc/rtc/rtc0
+N: rtc0
+L: -100
+S: rtc
+E: DEVLINKS=/dev/rtc
+E: DEVNAME=/dev/rtc0
+E: DEVPATH=/devices/platform/ocp/44e3e000.rtc/rtc/rtc0
+E: MAJOR=252
+E: MINOR=0
+E: SUBSYSTEM=rtc
+E: USEC_INITIALIZED=2550426
+E: net.ifnames=0
+```
+
+其中：
+* P 表示 PATH，即设备路径
+* N 表示 Name，对应设备内核名称
+* L 表示 udev 中 OPTION 字段的 link_priority 属性，因为 rtc 是一个软链接，如果为多个不同的设备指定了相同的软连接， 那么实际的软连接将指向 link_priority 值最高的设备。  
+* S 表示 SUBSYSTEM，对应子系统的名称。 
+* E 表示 ENV，表示全局变量。  
+
+同时，为了验证该设备触发时内核发送的消息，使用我自己编写的客户端程序接收内核消息，然后使用 udevadm trigger --action=add  /dev/rtc 触发 rtc 设备，得到的消息为：  
+
+```
+add@/devices/platform/ocp/44e3e000.rtc/rtc/rtc0/omap_rtc_scratch0ACTION=addDEVPATH=/devices/platform/ocp/44e3e000.rtc/rtc/rtc0/omap_rtc_scratch0SUBSYSTEM=nvmemSYNTH_UUID=0SEQNUM=4270
+
+```
 
 
 
 还是那个问题,数据从哪里来的? 对于 udevinfo 的结果和 sysfs 下的信息 .
+
+
+
+
+
+
