@@ -23,7 +23,7 @@ int init_netlink(void)
 	struct msghdr msg;
 	int state;
 	
-	nlfd = socket(AF_NETLINK, SOCK_RAW, 2);
+	nlfd = socket(AF_NETLINK, SOCK_RAW,15);
 	if(nlfd < 1) return -1;
 	
 	memset(&src_addr,0,sizeof(src_addr));
@@ -74,12 +74,16 @@ int init_netlink(void)
 
 		}
 		else{
-			
-			printf("recieve message:%s\n",(char *) NLMSG_DATA(nlhdr));
+			char *p=(char*)nlhdr;
+			printf("recieve message:");
+			for(int i=0;i<state;i++){
+				printf("%c",p[i]);
+			}
+			printf("\n");
 			//struct sockaddr_nl *dst  = (struct sockaddr_nl *)msg.msg_name;
-			printf("recv pid :%d\n",nlhdr->nlmsg_pid);
-			printf("recv pid :%d\n",nlhdr->nlmsg_len);
-			printf("recv pid :%d\n",nlhdr->nlmsg_type);
+			//printf("recv pid :%d\n",nlhdr->nlmsg_pid);
+			//printf("recv pid :%d\n",nlhdr->nlmsg_len);
+			//printf("recv pid :%d\n",nlhdr->nlmsg_type);
 			/*
 			dest_addr.nl_family = AF_NETLINK;
 			dest_addr.nl_pid = nlhdr->nlmsg_pid; // 0 - kernel

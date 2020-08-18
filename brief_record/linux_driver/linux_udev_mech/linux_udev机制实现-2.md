@@ -95,16 +95,20 @@ E: net.ifnames=0
 * S 表示 SUBSYSTEM，对应子系统的名称。 
 * E 表示 ENV，表示全局变量。  
 
-同时，为了验证该设备触发时内核发送的消息，使用我自己编写的客户端程序接收内核消息，然后使用 udevadm trigger --action=add  /dev/rtc 触发 rtc 设备，得到的消息为：  
+同时，为了验证该设备触发时内核发送的消息，使用我自己编写的客户端程序(github地址:TODO)接收内核消息，然后使用 udevadm trigger --action=add  /dev/rtc 触发 rtc 设备，得到的消息为：  
 
 ```
-add@/devices/platform/ocp/44e3e000.rtc/rtc/rtc0/omap_rtc_scratch0ACTION=addDEVPATH=/devices/platform/ocp/44e3e000.rtc/rtc/rtc0/omap_rtc_scratch0SUBSYSTEM=nvmemSYNTH_UUID=0SEQNUM=4270
-
+add@/devices/platform/ocp/44e3e000.rtc/rtc/rtc0/omap_rtc_scratch0 ACTION=add DEVPATH=/devices/platform/ocp/44e3e000.rtc/rtc/rtc0/omap_rtc_scratch0 SUBSYSTEM=nvmem SYNTH_UUID=0 SEQNUM=4270
 ```
 
+在内核发送的消息中,包含 ACTION=,DEVPATH=,SUBSYSTEM=,SYNTH_UUID=,SEQNUM= 等字段.其中,ACTION=,SEQNUM= 等字段是针对解析过程的,不需要持久地保存在数据库中.  
+
+同时,在介绍 uevent 的文章中(TODO)有提到:内核在发送设备信息到用户空间时,默认存在三个字段:ACTION=,DEVPATH=,SUBSYSTEM=,除此之外,用户还可以提供自定义的 uevent 函数添加字段,比如内核中大部分硬件设备都会添加 MAJOR=,MINOR=,DEVNAME= 等字段,这些字段除了会被一起发送到用户空间,同时也会通过对应 /sys 目录下的 uevent 文件导出,你可以通过查看 /sys 下的各个 uevent 文件进行对比.  
+
+经过对比发现,正如前文中所说的,udev 设备信息数据并非完全来自于内核消息,另外的部分可能来自于 /sys 对应目录下设备文件,还有可能是由 udev 程序产生的,比如上文中的 USEC_INITIALIZED 环境变量,link_priority 的值. 
 
 
-还是那个问题,数据从哪里来的? 对于 udevinfo 的结果和 sysfs 下的信息 .
+
 
 
 
