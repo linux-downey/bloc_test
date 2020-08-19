@@ -161,12 +161,14 @@ path_id:
 根据不同的 subsystem 执行不同的程序生成 ID_PATH 和 ID_PATH_TAG 两个全局变量
 
 net_id:
-读取 type
-读取 ifindex
-读取 iflink
+读取 type 文件(全局搜索 eth0，找到对应目录)，type文件确定网卡的类型，ARPHRD_ETHER 或者 ARPHRD_SLIP
+读取 ifindex 文件，
+读取 iflink 文件，这两个文件的值需要是一样的。  
 
-可以设置 DEVTYPE 为 wlan,wwan,如果没有设置,DEVTYPE 就是 eth.   
+可以设置 DEVTYPE 为 wlan,wwan,如果没有设置,DEVTYPE 就是 eth.  
+
 如果 addr_assign_type 被设置为 0,网口的 mac 地址就会从 address 文件中读.  
+
 并且将 mac 地址赋值给全局变量 ID_NET_NAME_MAC  
 并根据 mac 地址的前三个字节找到 hwdb:20-OUI.hwdb 中对应的厂商,当前 imx8 的 mac 为 00:04:9f:05:93:e6,对应的 hwdb 匹配为:
 ID_OUI_FROM_DATABASE=Freescale Semiconductor
