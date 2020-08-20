@@ -193,10 +193,23 @@ properties   //父级
 
 
 net_setup_link:
+这个比较重要,通过这个接口来设置网口名称和mac地址.  
+
+初始化的时候,该程序会在系统目录中找到并解析 .link 文件,http://www.jinbuguo.com/systemd/systemd.link.html.
+link->filename 表示 link 文件的名称.  
+
+
+
+
+
+
 
 根据 DRIVER 的值设置 ID_NET_DRIVER.  
 
 设置 ID_NET_LINK_FILE ID_NET_NAME
+
+
+
 
 
 
