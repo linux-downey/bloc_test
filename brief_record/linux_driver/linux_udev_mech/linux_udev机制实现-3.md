@@ -171,39 +171,134 @@ return s;
 最后将返回结果字符串作为匹配关键字去匹配数据库,如果匹配成功,就将数据库中的数据部分(键值对)导入到 udev 全局变量中.  
 
 
-### udev_builtin_input_id
+### udev_builtin_net_id , udev_builtin_net_setup_link
+在平常的使用中,网络算是比较重要的部分了,通常跟它打交道的时间最多,同时,因为使用得多,网络接口问题也是非常频繁的.   
 
-用户通过执行命令: ls /dev/input 可以查看到系统中存在的输入设备,结果通常是这样的:
+同样的,udev 负责网络接口的生成以及配置问题,比如网络接口名,比如:为什么 ubuntu 上默认网络接口名为 ens33,而嵌入式设备上通常是 eth0,它们是如何被生成的,又比如为什么我的两台嵌入式设备的 MAC 地址是相同的,理论上 mac 地址不应该是全球唯一的吗?除了最常见的这两个问题,网络还有很多设置问题也是通过 udev 来解决.  
 
-```
-by-path  event0  event1  event2
-```
+网络相关的两个內建函数,一个是 udev_builtin_net_id,另一个是 udev_builtin_net_setup_link,前者负责硬件接口的变量导出,而后者则是真正负责网络相关参数设置的接口. 
 
-最常见的鼠标,键盘,摇杆之类的输入设备都会显示在该设备目录下,一般情况下,直接显示为 event+id,而这个 id 就是由 udev 中的內建接口 udev_builtin_input_id 来管理.  
 
-udev_builtin_input_id 的源码位于 systemd 的 src/udev/udev-builtin-hwdb.c 中:
+udev_builtin_net_id 的定义在 src/udev/udev-builtin-net_id.c 中:
 
 ```c++
-const struct udev_builtin udev_builtin_input_id = {
-    .name = "input_id",
-    .cmd = builtin_input_id,
-    .help = "Input device properties",
+const struct udev_builtin udev_builtin_net_id = {
+        .name = "net_id",
+        .cmd = builtin_net_id,
 };
 ```
 
-udev 规则中的 input_id 命令直接调用到上面的 cmd 回调函数,也就是 builtin_input_id:
+执行 IMPORT{builtin}="net_id" 时调用 cmd 回调函数,也就是 builtin_net_id 接口:
+
+```c++
+static int builtin_net_id(struct udev_device *dev, int argc, char *argv[], bool test) {
+    // 读取网卡对应 sysfs 路径下(下文中的文件读取都是基于设备路径)的 type 文件,确定当前链路层是以太网还是 slip 网络
+    // 读取 ifindex 和 iflink 文件,确定两者的值一致,以确定目标设备是符合处理条件的
+    // 获取设备类型,设备类型可能是 wlan/wwan,以此确定命名前缀,wlan 前缀为 wl,wwan 对应 ww,以太网对应 en,而 slip 网络对应 sl.
+    // 获取设备 mac 地址,这个 mac 地址是通过读取 address 文件获取的,但同时要满足一个条件:addr_assign_type 文件中的值不为 0,addr_assign_type 表示 mac 地址的确定方式,这个值后文中详解.
+    // 将上述确定的 前缀+x+mac地址 进行字符串连接,并赋值给全局变量 ID_NET_NAME_MAC,比如:ID_NET_NAME_MAC=enx00049f0593e6
+    // 处理硬件接口:网络设备的接口可能是多种,比如 PCI,USB,根据硬件接口的不同导出 ID_NET_NAME_PATH 和 ID_NET_NAME_SLOT 两个变量. 
+}
+```
+
+builtin_net_id 主要工作还是导出全局变量给后续的规则使用.  
+
+
+接下来看看核心的部分:udev_builtin_net_setup_link,通过这个接口可以直接对网络设备接口进行设置,udev_builtin_net_setup_link 接口的源代码在 src/udev/udev-builtin-net_setup_link.c 中:
+
+```c++
+const struct udev_builtin udev_builtin_net_setup_link = {
+    .name = "net_setup_link",
+    .cmd = builtin_net_setup_link,
+    .init = builtin_net_setup_link_init,
+    .validate = builtin_net_setup_link_validate,
+};
 
 ```
-static int builtin_input_id(struct udev_device *dev, int argc, char *argv[], bool test) {
-    
+init 回调函数在初始化的时候调用,它的实现是这样的:
+```c++
+static int builtin_net_setup_link_init(struct udev *udev) {
+    // 初始化上下文结构,准备执行环境
+    ...
+    link_config_load(ctx);
+}
+```
+
+link_config_load 是初始化阶段的核心函数,这个函数主要是加载以及解析配置文件,对应的配置文件都是以 .link 结尾,分布在指定的目录中,这些目录有: /etc/system/network,/run/systemd/network,/usr/lib/systemd/network,lib/systemd/network, 这些 .link 配置文件用于控制网络接口的各项参数,link 文件的相关信息可以参考文档:
+* [systemd.link](https://www.freedesktop.org/software/systemd/man/systemd.link.html)
+* [systemd.link 中文手册](http://www.jinbuguo.com/systemd/systemd.link.html)
+
+如果你没有更改过你的系统,大概率在 /lib/systemd/network 下有一个 99-default.link 文件,这是系统对网络接口默认的配置,和 systemd 的配置语法一样,配置文件支持多个小节,每个小节有多个选项,而 link_config_load 对 .link 文件的解析结果将保存在 link_config 的结构体中,以备后续使用.   
+
+初始化只有一次,当每次执行 IMPORT{builtin}="net_setup_link" 时,将会调用到 cmd 回调函数,即 builtin_net_setup_link:
+
+```c++
+static int builtin_net_setup_link(struct udev_device *dev, int argc, char **argv, bool test) {
+    // 获取设备的 driver 属性,即该设备在内核中的 driver 名称.并赋值给全局变量 ID_NET_DRIVER,需要注意的是,内核并不会对所有的网络接口都导出 driver 属性. 需要通过内核到用户空间的 nelink 信息确定.  
+    // 上文中初始化过程中解析 .link 文件会生成 link_config 结构体.使用当前网络设备的信息与 .link 文件中进行匹配,如果匹配成功,就获取对应的 link_config 结构体,作为配置参数.(具体的匹配需要参考 .link 文件中的 [match] 小节中的配置项).  
+
+    // 应用所有配置.这个函数主要操作网络接口有:speed,wol,mac,name 等接口配置,需要注意的是,在此之前当前网络接口的命名和 mac 地址都存在默认的值,mac 的默认值为内核导出的 address 文件值,接口名为内核中导出的网络接口名,比如 eth0 .link 配置文件只是在默认值的基础上进行修改,如果没有匹配成功的 .link 文件,网络接口也是可以以默认参数存在并正常使用.  
+
+    link_config_apply(ctx, link, dev, &name);
+        /*
+        根据 .link 文件的解析结果设置的 speed 设置当前网络接口的 speed.   
+        设置 wol,wol 为 wake on line,远程唤醒
+        获取并验证 ifindex 文件内容并验证其值
+
+        获取 .link 文件中指定的 NamePolicy,翻译过来就是命名策略,命名策略一共有以下多种:
+            kernel:由内核设置固定的名称,如果设置了该值,且 name_assign_type 文件中的值为 2,3,4,其它所有的策略设置都会失效. 
+            database:基于网卡的 ID_NET_NAME_FROM_DATABASE 属性值(来自于udev硬件数据库)设置网卡的名称。
+            onboard:基于网卡的 ID_NET_NAME_ONBOARD 属性值(来自于板载网卡固件)设置网卡的名称。
+            slot:基于网卡的 ID_NET_NAME_SLOT 属性值(来自于可插拔网卡固件)设置网卡的名称。
+            path:基于网卡的 ID_NET_NAME_PATH 属性值(来自于网卡的总线位置)设置网卡的名称。
+            mac:基于网卡的 ID_NET_NAME_MAC 属性值(来自于网卡的固定MAC地址)设置网卡的名称。
+            keep:如果网卡已经被空户空间命名(创建新设备时命名或对已有设备重命名)， 那么就保留它(不进行重命名操作)。
+        在 .link 文件中,可以设置多种命名策略的组合,优先级从先到后,如果前面的策略被成功实施,后续的策略就会被省略,默认的 /lib/systemd/network/99-default.link 中就指定了 NamePolicy=kernel database onboard slot path.  
+
+        同时,前面的策略并不一定被成功实施,比如,设置为 kernel 时,需要在 .link 配置文件中同时设置 Name= 选项,又比如设置为 database 时,ID_NET_NAME_FROM_DATABASE 不能为空,为空表示策略实施失败,尝试下一个,直到 new_name 不为空.  
+
+        对于 mac 的设置,同样依赖于 .link 文件中的 MACAddressPolicy= 选项,mac 策略支持两种:
+            persistent:内核确定的固定 mac 地址.
+            random:随机生成的 mac 地址. 
+            none:无条件使用内核提供的 mac 地址
+        同时需要结合 addr_assign_type 文件中的值,addr_assign_type 是内核导出的文件,用户空间的设置需要和内核适配.比如配置文件中设置为 random,但是内核导出的  addr_assign_type 文件中值为 0,代表 persistent,则不会设置.  
+        同时,当没有指定 mac policy 时,直接在 .links 文件中指定 MACAddress= 也可以指定 mac 地址,不够要符合 mac 地址的格式规范.  
+        */
 }
 ```
 
 
+### udev_builtin_path_id
+UDEV_BUILTIN_PATH_ID 这个內建接口主要作用是找到并导出当前设备在 /sys/devices 中的存在路径,它的源码位于:src/udev/udev-builtin-path_id.c 中:
+
+```c++
+const struct udev_builtin udev_builtin_path_id = {
+        .name = "path_id",
+        .cmd = builtin_path_id,
+        ...
+};
+```
+
+同样的,在执行 IMPORT{builtin}="path_id" 时会调用到 builtin_path_id 函数,这个函数实现比较简单,从当前节点向上索引,一级一级地找到 subsystem 属于的父级目录,并赋值给 ID_PATH,比如:ID_PATH=platform-30be0000.ethernet,其中 - 表示目录分隔符 / 的替换,
+
+
+
+## 小结
+內建接口通常完成两项工作:
+* 完成特定的工作,比如载入模块,比如设置网络接口名称,mac地址.
+* 导出一些全局变量,这些全局变量可以在后续的规则中进行匹配以及使用,本章中并不对所有导出的变量进行持续跟踪,如果你想了解这些变量最后是如何使用的,可以参考我前面章节中介绍的 udev 机制以及 .rules 文件编写规则,对系统中的 udev 行为进行分析.  
+
+
+
+/sys 下的文件是否可以通过规则修改. 
+是不是同时设置 policy=kernel 和 name= 才会指定对应的网卡名称.  
+如果设置了该值,且 name_assign_type 文件中的值为 2,3,4,其它所有的策略设置都会失效. 
+kernel:由内核设置固定的名称,如果设置了该值,且 name_assign_type 文件中的值为 2,3,4,其它所有的策略设置都会失效. 
+
 参考:http://www.jinbuguo.com/systemd/hwdb.html
 
 
-
+udevadm test 使用. 
 
 
 
