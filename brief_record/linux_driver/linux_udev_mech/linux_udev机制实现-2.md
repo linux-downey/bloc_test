@@ -110,8 +110,21 @@ add@/devices/platform/ocp/44e3e000.rtc/rtc/rtc0/omap_rtc_scratch0 ACTION=add DEV
 
 
 
+### udevadm test
+如果要了解 udev 对内核事件的处理过程，可以通过 udevadm test 命令来实现，该命令模拟一个设备事件，并输出调试信息。
 
+下面是命令的格式：
 
+```
+udevadm test [options] [devpath] 
+```
+
+需要注意的是，这个命令只支持 /sys 下的设备文件，而不支持 /dev 目录下的设备节点，udevadm test 命令的输出为：
+* 哪些配置目录、文件的时间戳被更新，哪个配置文件将会使用
+* 依次输出 udev 扫描的 .rules 文件，尽管该 .rules 文件没有匹配成功。 
+* 依次输出与当前设备匹配的规则，并打印该条规则属于哪个 .rules(规则文件) 的哪一行。  
+* 输出当前设备匹配的配置文件
+* 输出当次设备事件的所有全局变量，这些全局变量以键值对的方式输出
 
 
 

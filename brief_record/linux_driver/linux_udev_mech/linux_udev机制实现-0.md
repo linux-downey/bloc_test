@@ -82,7 +82,30 @@ udev 在解析所有规则文件时,遵循以下的规则:
 * action 中的 += 表示附加,比如 symlink+=foo,表示在前一个操作完成之后,再创建 foo 的软链接. 
 
 
+## udevd 守护进程
+在系统启动阶段，udev 会启动其守护进程 udevd，udevd 是 udev 的核心部分，执行了 udev 的大部分功能，包括监听并处理内核设备事件、给客户端提供调试和操作接口、维护设备事件的数据库等等。  
+
+在上文中提到，udev 被集成到了 systemd 中，默认情况下，其对应的服务文件为：
+* /lib/systemd/system/udev.service：主要的服务单元文件，该文件会设置开机阶段启动，服务单元执行的主体进程为：/lib/systemd/systemd-udevd，systemd-udevd 也就是 udevd 的可执行文件。
+* systemd-udevd-control.socket：socket 文件，因为对于 systemd 来说，建议所有启动进程将套接字独立出来，这样 systemd 就可以在启动阶段一次性将所有套接字启动，以提高启动速度。该套接字主要负责客户端与 udevd 的通信。 
+* systemd-udevd-kernel.socket：该套接字负责 udevd 与内核之间的 netlink 通信。 
+* systemd-udev-settle.service：udev 的客户端程序
+* systemd-udev-trigger.service：udev 的客户端程序
+
+### 进程选项
+udevd 守护进程的执行支持多个命令行选项，可以通过将命令行选项添加到 /lib/systemd/system/udev.service 文件中 ExecStart=/lib/systemd/systemd-udevd 语句后面来配置 udevd 。 
+
+* -d，daemon：脱离控制台，并作为后台守护进程运行
+* -D，--debug：在标准错误上输出更多的调试信息
+* -c=，--children-max=：限制最多同时并行处理多少个设备事件
+* -e=，--exec-delay：在运行 RUN 前暂停的秒数。 可用于调试处理冷插事件时， 加载异常内核模块 导致的系统崩溃。
+* -t=, --event-timeout=：设置处理设备事件的最大允许秒数， 若超时则强制终止此设备事件。默认值是180秒。
+* -N=, --resolve-names=：指定 systemd-udevd 应该何时解析用户与组的名称： early(默认值) 表示在规则的解析阶段； late 表示在每个设备事件发生的时候； never 表示从不解析， 所有设备的属主与属组都是 root
+* -h, --help：显示简短的帮助信息并退出。
+* --version：显示简短的版本信息并退出。
+
 
 在后续的文章中,将会继续介绍规则文件的编写,以及 udev 的使用.  
 
 
+参考：http://www.jinbuguo.com/systemd/systemd-udevd.service.html

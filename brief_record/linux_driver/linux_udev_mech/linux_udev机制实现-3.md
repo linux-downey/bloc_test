@@ -279,14 +279,39 @@ const struct udev_builtin udev_builtin_path_id = {
 };
 ```
 
-同样的,在执行 IMPORT{builtin}="path_id" 时会调用到 builtin_path_id 函数,这个函数实现比较简单,从当前节点向上索引,一级一级地找到 subsystem 属于的父级目录,并赋值给 ID_PATH,比如:ID_PATH=platform-30be0000.ethernet,其中 - 表示目录分隔符 / 的替换,
+同样的,在执行 IMPORT{builtin}="path_id" 时会调用到 builtin_path_id 函数,这个函数实现比较简单,从当前节点向上索引,一级一级地找到 subsystem 所属的父级目录,并赋值给 ID_PATH,比如:ID_PATH=platform-4a100000.ethernet,其中 - 表示目录分隔符 / 的替换。   
 
 
+### udev_builtin_usb_id
+udev_builtin_usb_id 这个內建接口负责导出 usb 设备的相关信息，具体的定义在 src/udev/udev-builtin-usb_id.c 中：
+
+```c++
+const struct udev_builtin udev_builtin_usb_id = {
+        .name = "usb_id",
+        .cmd = builtin_usb_id,
+        ...
+};
+```
+
+当执行 IMPORT{builtin}="usb_id" 时会调用到 cmd 回调函数，即 builtin_usb_id,builtin_usb_id 这个函数的实现比较繁琐，但是总结起来又比较简单：就是通过读取设备目录下的各个属性文件，然后将这些属性文件中的数据复制给全局变量，然后导入到 udev 中。这些全局变量以及对应的属性文件如下：
+* ID_VENDOR 的值源于 vendor 或 manufacturer
+* ID_VENDOR_ENC 的值源于 vendor 或 manufacturer
+* ID_VENDOR_ID 的值源于 idVendor
+* ID_MODEL 的值源于 model 或 product 
+* ID_MODEL_ENC 的值源于 model 或 product 
+* ID_MODEL_ID 的值源于 idProduct
+* ID_REVISION 的值源于 bcdDevice
+* ID_SERIAL 的值源于 serial
+* .... 更多全局变量的导出可以参考源码。 
 
 ## 小结
 內建接口通常完成两项工作:
 * 完成特定的工作,比如载入模块,比如设置网络接口名称,mac地址.
 * 导出一些全局变量,这些全局变量可以在后续的规则中进行匹配以及使用,本章中并不对所有导出的变量进行持续跟踪,如果你想了解这些变量最后是如何使用的,可以参考我前面章节中介绍的 udev 机制以及 .rules 文件编写规则,对系统中的 udev 行为进行分析.  
+
+
+需要注意的是，这篇文章并没有仔细地去分析每个內建接口的实现细节，而只是将內建接口的概念、源代码地址以及主要的內建接口进行了概括，如果各位有兴趣，可以下载源码进行研究。   
+
 
 
 
@@ -301,17 +326,3 @@ kernel:由内核设置固定的名称,如果设置了该值,且 name_assign_type
 udevadm test 使用. 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-udevd 的启动以及使用. 

@@ -197,6 +197,7 @@ net_setup_link:
 
 初始化的时候,该程序会在系统目录中找到并解析 .link 文件,http://www.jinbuguo.com/systemd/systemd.link.html.
 link->filename 表示 link 文件的名称.  
+程序同时会解析 link 文件，
 
 
 
