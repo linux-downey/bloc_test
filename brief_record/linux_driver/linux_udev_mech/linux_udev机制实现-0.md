@@ -93,7 +93,7 @@ udev 在解析所有规则文件时,遵循以下的规则:
 * systemd-udev-trigger.service：udev 的客户端程序
 
 ### 进程选项
-udevd 守护进程的执行支持多个命令行选项，可以通过将命令行选项添加到 /lib/systemd/system/udev.service 文件中 ExecStart=/lib/systemd/systemd-udevd 语句后面来配置 udevd 。 
+udevd 守护进程的执行支持多个命令行选项，可以通过将命令行选项添加到 /lib/systemd/system/udev.service 文件中 ExecStart=/lib/systemd/systemd-udevd 语句后面来为 udevd 守护进程提供命令行选项。 
 
 * -d，daemon：脱离控制台，并作为后台守护进程运行
 * -D，--debug：在标准错误上输出更多的调试信息
@@ -105,7 +105,21 @@ udevd 守护进程的执行支持多个命令行选项，可以通过将命令�
 * --version：显示简短的版本信息并退出。
 
 
+### 配置文件
+除了提供程序执行时的命令行选项,另一种配置 udevd 的方式就是配置文件,配置文件为 /etc/udev/udev.conf.该文件包含一组 允许用户修改的变量( VAR=VALUE 格式)，以控制该进程的行为。 空行或以"#"开头的行将被忽略。 可以设置的变量(VAR)如下:
+
+* udev_log=:指定日志等级.
+* children_max=:表示运行同时处理设备事件的最大数量,等价于 --children-max= 选项。
+* exec_delay=:正正式,表示延迟多少秒之后再执行 RUN= 中指定的指令. 等价于 --exec-delay= 选项。
+* event_timeout=:正整数,表示等待设备事件完成的超时秒数,如果超时,设备事件会被强制终止,默认为 180 秒.等价于 --event-timeout= 选项。
+* resolve_names=:设置 systemd-udevd 在何时解析用户与组的名称。 默认值 early 表示在规则的解析阶段； late 表示在每个设备事件发生的时候； never 表示不解析(所有设备都归 root 用户拥有)。等价于 --resolve-names= 选项。
+
+相对于指定命令行参数而言,推荐使用修改配置文件来更改守护进程行为.
+
+
+
 在后续的文章中,将会继续介绍规则文件的编写,以及 udev 的使用.  
 
 
-参考：http://www.jinbuguo.com/systemd/systemd-udevd.service.html
+参考:http://www.jinbuguo.com/systemd/systemd-udevd.service.html
+参考:http://www.jinbuguo.com/systemd/udev.conf.html
