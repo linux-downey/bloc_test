@@ -6,7 +6,10 @@ tar -xvf initrd.img.tar.gz
 file initrd.img.tar.gz
 gzip -d initrd.img.tar.gz
 
+cpio -i < initrd.img.tar
+
+就获取到 initramfs 的解压缩包。
 
 
-
-
+find . | cpio -H newc -ov --owner root:root > ../initramfs.cpio
+gzip initramfs.cpio
