@@ -50,45 +50,42 @@ debian@beaglebone:~/initrd$ ls .
 bin  conf  etc  init  lib  run  sbin  scripts
 ```
 
-其中，init 脚本就是整个 initramfs 的主角，默认情况下，内核在挂载 initramfs 之后将会(也只会)调用该可执行程序，在这里它是个 shell 脚本程序，主要实现功能如下：
+其中，init 脚本就是整个 initramfs 的主角，默认情况下，内核在挂载 initramfs 之后将会(也只会)调用该可执行程序，在当前平台下它是个 shell 脚本程序，主要实现功能如下：
 * 读取 /proc/cmdline 文件，通过该文件可以获取系统相关信息，比如真实根文件系统所属的文件系统类型以及所属的磁盘设备、挂载参数、调试终端串口号、相关硬件信息等等。   
 * 加载文件系统对应的驱动，磁盘设备的驱动
 * 如果是 nfs 文件系统，需要准备好相应的网络驱动
-* 调用磁盘检测程序对目标磁盘、文件系统进行检测
+* 调用磁盘检测程序对目标磁盘、文件系统进行检测,这里的目标磁盘包括真实 rootfs 的磁盘和 /usr 所将要挂载的磁盘(如果 /usr 是独立的)
 * 挂载真正的 rootfs，并将根目录切换到新的根文件系统，开始真正的用户进程启动。 
 
-而其它的目录，就是作为 init 脚本的支持，比如 bin/sbin 中包含脚本中需要的各种命令，lib 中包含所必须的库文件，以及 conf 和 etc 中的各类配置文件等。  
+而其它的目录，就是作为 init 脚本的支持，比如 bin/sbin 中包含脚本中需要的各种命令(busybox)，lib 中包含所必须的库文件，以及 conf 和 etc 中的各类配置文件等。  
 
 需要注意的是，initramfs 并不是由内核加载，而是是在 uboot 阶段被加载到指定内存中，通过 kernel cmdline 传递给内核(在设备树系统中，kernel cmdline 由设备树的 chosen->bootargs 替代),原因也很简单，initramfs 放在 /boot 目录下，而 /boot 目录位于根文件系统下，这时候还完全没有挂载真正的根文件系统，自然不能访问到 initramfs 镜像。  
 
 该示例只是各类 initramfs 中的一种，不同的平台可能存在不同的实现，有兴趣的朋友可以将其它平台的 initramfs 文件解压出来并查看。  
 
 ## initramfs 自定义功能
-用户可以在 initramfs 中添加自定义的功能，将系统的 initramfs 解压出来，添加自己想要的功能，然后再将其打包。
+用户可以在 initramfs 中添加自定义的功能,用于执行启动之前的一些自定义操作，由于在启动阶段,uboot 传递的 cmdline 中通常会指定输出串口,所以也可以添加一些打印的语句进行调试,不过需要注意的是,这些调试信息并不能使用 dmesg 查看到,这类调试信息并不属于内核也不属于真实的用户空间,需要使用串口调试工具查看,当然,你完全可以通过修改 initramfs 将这些调试信息导出,在 linux 下任何开发者都拥有绝对的自由.  
+
+添加自定义功能最方便快捷的方式就是将系统的 initramfs 解压出来，将需要实现的功能添加到 init 脚本中,再将其打包,替换原有的 initramfs 即可.   
+
+具体的打包指令和解包的过程相反:
+
+```
+find . | cpio -H newc -ov --owner root:root > ../initramfs.cpio   //在文件所在目录下使用 cpio 进行归档
+gzip initramfs.cpio          // 使用 gzip 对 cpio 归档文件进行压缩.
+```
+
+需要注意的是,在打包之后需要注意 initramfs 的文件命名需要和原有的保持一致,在 uboot 中通常是通过文件名获取并加载该文件.如果不遵循 uboot 的交互原则,很可能你的系统会出现启动问题.    
 
 
-mv initrd.img-4.14.108-ti-r124 initrd.img.tar.gz
-tar -xvf initrd.img.tar.gz
+## 制作 initramfs
+制作 initramfs 从原理上来看是比较简单的,第一步就是先明确你要使用 initramfs 实现哪些功能,这并没有一个特定的标准来规定 initramfs 要做什么,完全取决于你的系统状况,不过最常见的还是上述提到的那几种情况:针对性地加载硬件驱动,检查磁盘,挂载独立的 /usr 和 rootfs 等等.   
 
-file initrd.img.tar.gz
-gzip -d initrd.img.tar.gz
+而所有的事情都将在 init 脚本中完成,自然的,initramfs 中也就需要包含基本的工具套件(busybox等),依赖库,配置文件,以及各类驱动程序,udev 用于硬件管理等等.   
 
-cpio -i < initrd.img.tar
+实际工作是比较繁琐的,因为开发者不应该在 initramfs 中包含过多冗余的东西,所以制作过程就是仔细地挑选你需要的功能,在标准的内核版本中,已经包含了 initramfs 相关的构建工具,比如 gen_init_cpio,gen_init_cpio.   
 
-就获取到 initramfs 的解压缩包。
-
-
-find . | cpio -H newc -ov --owner root:root > ../initramfs.cpio
-gzip initramfs.cpio
-
-
-
-为什么存在 initramfs:
-1,不能把所有的驱动编译进内核
-2,文件系统检查,万一文件系统所处的物理磁盘有问题呢
-3,boot 被加密怎么办
-4,/usr 目录处于不同的存储介质上怎么办
-
+关于 initramfs 的制作可以参考 [gentoo:Early Userspace Mounting](https://wiki.gentoo.org/wiki/Early_Userspace_Mounting).  
 
 
 
