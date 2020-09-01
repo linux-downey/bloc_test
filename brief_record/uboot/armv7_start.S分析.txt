@@ -16,7 +16,14 @@ CPSR 寄存器内容：
 CP15 协处理器：
 	
 
-reset 开始(?):
+uboot 源码分析：
+
+u-boot.lds.  
+
+1、先从链接脚本开始分析：Entry(_start)，也就是从 _start 开始。 
+
+
+由 _start 跳转到 reset 开始():
 	save_boot_params   //开机将参数保存到协处理器中
 	
 	mrs r0,cpsr	                    //mrs 用于读取 cprs 的数据到 core register 中

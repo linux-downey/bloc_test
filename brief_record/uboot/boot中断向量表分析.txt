@@ -1,0 +1,81 @@
+CONFIG_SPL_BUILD 没有定义。 
+CONFIG_USE_IRQ 未定义
+
+_start 被定义在 arch/arm/lib/vectors.S 中：
+    b	reset                          // 直接跳转到 reset 向量
+    ldr	pc, _undefined_instruction     
+    ldr	pc, _software_interrupt
+    ldr	pc, _prefetch_abort
+    ldr	pc, _data_abort
+    ldr	pc, _not_used
+    ldr	pc, _irq
+    ldr	pc, _fiq                       // 其它的都是放置一条跳转指令
+
+	.globl	_undefined_instruction
+    .globl	_software_interrupt
+    .globl	_prefetch_abort
+    .globl	_data_abort
+    .globl	_not_used
+    .globl	_irq
+    .globl	_fiq
+
+	_undefined_instruction:	.word undefined_instruction
+	_software_interrupt:	.word software_interrupt
+	_prefetch_abort:	.word prefetch_abort
+	_data_abort:		.word data_abort
+	_not_used:		.word not_used
+	_irq:			.word irq
+	_fiq:			.word fiq
+
+
+	.align  5
+undefined_instruction:
+	get_bad_stack
+	bad_save_user_regs
+	bl	do_undefined_instruction
+
+	.align	5
+software_interrupt:
+	get_bad_stack
+	bad_save_user_regs
+	bl	do_software_interrupt
+
+	.align	5
+prefetch_abort:
+	get_bad_stack
+	bad_save_user_regs
+	bl	do_prefetch_abort
+
+	.align	5
+data_abort:
+	get_bad_stack
+	bad_save_user_regs
+	bl	do_data_abort
+
+	.align	5
+not_used:
+	get_bad_stack
+	bad_save_user_regs
+	bl	do_not_used
+
+
+	.align	5
+irq:
+	get_bad_stack
+	bad_save_user_regs
+	bl	do_irq
+
+	.align	5
+fiq:
+	get_bad_stack
+	bad_save_user_regs
+	bl	do_fiq
+
+
+
+没有打开 uboot 的中断？
+
+
+
+
+
