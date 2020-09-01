@@ -83,3 +83,72 @@ src 是 source 的缩写，表示源代码的存放地址，这里可以存放�
 
 放置在 /var 下的文件应该保存在单独的子目录中，而不是直接放置在 /var 目录下。  
  
+
+/var/ 下通常有以下目录:
+Directory Description
+cache    Application cache data
+lib  Variable state information
+local    Variable data for /usr/local
+lock     Lock files
+log  Log files and directories
+opt  Variable data for /opt
+run  Data relevant to running processes
+spool    Application spool data
+tmp  Temporary files preserved between system reboots
+
+
+### /var/cache 
+/var/cache 主要应用于放置应用程序的缓存数据,应用程序将常用的数据缓存起来,在下次运行时就可以直接使用缓存而不是重新生成数据,以提高应用程序的执行效率,通常这些缓存数据可以直接删除而不影响应用程序的正常运行.   
+
+缓存数据不会在重启的时候被删除,但是其所属的应用程序或者系统管理员应该实现特定的清理策略,以保证缓存数据不会一直增长直到占满所有的磁盘空间.   
+
+通常我们接触到最多的就是包管理工具的缓存,ubuntu 或者 debian 系统下可以进入到 /var/cache/apt 中查看.  
+
+### /var/crash
+用于保存系统 crash 时的内核转储信息.
+
+### /var/lib
+/var/lib 目录和 /usr/lib 等 lib 目录不大一样,它并不只是保存库文件相关的数据,而是保存应用程序运行时的状态信息,因为保存的可能是运行中的状态信息,通常应用程序指定的目录不能对所有用户开放,比如普通用户无法直接进入 /var/lib/docker 查看其中的数据.  
+
+应用程序在使用 /var/lib 时,应该创建子目录而不能直接将文件放置在 /var/lib 下.  
+
+### /var/lock 
+该目录下保存的是应用程序的锁文件,通常用于文件的互斥访问,实际 linux 的实现中,也可能把锁文件放置在 /var/lib 下,比如 apt 的锁文件被放置在 /var/lib/dpkg/lock 下.  
+
+### /var/log
+linux 的日志文件存放目录,包括应用程序的日志和内核日志,其中以下几个目录是比较常用的(如果已安装对应日志功能):
+* /var/log/kern.log:内核日志信息
+* /var/log/lastlog:记录系统中所有用户最近一次登录信息,这是个二进制文件,需要使用 lastlog 命令对日志进行解析。
+* /var/log/message:syslogd 记录的系统日志.
+* /var/log/wtmp:记录所有的系统登录登出信息,通常二进制文件,可以通过 who /var/log/wtmp 格式化输出.
+
+
+### /var/mail
+邮件相关的动态数据保存目录.  
+
+
+### /var/opt
+/opt 中的静态配置数据被放置在 /usr/opt 中,而动态的配置数据可以放在当前目录下,在实际的使用中,一些系统管理员更倾向于将整个软件包安装在 /opt 目录下,而不是分开存放,这样方便程序的卸载与移植.  
+
+### /var/run
+系统运行信息目录,这个目录的功能逐渐地被 /run 目录所代替.  
+
+
+## linux 相关 HFS 标准
+
+需要注意的是,FHS 适用于多种类 UNIX 操作系统,而 linux 只是其中一种,对于 linux 而言,FHS 有以下针对性的标准:
+
+### /dev 
+在 /dev 目录下存在以下三个特殊文件
+* /dev/null:这是个黑洞文件,所有写入到该文件中的数据都将直接消失,实际是被丢弃.读该文件会直接放回 EOF. 
+* /dev/zero:当读取这个文件时,该文件会返回对应于请求数量的二进制 0,而不是字符 0.所有写入该文件的数据都会被忽略. 
+* /dev/tty:控制系统的中断设备. 
+
+
+### /proc
+在根文件系统的压缩包中,/proc 目录为空,因为它是一个基于 ram 的文件系统,这是一个非常重要的系统管理目录,大量的内核信息通过 /proc 目录下的文件导出到用户空间,系统管理员可以通过该目录了解内核状态,以及对内核进行配置.  
+
+### /sys
+/sys 同样是基于 ram 的文件系统,该目录中主要包含系统中硬件设备的相关信息,原本硬件设备信息是保存在 /proc 中的,但是由于这些信息的体量逐渐庞大,于是就独立出来一个 /sys 目录,驱动工程师经常需要跟这个目录打交道. 
+
+
