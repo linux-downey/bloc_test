@@ -84,7 +84,7 @@ cpu_init_cp15：
 	and	r3, r3, #0xf		 
 	and	r4, r1, #0xf		 
 	mov	r2, r3, lsl #4		 
-	orr	r2, r4, r2		               //获取CPU信息，包含armv7-A或R+version
+	orr	r2, r4, r2		               //获取CPU信息，包含armv7-A或R+version,放到 r2
 
 	mov	pc, r5			               //返回到调用函数
 ENDPROC(cpu_init_cp15)
@@ -92,6 +92,8 @@ ENDPROC(cpu_init_cp15)
 
 cpu_init_crit：
 ENTRY(cpu_init_crit)
+// 进入板级相关的基础设置部分,这些设置是系统正常运行所需要的,也算是初始化部分.
+// 比如时钟,设置 C 语言环境,初始化 ddr 
 	b	lowlevel_init		
 ENDPROC(cpu_init_crit)
 
@@ -105,7 +107,7 @@ lowlevel_init：
 ENTRY(lowlevel_init)
 	
 	//include/configs/mx6ullevk.h 文件中定义了 CONFIG_SYS_INIT_SP_ADDR
-	ldr	sp, =CONFIG_SYS_INIT_SP_ADDR                        //在内存中找一片空闲地址作为栈，arm_addr + sp_offset
+	ldr	sp, =CONFIG_SYS_INIT_SP_ADDR                        //在内存中找一片空闲地址作为栈，arm_addr + sp_offset,片上内存
 															//这个空闲地址是 OCRAM，也就是片内 ram，在 imx6ull 中是 128KB
 
 	bic	sp, sp, #7                                          //sp 需要8字节对齐
@@ -150,7 +152,7 @@ ENTRY(_main)
 	bl	board_init_f_alloc_reserve                          //imx6ull 里面仅仅是向16字节对齐，r0中保存了返回值，也即是对齐后的 sp
 	mov	sp, r0                                              //栈顶回到刚刚设置的地方
 	
-	mov	r9, r0                                              //将栈顶放到，作为 board_init_f_init_reserve 的参数
+	mov	r9, r0                                              //将栈顶放到 r0，作为 board_init_f_init_reserve 的参数
 	bl	board_init_f_init_reserve                           //common/init/board_init.c 中
 
 	mov	r0, #0                                              //将 r0 清零
@@ -182,13 +184,13 @@ ENTRY(_main)
 	orr	lr, #1				/* As required by Thumb-only */
 #endif
 	ldr	r0, [r9, #GD_RELOCADDR]		/* r0 = gd->relocaddr */
-	b	relocate_code
+	b	relocate_code                                 //代码重定位
 here:
 /*
  * now relocate vectors
  */
 
-	bl	relocate_vectors
+	bl	relocate_vectors                             //向量重定位
 
 /* Set up final (full) environment */
 
@@ -212,7 +214,7 @@ here:
 	bl	memset
 #else
 	ldr	r1, =__bss_end		/* this is auto-relocated! */
-	mov	r2, #0x00000000		/* prepare zero to clear BSS */
+	mov	r2, #0x00000000		/* prepare zero to clear BSS */  //初始化 bss 段
 
 clbss_l:cmp	r0, r1			/* while not at end of BSS */
 #if defined(CONFIG_CPU_V7M)
@@ -230,9 +232,9 @@ clbss_l:cmp	r0, r1			/* while not at end of BSS */
 	/* call board_init_r(gd_t *id, ulong dest_addr) */
 	mov     r0, r9                  /* gd_t */
 	ldr	r1, [r9, #GD_RELOCADDR]	/* dest_addr */
-	/* call board_init_r */
+	/* call board_init_r */                                   
 #if defined(CONFIG_SYS_THUMB_BUILD)
-	ldr	lr, =board_init_r	/* this is auto-relocated! */
+	ldr	lr, =board_init_r	/* this is auto-relocated! */     //执行 board_init_r
 	bx	lr
 #else
 	ldr	pc, =board_init_r	/* this is auto-relocated! */
