@@ -1,0 +1,135 @@
+Uboot 的官方名称为 Das-Uboot
+
+Uboot 的命名方式：
+    U-boot v2017.03 表示 2017 年 03 月发布的稳定版本
+    U-boot v2017.03-rc1 表示测试版本(或者候选版本)
+
+Uboot 的目录：
+    /arch ：放置架构相关的内容
+    /api：架构无关的 api 接口
+    /board：单板相关的文件
+    /cmd：uboot 命令
+    /common:一些架构无关的公共文件
+    /configs：config 配置文件
+    /disk：uboot 磁盘驱动器分区处理的代码
+    /doc：文档
+    /drivers：uboot需要用到的驱动程序
+    /dts：设备树文件
+    /examples：独立应用程序的示例代码
+    /fs：文件系统相关代码
+    /include:头文件
+    /lib:所有架构通用的库例程
+    /Licenses:License 文件
+    /net:网络相关
+    /post:power on self test，开机自检部分
+    /scripts:构建脚本
+    /test:单元测试文件
+    /tools：构建工具。 
+
+
+Uboot 的构建系统和 kernel 是一样的，使用 Kbuild。 
+
+Uboot 支持在 linux 主机的 sandbox 中直接执行，用于调试的目的。 
+
+Uboot 启动阶段解读(包括普通 uboot 和 SPL):
+
+bootrom - SPL(option) - 通用的 Uboot. 
+SPL 通常会放在一个独立的文件中(大部分 arm 架构是这么干的)，但是 SPL 同样会依赖 Uboot 工程中的某些代码。
+需要注意的是，SPL 和 uboot 是完全独立的两个过程，但是它们会共享一部分启动代码，也就是运行会重复。 
+
+
+程序的开始通常开始于架构相关的代码：start.S, 对于 armv7 架构就是 arch/arm/cpu/armv7/start.S。  
+
+具体从哪里启动可以通过阅读链接脚本的 ENTRY() 部分来确定。  
+
+前期阶段所做的事情：
+
+在上电之初，必须要做的事情通常是：关中断、关 Dcache(Icache可关可不关)、关中断等，确保系统至少能正常运行下去，而不至于死机。 
+
+lowlevel_init：
+    为了运行 board_init_f，做一些必须的初始化动作
+    设置一个临时的 stack
+    在栈上开辟一个 global_data 的 buffer 出来，保留到 r9 中。但是不要使用它，留到下一步使用。  
+    不使用全局变量
+    不清除 bss 段
+    没有初始化串口和 sdram
+
+global_data 是一个结构，而不是指全局变量，这个需要注意，global_data 的操作在 board_init_f 中做，所以这一部分不要动它，只要把它申请出来就行了。 
+
+根据平台的不同，lowlevel_init 做的事并不一样，可能：
+1、找一个临时的栈，并保留 global data 的空间出来。
+2、某些情况下需要初始化一下时钟。 
+
+
+SPL 也会执行前面的那些操作。如果有 SPL，这部分操作是重复的，所以前面的所有操作不要做太多(猜测)。 
+
+board_init_f：对于 SPL 和非 SPL 有不同的操作。  
+
+在 board_init_f 之前，系统处于的状态：
+    global_data 是可以使用的
+    栈指针指向了 SRAM 内，作为临时栈
+    BSS 还不能用，所以不能使用 全局/静态 的变量。  
+    
+    启动系统以运行 board_init_r()，需要初始化串口、时钟等，创建好 C 语言运行环境，完成重定位的操作。 
+
+对于非 SPL 代码而言，dram_init() 函数用来初始化 DRAM。
+对于 SPL 而言：
+    可以重写 board_init_f 函数，
+    可以在这里执行 preloader_console_init
+    SPL应该初始化 dram，同时让 uart 可以开始工作
+    不需要清除 BSS 段
+
+    正常返回，不要直接调用 board_init_r 函数。 
+
+重定位 BSS 会在这个阶段做完，再调用 board_init_r 函数。在非 SPL 中，uboot 会在内存的高端执行。  
+
+
+board_init_r：
+    主要且公共的代码，这部分代码相对有较弱的架构依赖(不过这里同样要初始化硬件)。  
+
+    执行 board_init_r 之前已经具备的条件：
+        global data 可用
+        dram 已经初始化完成
+        BSS 已经清理，全局或者静态变量可以使用了
+        
+        
+    最后会执行到main_loop
+
+非 SPL 的代码：
+    U-Boot重定位到内存顶部，并且从那里执行。 
+
+SPL 代码：
+    栈可能存在于 dram 中。
+    加载 uboot 或者直接加载 linux。  
+
+
+
+
+
+
+创建一个新的 Uboot 单板：
+* 为单板创建一个新的目录来放置这些架构相关的文件，在单板目录中，需要一个 Makefile 和 <board>.c.  
+* 创建一个新的配置文件 include/configs/<board>.h，配置文件里面包含所需的配置
+* 如果为一个新的 CPU 移植 Uboot，同样要创建一个 CPU 相关的目录
+
+
+Uboot 默认支持的命令：
+
+
+通常 Uboot 会将一些环境变量保存在 flash 或者 eeprom 中，在启动的时候再将这些环境变量加载到内存中。
+具体保存在哪一种介质中，是平台自定义的。  
+
+
+Uboot 中对应启动的变量：
+
+fdt_addr=0x83000000
+fdt_file=100ask_imx6ull-14x14.dtb
+image=zImage
+initrd_addr=0x83800000
+initrd_high=0xffffffff
+loadaddr=0x80800000
+
+
+
+
+

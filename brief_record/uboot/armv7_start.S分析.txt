@@ -94,7 +94,7 @@ cpu_init_crit：
 ENTRY(cpu_init_crit)
 // 进入板级相关的基础设置部分,这些设置是系统正常运行所需要的,也算是初始化部分.
 // 比如时钟,设置 C 语言环境,初始化 ddr 
-	b	lowlevel_init		
+	b	lowlevel_init		  
 ENDPROC(cpu_init_crit)
 
 
@@ -133,7 +133,7 @@ ENTRY(lowlevel_init)
 	 * this init in the SPL board_init_f() function which is called
 	 * immediately after this.
 	 */
-	bl	s_init                                            //一些平台特定的初始化，imx6ull 不需要做任何事
+	bl	s_init                                            //arch/arm/cpu/armv7/mx6/soc.c 中，一些平台特定的初始化，imx6ull 不需要做任何事
 	pop	{ip, pc}
 ENDPROC(lowlevel_init)
 
@@ -153,7 +153,7 @@ ENTRY(_main)
 	mov	sp, r0                                              //栈顶回到刚刚设置的地方
 	
 	mov	r9, r0                                              //将栈顶放到 r0，作为 board_init_f_init_reserve 的参数
-	bl	board_init_f_init_reserve                           //common/init/board_init.c 中
+	bl	board_init_f_init_reserve                           //common/init/board_init.c 中,对于 arm 不做什么。 
 
 	mov	r0, #0                                              //将 r0 清零
 	bl	board_init_f                                        //调用 board_init_f ,在 common/board_f.c 中

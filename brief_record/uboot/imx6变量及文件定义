@@ -1,0 +1,45 @@
+start.S : arch/arm/cpu/armv7/start.S    
+
+CONFIG_ARMV7_LPAE  未定义
+
+CONFIG_SPL_BUILD  未定义
+CONFIG_SPL_STACK  未定义
+
+CONFIG_OMAP44XX  未定义
+
+CONFIG_SKIP_LOWLEVEL_INIT   未定义
+
+CONFIG_SKIP_LOWLEVEL_INIT_ONLY  未定义
+
+CONFIG_SPL_STACK  未定义
+
+CONFIG_SPL_DM  未定义
+
+CONFIG_SPL_BUILD  未定义
+
+GD_SIZE = sizeof(struct global_data);
+
+s_init() :arch/arm/cpu/armv7/mx6/soc.c
+is_mx6ull(): 返回真
+
+_main：arch/arm/lib/crt0.S 
+
+
+CONFIG_SYS_INIT_SP_ADDR 通过程序查询
+
+CONFIG_CPU_V7M  未定义
+
+CONFIG_USE_ARCH_MEMSET  
+
+CONFIG_USE_ARCH_MEMSET  定义
+
+CONFIG_SYS_THUMB_BUILD  定义
+
+board_init_f_alloc_reserve()：common/init/board_init.c
+
+board_init_f_init_reserve():common/init/board_init.c
+
+CONFIG_SYS_GENERIC_GLOBAL_DATA： 未定义
+
+global_data 被定义在  ：include/asm-generic/global_data.h
+
