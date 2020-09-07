@@ -113,26 +113,32 @@ board_init_f() 直接调用一个函数 initcall_run_list。
 被执行的函数有：
 
 	setup_mon_len,    gd->mon_len = bss_end - _start，表示整个 uboot 镜像的
+	
 	fdtdec_setup,     
 		#if CONFIG_IS_ENABLED(OF_CONTROL)  不满足，只执行 fdtdec_prepare_fdt，赋值 ：gd->fdt_blob 为设备树的 blob，imx6 应该是没有 uboot 的，后期可以测试一下。  
+	
 	arch_cpu_init,      定义在 arch/arm/cpu/armv7/mx6/soc.c 中，初始化 cpu，需要细究，TODO
- 	mach_cpu_init,      不做任何事
- 	initf_dm,           
+ 	
+	mach_cpu_init,      不做任何事
+ 	
+	 initf_dm,           
 		#if defined(CONFIG_DM) && defined(CONFIG_SYS_MALLOC_F_LEN)  满足
 		CONFIG_TIMER_EARLY     不满足
 		执行 dm_init_and_scan，主要是设备驱动相关的。 
- 	arch_cpu_init_dm,
+ 	
+	 arch_cpu_init_dm,       什么也不做
 	 	
- 	mark_bootstage,
-	board_early_init_f,
-	init_timebase,
-	timer_init,
-	board_postclk_init,
-	get_clocks,
-	env_init,
-	init_baud_rate,
-	serial_init,
-	console_init_f,
+ 	mark_bootstage,          不做
+
+	board_early_init_f,      定义在 board/freescale/mx6ullevk/mx6ullevk.c 中，主要设置一下 uart 的 pinmux
+
+	timer_init,             定义在 arch/arm/imx-common/syscounter.c 中。
+	board_postclk_init,     定义在 arch/arm/cpu/armv7/mx6/soc.c 中，设置 ldo
+	get_clocks,             定义在 arch/arm/imx-common/speed.c 中
+	env_init,               定义在 common/env_mmc.c 中
+	init_baud_rate,         本文件中，获取 gd->baudrate
+	serial_init,            定义在 drivers/serial/serial.c
+	console_init_f,         定义在 common/console.c
 	display_options,
 	display_text_info,
 	print_cpuinfo,
