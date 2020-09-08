@@ -138,22 +138,40 @@ board_init_f() 直接调用一个函数 initcall_run_list。
 	env_init,               定义在 common/env_mmc.c 中,获取默认的 env 参数,不做其它事
 	init_baud_rate,         本文件中，获取 gd->baudrate,获取 gd->baudrate
 	serial_init,            定义在 drivers/serial/serial.c,初始化 serial.为什么可以使用全局变量?
-	console_init_f,         定义在 common/console.c,
+	console_init_f,         
+							定义在 common/console.c,根据环境变量是否存在 silent，pre_console_putc 不做任何事
+
 	display_options,        定义在 /lib/display_options.c 中,打印信息
 	display_text_info,      定义在本文件,代码数据bss地址
-	print_cpuinfo,          打印 cpu 相关消息
+	print_cpuinfo,          打印 cpu 相关消息，
 	show_board_info,        打印board 相关的消息
 	INIT_FUNC_WATCHDOG_INIT        初始化看门狗
 	INIT_FUNC_WATCHDOG_RESET       reset 看门狗
-	announce_dram_init,
-	dram_init,
+	announce_dram_init,     本文件，打印 dram 信息
+	dram_init,              
+							定义在 board/freescale/mx6ullevk/mx6ullevk.c 中，仅仅是获取 gd->ram_size, ddr 不知道在哪里已经被初始化好了？后续再来分析
 	INIT_FUNC_WATCHDOG_RESET
 	INIT_FUNC_WATCHDOG_RESET
 	INIT_FUNC_WATCHDOG_RESET
-	setup_dest_addr,
-	reserve_mmu,
-	reserve_trace,
-	reserve_uboot,
+
+	setup_dest_addr,		找到内存的顶部：gd->ram_top，并且将 gd->relocaddr 设置到内存的顶部
+							/*
+							* Now that we have DRAM mapped and working, we can
+							* relocate the code and continue running from DRAM.
+							*
+							* Reserve memory at end of RAM for (top down in that order):
+							*  - area that won't get touched by U-Boot and Linux (optional)
+							*  - kernel log buffer
+							*  - protected RAM
+							*  - LCD framebuffer
+							*  - monitor code
+							*  - board info struct
+							*/
+
+
+	reserve_mmu,           为 tlb 保留空间
+	reserve_trace,         如果定义了 CONFIG_TRACE，就为 trace 保留空间
+	reserve_uboot,         
 	reserve_malloc,
 	reserve_board,
 	setup_machine,
