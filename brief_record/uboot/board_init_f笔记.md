@@ -134,17 +134,17 @@ board_init_f() 直接调用一个函数 initcall_run_list。
 
 	timer_init,             定义在 arch/arm/imx-common/syscounter.c 中。
 	board_postclk_init,     定义在 arch/arm/cpu/armv7/mx6/soc.c 中，设置 ldo
-	get_clocks,             定义在 arch/arm/imx-common/speed.c 中
-	env_init,               定义在 common/env_mmc.c 中
-	init_baud_rate,         本文件中，获取 gd->baudrate
-	serial_init,            定义在 drivers/serial/serial.c
-	console_init_f,         定义在 common/console.c
-	display_options,
-	display_text_info,
-	print_cpuinfo,
-	show_board_info,
-	INIT_FUNC_WATCHDOG_INIT
-	INIT_FUNC_WATCHDOG_RESET
+	get_clocks,             定义在 arch/arm/imx-common/speed.c 中,获取 gd->arch.sdhc_clk
+	env_init,               定义在 common/env_mmc.c 中,获取默认的 env 参数,不做其它事
+	init_baud_rate,         本文件中，获取 gd->baudrate,获取 gd->baudrate
+	serial_init,            定义在 drivers/serial/serial.c,初始化 serial.为什么可以使用全局变量?
+	console_init_f,         定义在 common/console.c,
+	display_options,        定义在 /lib/display_options.c 中,打印信息
+	display_text_info,      定义在本文件,代码数据bss地址
+	print_cpuinfo,          打印 cpu 相关消息
+	show_board_info,        打印board 相关的消息
+	INIT_FUNC_WATCHDOG_INIT        初始化看门狗
+	INIT_FUNC_WATCHDOG_RESET       reset 看门狗
 	announce_dram_init,
 	dram_init,
 	INIT_FUNC_WATCHDOG_RESET
