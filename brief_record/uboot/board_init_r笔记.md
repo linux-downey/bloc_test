@@ -53,5 +53,12 @@ init_sequence_r：
 
 
 
+定义：
+CONFIG_FEC_MXC 
+CONFIG_FSL_QSPI
 
 
+pinmux 配置基地址：0x44E1_0000
+
+setup_fec(CONFIG_FEC_ENET_DEV);  只是使能 fec 的 clock
+board_qspi_init();
