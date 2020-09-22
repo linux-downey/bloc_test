@@ -171,20 +171,22 @@ board_init_f() 直接调用一个函数 initcall_run_list。
 
 	reserve_mmu,           为 tlb 保留空间
 	reserve_trace,         如果定义了 CONFIG_TRACE，就为 trace 保留空间
-	reserve_uboot,         
-	reserve_malloc,
-	reserve_board,
-	setup_machine,
-	reserve_global_data,
-	reserve_fdt,
-	reserve_arch,
-	reserve_stacks,
-	setup_dram_config,
-	show_dram_config,
-	display_new_sp,
+	reserve_uboot,         为 Uboot 保留空间,设置 gd->start_addr_sp
+	reserve_malloc,        保留 malloc 的空间
+	reserve_board,         为 bt_t 保留空间
+	setup_machine,         设置 gd->bd->bi_arch_number,设置 board id
+	reserve_global_data,   为 global_data 保留空间
+	reserve_fdt,           为 fdt 保留空间
+	reserve_arch,          无操作
+	reserve_stacks,        栈空间,16 byte 对齐,gd->start_addr_sp 就是新的栈了
+	setup_dram_config,     获取 ram size
+	show_dram_config,      打印 ram info
+	display_new_sp,        打印新的栈
 	INIT_FUNC_WATCHDOG_RESET
-	reloc_fdt,
-	setup_reloc,
+	reloc_fdt,             将 fdt 拷贝到 gd->new_fdt 中
+	setup_reloc,           拷贝其它东西到内存中,比如 new_gd
+
+
 
 
 
