@@ -123,6 +123,51 @@ data 的 CRC 为 2 字节，但是在 4 线或者 8 线传输的时候并不是 
 Boot 阶段的 positive ack，上升沿传输 010，开始0+010（上升沿传输）+结束1
 Boot 阶段的 negative ack，上升沿传输 101
 
+HS200 和 HS400 这两种高速模式只支持  1.8V 和 1.2V
+
+
+在主机写数据的时候，CLK 和 data 线都是由主机自行控制，而在读数据时，clk 是主机控制，而 data 由设备控制，在总线上传输的数据可能因为传输本身或者其它的干扰情况而延迟，所以需要调整采样点，主机可以通过 CMD21 读取 device 的参数来得到最佳的采样点。  
+
+
+对 data strobe 的理解：在主机接收数据的时候，对采样点是不确定的，因为这需要经历两个 delay：1、时钟到达设备端，2、设备端从准备到真正开始发送数据，这里的 delay 时间是不定的，而 data strobe 当数据真正发送时，与数据一起，这样主机端接收数据时通过判断 data strobe 进行采样，就可以省去调整采样点的时间，同时更加稳定。  data strobe 也是方波，而数据不定，所以可以通过判断 data strobe 来确定数据是什么时候开始发的。   
+
+
+# emmc 功能描述
+
+## emmc 的几种模式
+Boot mode：在重新上电、reset 或者接收到 CMD0(参数为 0xF0F0F0F0) 之后，emmc 会进入到 boot mode。  
+
+Device identification mode：boot mode 完成之后，或者主机不支持 boot mode，emmc 会进入到当前 mode，直到接收到 SET_RCA command (CMD3)，这个命令用于设置地址。 
+
+Interrupt mode:主机和设备会同时进入到中断模式，这种模式下没有数据的传输，唯一允许的是中断服务。  
+
+data transfer mode：主机向设备分配完地址之后，就进入到了数据传输模式，
+
+Inactive mode：当设备处于无效的电压范围，或者主机的访问模式无效时，或者主机直接发送  GO_INACTIVE_STATE command (CMD15) 时，将进入到非激活模式。  
+
+设备的状态 对应的 具体的模式，以及对应的 CMD line 的引脚输出模式，参考手册 page38。  
+
+
+## emmc 中的分区结构
+一个用户分区，用于存放数据，用户可以在这基础上继续进行分区(常见做法)
+两个可能存在的 boot 分区，用于 boot 启动的分区，特点是可以快速读取
+一个 RPMB 分区，这个分区主要用于安全方面
+
+emmc 的某些区域可以被实现为 OTP memory。 
+
+命令与分区的限制：
+boot 分区：Command class 6 (Write Protect) and class 7 (Lock Device) 不能使用
+RPMB 分区：只有 Class0, Class2 and Class4 被允许，
+通用分区：Command classes 0, 2, 4, 5, 6 可以使用，
+
+扩展属性：
+每个通用分区都可以使用一些扩展属性，
+* default：没有额外属性
+* System code：很少更新、或者是包含重要的系统文件
+* Non-Persistent：经常会被修改的分区
+通过这些扩展属性，emmc 可以进行一些针对性的优化
+
+
 
 
 

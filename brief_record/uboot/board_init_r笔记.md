@@ -54,7 +54,7 @@ init_sequence_r：
 
 
 定义：
-CONFIG_FEC_MXC 
+CONFIG_FEC_MXC
 CONFIG_FSL_QSPI
 
 
