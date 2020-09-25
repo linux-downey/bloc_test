@@ -168,7 +168,8 @@ RPMB 分区：只有 Class0, Class2 and Class4 被允许，
 通过这些扩展属性，emmc 可以进行一些针对性的优化
 
 
-
+主机分区的流程：
+page 43。 
 
 
 
