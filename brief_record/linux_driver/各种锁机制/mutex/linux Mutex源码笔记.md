@@ -201,6 +201,16 @@ static __always_inline bool __mutex_unlock_fast(struct mutex *lock)
 
 
 
+复盘解析：
+mutex_optimistic_spin 函数：
+	mutex_can_spin_on_owner(lock)：
+		if (need_resched())         // 判断有没有更高优先级的进程就绪，如果有，就不 spin，调用 schedule 切换进程
+		if (!osq_lock(&lock->osq))  // 尝试获取 osq_lock，如果获取失败，返回失败，不 spin 
+		
+
+
+
+
 
 
 
