@@ -272,6 +272,8 @@ static inline void arch_spin_unlock(arch_spinlock_t *lock)
 
 
 
+## 单核下的 spinlock
+上文中讨论的 spinlock 基本上是基于多核的，你可以思考一下，单核下的 spinlock 应该如何实现？  
 
 
 
