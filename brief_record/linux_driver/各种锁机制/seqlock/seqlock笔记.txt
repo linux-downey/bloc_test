@@ -87,10 +87,6 @@ repeat:
 
 /************************************************************************/
 
-static inline unsigned read_seqretry(const seqlock_t *sl, unsigned start)
-{
-	return read_seqcount_retry(&sl->seqcount, start);
-}
 
 static inline unsigned read_seqretry(const seqlock_t *sl, unsigned start)
 {
