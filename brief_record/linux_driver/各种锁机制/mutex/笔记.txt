@@ -1,0 +1,75 @@
+struct mutex {
+	/* 1: unlocked, 0: locked, negative: locked, possible waiters */
+	atomic_t		count;
+	spinlock_t		wait_lock;
+	struct list_head	wait_list;
+#if defined(CONFIG_DEBUG_MUTEXES) || defined(CONFIG_MUTEX_SPIN_ON_OWNER)
+	struct task_struct	*owner;
+#endif
+#ifdef CONFIG_MUTEX_SPIN_ON_OWNER
+	struct optimistic_spin_queue osq; /* Spinner MCS lock */
+#endif
+
+};
+
+
+
+# define mutex_init(mutex) \
+do {							\
+	static struct lock_class_key __key;		\
+							\
+	__mutex_init((mutex), #mutex, &__key);		\
+} while (0)
+
+void __mutex_init(struct mutex *lock, const char *name, struct lock_class_key *key)
+{
+	atomic_set(&lock->count, 1);                     // 设置 count 为 1
+	spin_lock_init(&lock->wait_lock);                // 设置 spinlock 
+	INIT_LIST_HEAD(&lock->wait_list);                // 设置 wait_list 
+	mutex_clear_owner(lock);                         // 将 owner 设置为空
+#ifdef CONFIG_MUTEX_SPIN_ON_OWNER 
+	osq_lock_init(&lock->osq);                       // 设置 osq-> tail 为 0
+#endif
+
+	debug_mutex_init(lock, name, key);
+}
+
+
+void __sched mutex_lock(struct mutex *lock)
+{
+	might_sleep();                                               // 
+	/*
+	 * The locking fastpath is the 1->0 transition from
+	 * 'unlocked' into 'locked' state.
+	 */
+	__mutex_fastpath_lock(&lock->count, __mutex_lock_slowpath);  // 
+	mutex_set_owner(lock);                                    // 设置 owner 为 current
+}
+
+static inline void
+__mutex_fastpath_lock(atomic_t *count, void (*fail_fn)(atomic_t *))
+{
+	if (unlikely(atomic_xchg(count, 0) != 1))
+		/*
+		 * We failed to acquire the lock, so mark it contended
+		 * to ensure that any waiting tasks are woken up by the
+		 * unlock slow path.
+		 */
+		if (likely(atomic_xchg_acquire(count, -1) != 1))
+			fail_fn(count);
+}
+
+
+// fail_fn，当直接将 count 减一失败的时候
+__visible void __sched
+__mutex_lock_slowpath(atomic_t *lock_count)
+{
+	struct mutex *lock = container_of(lock_count, struct mutex, count);
+
+	__mutex_lock_common(lock, TASK_UNINTERRUPTIBLE, 0,
+			    NULL, _RET_IP_, NULL, 0);
+}
+
+
+
+
