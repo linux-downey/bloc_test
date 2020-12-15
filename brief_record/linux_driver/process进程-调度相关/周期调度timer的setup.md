@@ -104,7 +104,7 @@ static int __init arch_timer_of_init(struct device_node *np)
 		return ret;
 
     // 公共的 timer 初始化部分,见下文
-	return arch_timer_common_init();
+	return arch_timer_common_init();  
 }
 ```
 
@@ -213,7 +213,7 @@ static void __arch_timer_setup(unsigned type,struct clock_event_device *clk)
 在 __arch_timer_setup 中,对 clock_event_device 初始化了 name,rate,cpumask,irq 等成员,同时设置了 timer 相关的回调函数,这些回调函数确定了 timer 的设置,包括启停执行的动作,以及如何设置下一次 timer 事件.  
 
 函数最后,调用 clockevents_config_and_register,从名称不难看出,这个函数就是对 clock_event_device 进行配置和注册,clock_event_device 的配置和注册过程并不简单,其中涉及到几个方面:
-* tick device 的选择,tick device 也就是用来产生 tick 的设备,在前文中我们都是直接假定了 local device 被作为 tick 中断的生产者,尽管 arm 中大多是这么设计的,但是实际情况是:系统中可以注册多个 clock_event_device,系统会选定一个合适的作为产生 tick 中断的设备,而并不一定是 local timer.
+* tick device 选择 clock_event,tick device 也就是用来产生 tick 的设备,在前文中我们都是直接假定了 local device 被作为 tick 中断的生产者,尽管 arm 中大多是这么设计的,但是实际情况是:系统中可以注册多个 clock_event_device,系统会选定一个合适的作为产生 tick 中断的设备,而并不一定是 local timer.
 * broadcast 的处理,在硬件框架部分有提到, local timer 可以配置在 CPU suspend 的同时被关闭,以节省功耗,这时候需要考虑的问题是 CPU 在什么时候唤醒呢?CPU 想配置成在下一个逻辑定时器到期时唤醒,毕竟睡眠只是暂时的,但是 local timer 被关闭,所有的逻辑定时器都已经失效,自然无法唤醒 CPU.别忘了,还有一个 global 的 system counter,解决方案就是使用 system counter 作为一个广播设备,就可以执行之前 CPU 的工作,可能是唤醒 CPU,也可能是其它.当然,前面说的 system counter 和 local timer 只是 arm 架构中的 timer 框架,对于其它的体系架构也可能是其它的处理方式,但是其基本原理是差不多的. 
 * 定时器使用 oneshot 还是 periodic 模式,oneshot 表示一次配置只产生一次中断,而 periodic 则是一次配置循环产生中断,对于高精度要求的定时器,通常是 oneshot 模式,毕竟 periodic 运行时容易产生误差的累积,尽管 oneshot 的操作要麻烦一些,毕竟它的可操作性要更高.
 * NO_HZ 的配置,当 CPU 运行 idle 进程或者只有一个进程就绪时,可配置 NO_HZ,即停掉 CPU 的 tick 中断. 
@@ -248,21 +248,107 @@ arch_timer_register
 Hardirq->arch_timer_handler_phys->timer_handler->tick_handle_periodic->tick_periodic:
 static void tick_periodic(int cpu)
 {
+    // tick_do_timer_cpu 指定特定更新的 CPU，默认为 TICK_DO_TIMER_BOOT
     if (tick_do_timer_cpu == cpu) {
+        // 更新 jiffies 的 seqlock，seqlock 是写优先的锁
         write_seqlock(&jiffies_lock);
-
-        /* Keep track of the next tick event */
-        tick_next_period = ktime_add(tick_next_period, tick_period);
-
+        ...
+        // 更新 jiffies_64 
         do_timer(1);
         write_sequnlock(&jiffies_lock);
+        // 更新墙上时间
         update_wall_time();
     }
 
     update_process_times(user_mode(get_irq_regs()));
-    profile_tick(CPU_PROFILING);
+    ...
 }
 ```
+在 tick_periodic 中，实际上并不是每个 CPU 的 timer 中断都更新系统的全局时间参数，而是选取其中一个 CPU 来更新，这个 CPU 的 num 由 TICK_DO_TIMER_BOOT 指定，通常是 0 号 CPU。  
+
+需要注意的是，在更新 jiffies 之前，需要使用顺序锁进行保护，顺序锁是一种写优先锁，因为系统时间的更新需要尽量保证其实时性，因此这里最好是使用顺序锁，让写优先。  
+
+在 do_timer 中，对 jiffies_64 进行更新，并没有看到 jiffies 的更新，这是因为，内核在链接的时候做了特殊处理，将 jiffies 和 jiffies_64 使用了同样的地址空间，至于 jiffies 占 jiffies_64 的高 32 bit 还是低 32 bit，取决于机器的大小端。  
+
+update_wall_time 表示更新墙上时间，也就是我们通常使用 date 命令显示的时间，当然，只是更新底层的数据结构 clock_source 和 timerkeeper，上层应用获取的墙上时间就是请求这些时间数据。  
+
+最后，tick_periodic 调用 update_process_times，注意，这里已经跳出了 if (tick_do_timer_cpu == cpu) 的判断，回到的 percpu 的 timer 操作。  
+
+在 update_process_times 中，终于看到了 scheduler_tick() 函数，解决了刚开始提出的那个问题：tick 中断是如何产生的？  
+
+
+
+## sched_clock 实现
+在周期性调度器那一章(TODO)，我们频繁地提到一个接口：sched_clock(),这个接口被用于获取当前 CPU 上的时间戳，那它是如何实现的呢？  
+
+让我们回到 local timer 驱动中的 arch_timer_of_init 函数，上面我们一直在讨论 arch_timer_register，以找到 tick 产生的证据。  
+
+实际上还有一部分，就是 arch_timer_common_init().  
+
+```c++
+arch_timer_of_init->arch_timer_common_init:
+
+static int __init arch_timer_common_init(void)
+{
+    ...
+	arch_counter_register(arch_timers_present);
+	...
+}
+
+arch_timer_of_init->arch_timer_common_init->arch_counter_register:
+static void __init arch_counter_register(unsigned type)
+{
+	u64 start_count;
+
+	if (type & ARCH_TIMER_TYPE_CP15) {
+		if (IS_ENABLED(CONFIG_ARM64) ||
+		    arch_timer_uses_ppi == ARCH_TIMER_VIRT_PPI)
+			arch_timer_read_counter = arch_counter_get_cntvct;
+		else
+			arch_timer_read_counter = arch_counter_get_cntpct;
+
+		clocksource_counter.archdata.vdso_direct = vdso_default;
+	} else {
+		arch_timer_read_counter = arch_counter_get_cntvct_mem;
+	}
+
+	sched_clock_register(arch_timer_read_counter, 56, arch_timer_rate);
+}
+```
+在 arch_timer_common_init 中调用了 arch_counter_register，从名称可以看出，这是对 system counter 的注册，紧接着在 arch_counter_register 将一个读取当前 system counter 的回调函数传递给 sched_clock_register 注册到系统中，至于这个读取当前 system counter 的回调函数是哪一个，取决于 system counter 的访问方式和使用哪个 local timer，不同的 read 回调函数实现和访问方式不一样，但返回结果都是 system counter 的当前值。  
+
+那么，sched_clock_register 注册 system counter 又是做了什么呢？
+
+```c++
+void __init
+sched_clock_register(u64 (*read)(void), int bits, unsigned long rate)
+{
+    ...
+    struct clock_read_data rd;
+    rd.read_sched_clock	= read;
+	...
+	update_clock_read_data(&rd);
+}
+```
+
+在 sched_clock_register 中，填充一个 struct clock_read_data 结构 rd，将传入的读取 system counter 的回调函数赋值给 rd.read_sched_clock，并更新到系统。   
+
+而在调度器频繁使用的 sched_clock() 中，正是调用了该回调函数以获取 system counter 的时间：
+
+```c++
+
+unsigned long long notrace sched_clock(void)
+{
+    ...
+		cyc = (rd->read_sched_clock() - rd->epoch_cyc) &
+		      rd->sched_clock_mask;
+    ...
+}
+```
+
+至此，sched_clock 实现的真相也就水落石出。  
+
+
 
 
 
