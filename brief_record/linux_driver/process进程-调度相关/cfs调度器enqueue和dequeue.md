@@ -10,4 +10,11 @@
 ## 
 
 
+ENQUEUE_WAKEUP  和 DEQUEUE_SLEEP 相对，表示是被唤醒或者进入睡眠
 
+DEQUEUE_SAVE、DEQUEUE_MOVE 和 ENQUEUE_RESTORE，这几个标志位在用户使用 __sched_setscheduler 或者设置 nice 值时会被临时从队列中移除，然后又重新加入到队列中。 
+
+
+最底层的函数为 __enqueue_entity
+
+查看那部分的 commit log 信息
