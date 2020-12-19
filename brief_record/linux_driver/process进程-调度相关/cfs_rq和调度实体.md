@@ -107,7 +107,7 @@ struct cfs_rq {
 	 * It is set to NULL otherwise (i.e when none are currently running).
 	 */
 	// 记录当前 cfs_rq 上特殊的几个实体指针：
-	// curr：cfs_rq 上当前正在运行的实体，如果运行的进程实体不在当前 cfs_rq 上，设置为 NULL。 
+	// curr：cfs_rq 上当前正在运行的实体，如果运行的进程实体不在当前 cfs_rq 上，设置为 NULL。需要注意的是,在支持组调度的情况下,一个进程 se 运行,被设置为当前 cfs_rq 的 curr,同时其 parent 也会被设置为同级 cfs_rq 的 curr. 
 	// next：用户特别指定的需要在下一次调度中执行的进程实体，但是这并不是绝对的，只有在 next 指定的进程实体快要运行(但可能不是下次)的时候，因为这时候不会造成太大的不公平，就会运行指定的 next，也是一种临时提高优先级的做法。 
 	// last：上次执行过的实体不应该跨越公平性原则执行，比如将 next 设置为 last，这时候就需要仔细斟酌一下了，也是保证公平性的一种方法。  
 	// 
