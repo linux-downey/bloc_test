@@ -29,7 +29,7 @@ struct sched_entity {
 	// 红黑树的数据节点，使用该 rb_node 将当前节点挂到红黑树上面，还是内核中的老套路，将 rb_node 嵌入 sched_entity 结构，在操作节点时，可以通过 rb_node 反向获取到其父结构。  	
 	struct rb_node			run_node;
 	
-	// 链表节点，被链接到 percpu 的 rq->cfs_tasks 上，用作 task 的统计。 
+	// 链表节点，被链接到 percpu 的 rq->cfs_tasks 上，在做 CPU 之间的负载均衡时，就会从该链表上选出 group_node 节点作为迁移进程。  
 	struct list_head		group_node;
 	
 	// 标志位，代表当前调度实体是否在就绪队列上
