@@ -172,7 +172,7 @@ RPMB 分区：只有 Class0, Class2 and Class4 被允许，
 page 43。 
 
 
-
+emmc 的卡检测中断,当有卡插入或者移出的时候,都会触发一个中断,这个检测引脚是 DATA3 或者 CD_B 引脚,   
 
 
 
