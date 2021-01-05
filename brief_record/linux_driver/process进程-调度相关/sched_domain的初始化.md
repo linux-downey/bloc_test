@@ -70,5 +70,16 @@ void trigger_load_balance(struct rq *rq)
 
 组织了半天语言,发现没法儿通过文字的方式比较精确地表达 sched_domain 和 sched_group 之间的关系,还是通过示例和图来解释吧.  
 
-假设在一个系统中,存在两个 socket,每个 socket 包含 4 个核心,而每个核心包含两个硬件线程,sched_group 和 sched_domain 的关系是这样的:
+假设在一个系统中,存在两个 socket,每个 socket 包含 4 个核心,而每个核心包含两个硬件线程,sched_group 和 sched_domain 的关系见下图(TODO):
 
+从图中可以看出，因为包含两个 socket，因此顶层的 domain 包含两个子 domain，每个子 domain
+对应一个 group，group 以循环链表的方式组织起来，sched_domain->groups 指向第一个 group。  
+
+每个 group 的 cpumask 字段保存了子 domain 锁包含的所有 CPU，因此，在 Level3 domain 的 Grp0 包含 CPU0~cpu7 共 8 个逻辑 CPU，而 Grp1 类似。  
+
+在 L2 domain 中，每个 socket 包含四个 core，也就是四个子 domain，由四个组表示，每个组包含两个逻辑 CPU，这里的逻辑 CPU 实际上是一个 core 上的两个硬件线程，依次类推。  
+
+实际上，由于空间的原因，上图只是展示了 domain 与 group 之间的主要联系，实际上还有一些比较重要的信息：
+* 在 L1 domain 中，由于空间原因将 Grp 信息省略了，实际上 Grp0/1 和 L2 domain 中一样，只是 L1 domain 中包含两个 group，每个 group 只包含一个逻辑 CPU。  
+* L1、L2、L3 在图中为包含与被包含的关系，体现在软件上就是父子关系，由 sched_domain->parent 和 sched_domain->child 建立联系。 
+* CPU domain 和 group 在内核中对应的数据结构为 sched_domain 和 sched_group，且组成树状的结构，需要注意的是，sched_domain 是 percpu 的，也就是每个 CPU 都保存了和自身相关的 domain 树状结构的分支，而 sched_group 可配置，默认是 CPU 间共享的。   
