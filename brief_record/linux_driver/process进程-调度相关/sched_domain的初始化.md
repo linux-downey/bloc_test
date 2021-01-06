@@ -16,7 +16,6 @@
 在本章中，我们将重点讨论上文中的第一三四点，即确定迁移的进程以及迁移的具体操作，对于第二点 CPU 负载的计算并不详细讨论，这并不是进程迁移的重点。  
 
 
-
 ## 什么时候执行负载均衡?
 负载均衡的触发实际上是非常频繁的，在 tick 中断中会尝试执行负载均衡，也就是内核会周期性地检查 CPU 之间的进程间是否平衡，tick 中断的周期由全局变量 HZ 决定，通常是 10ms 或者 4ms，对应的源码如下：
 
@@ -127,13 +126,104 @@ for_each_domain(this_cpu, sd) {
 * 全局的负载均衡操作,tick 中断和即将执行 idle 进程这两种情况所执行的负载均衡有些区别,但最终都是执行 load_balance 这个主要的执行函数,因此放在一起讲,而且这是重点部分.  
 
 
-### select_task_rq 选择进程 CPU
-select_task_rq 是核心调度部分的接口,不针对具体的调度器类,在该函数中
+### select_task_rq ——选择进程 CPU
+select_task_rq 是核心调度部分的接口,不针对具体的调度器类,在该函数中，主要是针对进程相对 CPU 亲和性的处理，在 task_struct 结构中，有两个相关的字段：nr_cpus_allowed 和 cpus_allowed，nr_cpus_allowed 表示当前进程可以运行的 CPU 数量，而 cpus_allowed 是当前进程可运行 CPU 的掩码位，比如进程 p 可运行在 0,2,3 CPU 上，nr_cpus_allowed 为 3 而 3，cpus_allowed 为 0b00001101。  
+
+当进程的 nr_cpus_allowed 不大于 1 时，通常表示该进程是绑定 CPU 的，因此这一类进程就不需要选择 CPU，对于其它进程，则调用对应调度器类的 select_task_rq 回调函数，该函数会返回合适执行该进程的 CPU id。  
+
+对于 cfs 调度器，对应的 select_task_rq 回调函数为 select_task_rq_fair：
+
+```c++
+select_task_rq_fair(struct task_struct *p, int prev_cpu, int sd_flag, int wake_flags)
+{
+	...
+	if (sd_flag & SD_BALANCE_WAKE) {
+		record_wakee(p);
+		want_affine = !wake_wide(p) && !wake_cap(p, cpu, prev_cpu)   .............................1
+			      && cpumask_test_cpu(cpu, &p->cpus_allowed);
+	}
+	for_each_domain(cpu, tmp) {
+		if (want_affine && (tmp->flags & SD_WAKE_AFFINE) &&          ..............................2
+		    cpumask_test_cpu(prev_cpu, sched_domain_span(tmp))) {
+			affine_sd = tmp;
+			break;
+		}
+	}
+	if (affine_sd) {
+		sd = NULL; 
+		if (cpu == prev_cpu)
+			goto pick_cpu;
+
+		if (wake_affine(affine_sd, p, prev_cpu, sync))
+			new_cpu = cpu;
+	}
+	if (!sd) {
+ pick_cpu:
+		if (sd_flag & SD_BALANCE_WAKE) 
+			new_cpu = select_idle_sibling(p, prev_cpu, new_cpu);         ........................3
+	}
+	...
+}
+```
+传入第一个参数为需要操作的 task，第二个参数为 task 之前运行的进程，后面是两个 flag 参数,在 select_task_rq_fair 的前面一部分是针对唤醒进程的操作。  
+
+注1：want_affine 这个变量从字面上的理解是是否想设置唤醒的亲和性，是不是需要让进程在本 domain 中的 CPU 上执行，这个变量成立是有条件的，包括当前 CPU 的 capacity 是否和之前 CPU 的容量(这个概念在后面讲到)差不多，当前 CPU 是否在进程的 cpus_allowed 中，同时 wake_wide(p) 返回 0，说起来这个 wake_wide 是有些复杂的，理论上来说，让进程在本地被唤醒从 cache 考虑是有益的，但是对于某些生产消费模型中，可能会出现生产进程频繁唤醒多个消费进程，出于消费进程执行效率的考虑，这种情况下最好将多个消费进程分散到多个 CPU 中快速执行完，而不是挤在一个繁忙的 CPU 上，在内核中使用 wakee_flips 来记录这种唤醒行为，通过该变量可以判断是否处于这种模型下，而特意选择较远的 CPU 执行，从而不考虑亲和性。  
+
+注2：如果设置了 want_affine 变量，表示需要就近选择合适的 CPU，同时，如果待唤醒进程之前执行的进程也在当前 domain 下，就选中当前 domain，否则向上遍历到父级 domain。  
+
+注3：确定了 domain，接下来的工作也就是从 domain 中找到一个合适的 CPU，这个工作由 select_idle_sibling 完成，这个函数会在共享 LLC 的 domain 内，分别调用 select_idle_core、select_idle_cpu、select_idle_smt 以找到最合适的 CPU。  
+
+
+如果不是唤醒的进程，或者唤醒进程不设置亲和 CPU，那么就进入到通用的选择 CPU 的流程：
+
+```c++
+static int
+select_task_rq_fair(struct task_struct *p, int prev_cpu, int sd_flag, int wake_flags)
+{
+	...
+	while (sd) {                             ..............................................1
+		struct sched_group *group;
+		int weight;
+
+		if (!(sd->flags & sd_flag)) {
+			sd = sd->child;
+			continue;
+		}
+
+		group = find_idlest_group(sd, p, cpu, sd_flag);    
+		if (!group) {
+			sd = sd->child;
+			continue;
+		}
+
+		new_cpu = find_idlest_cpu(group, p, cpu);            .................................2
+		if (new_cpu == -1 || new_cpu == cpu) {
+			sd = sd->child;
+			continue;
+		}
+
+		...
+	}
+	return new_cpu;
+	...
+}
+```
+注1：在上文判断是否亲和唤醒时，使用了 for_each_domain 循环，如果不是亲和唤醒，最终会遍历到最上层 domain，sd 的初始化则是最上层的 domain，因此，和其它 domain 遍历操作不一样的是，这里的 domain 是从下往上遍历的，在每一层 domain 寻找 idlest 的 CPU，与当前 CPU 共享更底层 domain 的 CPU 获得优先权。  
+
+注2：寻找 idlest CPU 先后调用了 find_idlest_group 和 find_idlest_cpu 函数，从名称可以看出它们的作用，在调度器工作的过程中就一直记录着 CPU rq 的负载情况，因此通过这些负载情况可以找到 idlest 或者 busiest cpu，实际上，CPU 负载的统计并不简单，有机会的话后面会单独讲解，这里不过多赘述。  
+
+在最后，将会返回合适的 CPU，可以发现，CPU 的选择基本遵循的规则为：考虑进程设置的 CPU 亲和性、优先本地化唤醒。  
+
+
+## idle_balance
 
 
 
 
 
+
+
+参考：https://developer.aliyun.com/article/767294
 
 
 
