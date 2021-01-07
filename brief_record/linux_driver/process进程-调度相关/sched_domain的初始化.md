@@ -148,7 +148,6 @@ int sched_init_domains(const struct cpumask *cpu_map)
 接下来看看最主要的一个接口 build_sched_domains,这个函数比较长,分为三个部分:
 * 构建 sched_domain
 * 在 sched_domain 的基础上构建 sched_group 
-* attach CPU 和 sched_domain 
 
 构建 sched_domain 的源码如下:
 
@@ -218,10 +217,34 @@ static inline const struct cpumask *cpu_cpu_mask(int cpu)
 
 因此,domain 的构建完全是基于 CPU topology 的,这也是为什么需要花两个章节来专门介绍 CPU topology 的原因.   
 
-构建 domain 由 build_sched_domain 完成,这个函数被包含在 for_each_cpu 和 for_each_sd_topology 中,因此,会针对每个 CPU 的每个 domain level 建立 sched_domain,然后通过 child 和 parent 指针将它们建立联系,因为 sched_domain 是 percpu 的,所以 parent 和 child 都只有一个,因此对于每个 CPU 而言, sched_domain 并不是树状结构,而是链式结构.在 build_sched_domain 中,会调用 sd_init 初始化一个全新的 sched_domain,同时设置 sched_domain 的 span 和 span_weight,一个是当前 domain 的 CPU mask,一个是 cpu 数量,在调度时会用到.     
+构建 domain 由 build_sched_domain 完成,这个函数被包含在 for_each_cpu 和 for_each_sd_topology 中,因此,会针对每个 CPU 的每个 domain level 建立 sched_domain,然后通过 child 和 parent 指针将它们建立联系,因为 sched_domain 是 percpu 的,所以 parent 和 child 都只有一个,因此对于每个 CPU 而言, sched_domain 并不是树状结构,而是链式结构.在 build_sched_domain 中,会调用 sd_init 初始化一个全新的 sched_domain,同时设置 sched_domain 的 span 表示当前 domain 的 CPU mask.      
 
 每构建完一层 domain 结构,都会调用 if (cpumask_equal(cpu_map, sched_domain_span(sd))) 来检查当前层级的 CPU mask是否与所有 active cpu 的 mask 一致,如果一致,就不再构建上层的 sched_domain.举个例子,在一个单 socket 包含 4 multi core 的系统中,构建的 MC domain 就包含了 4 个 CPU,其实这时候就没必要再为单个 socket 再构建一层 DIE domain 了,即使构建了,该 DIE domain 中也只包含一个子 domain,一个 group,实际上是没什么意义的,只会导致在做负载均衡的时候白白增加一次遍历成本,因此,单 socket 的 arm 系统中(不支持 SMT)通常只有一层 MC domain 域.   
 
+build_sched_domains 的第二部分是构建 sched_group,源码如下：
+
+```c++
+static int
+build_sched_domains(const struct cpumask *cpu_map, struct sched_domain_attr *attr)
+{
+	...
+	for_each_cpu(i, cpu_map) {
+		for (sd = *per_cpu_ptr(d.sd, i); sd; sd = sd->parent) {
+			sd->span_weight = cpumask_weight(sched_domain_span(sd));
+			...
+			if (build_sched_groups(sd, i))
+				goto error;
+			...
+		}
+	}
+	...
+}
+```
+针对每个层级的 domain，给 sd 的 span_weight 赋值，该值表示当前 domain 内的 CPU 数量。  
+
+build_sched_groups 负责构建 percpu 的 sched_group，主要是设置 sg->ref 引用计数，以及 sg->cpumask，该值主要包括当前组内所有 CPU 的 mask，同时，还初始化 sg 的 capacity。  
+
+CPU 的 capacity 代表了一个 CPU 执行程序的能力，capacity 越大，执行程序的效率越高。  
 
 ### select_task_rq —— 选择进程 CPU
 select_task_rq 是核心调度部分的接口,不针对具体的调度器类,在该函数中，主要是针对进程相对 CPU 亲和性的处理，在 task_struct 结构中，有两个相关的字段：nr_cpus_allowed 和 cpus_allowed，nr_cpus_allowed 表示当前进程可以运行的 CPU 数量，而 cpus_allowed 是当前进程可运行 CPU 的掩码位，比如进程 p 可运行在 0,2,3 CPU 上，nr_cpus_allowed 为 3 而 3，cpus_allowed 为 0b00001101。  
@@ -313,9 +336,76 @@ select_task_rq_fair(struct task_struct *p, int prev_cpu, int sd_flag, int wake_f
 
 
 ## idle_balance
+当某个 CPU 的调度器在就绪队列上找到有效的进程时，就会看看其它 CPU 上是否有多的进程，并拿过来执行，如果确实没有，才会不甘心地执行 idle 进程，这时候发起的负载均衡就是 idle_balance.  
+
+相对于周期性的负载均衡而言，idle balance 的目的更明确，调用 load_balance 的 flag 参数为 CPU_NEWLY_IDLE，表示当前进程已经没有进程可执行了，属于最紧急的负载均衡情况。  
+
+下面是 idle_balance 的源码实现：
+
+```c++
+static int idle_balance(struct rq *this_rq, struct rq_flags *rf)
+{
+	...
+	unsigned long next_balance = jiffies + HZ;
+	if (this_rq->avg_idle < sysctl_sched_migration_cost ||     .............................1
+	    !this_rq->rd->overload) {
+		sd = rcu_dereference_check_sched_domain(this_rq->sd);
+		if (sd)
+			update_next_balance(sd, &next_balance);
+		goto out;
+	}
+
+	for_each_domain(this_cpu, sd) {
+		int continue_balancing = 1;
+		u64 t0, domain_cost;
+
+		if (this_rq->avg_idle < curr_cost + sd->max_newidle_lb_cost) {  ..........................2
+			update_next_balance(sd, &next_balance);
+			break;
+		}
+
+		if (sd->flags & SD_BALANCE_NEWIDLE) {
+			t0 = sched_clock_cpu(this_cpu);
+
+			pulled_task = load_balance(this_cpu, this_rq,
+						   sd, CPU_NEWLY_IDLE,
+						   &continue_balancing);
+
+			domain_cost = sched_clock_cpu(this_cpu) - t0;
+			if (domain_cost > sd->max_newidle_lb_cost)
+				sd->max_newidle_lb_cost = domain_cost;
+
+			curr_cost += domain_cost;
+		}
+
+		update_next_balance(sd, &next_balance);
+
+		if (pulled_task || this_rq->nr_running > 0)                      ...........................3
+			break;
+	}
+}
+
+```
+注1：执行 idle_balance 的根本目的在于提高程序的执行效率，迁移进程只是一种实现手段，当迁移进程本身的开销大于进程迁移产生的收益时，是不应该迁移进程的，因此，在 idle_balance 的前部分，会判断当前 CPU 的 rq 进入 idle 状态的平均时间，如果这个时间要小于进程迁移所产生的开销，就说明很大概率该 CPU 上马上就会有进程被唤醒，这时候做进程迁移就显得没那么必要了，同时，另一个条件是：如果系统中的负载本来就很轻，甚至每个 CPU 上只有或者不到一个进程，这时候下面的代码也没有太多必要执行了。在这两种情况下，直接更新一下下次执行 balance 的时间，退出即可。  
+
+注2：确定需要执行进程迁移只有，使用 for_each_domain 从当前 domain 向上遍历到顶层 domain，调用 load_balance 试图寻找合适的可迁移的进程，但是这个过程的开销必须是可控的，为了负载均衡的操作花去太多时间并不划算，因此每执行一次 load_balance 就会记录一次时间开销，当这个开销达到一定的值，就不再继续执行负载均衡
+
+注3：idle_balance 的目的就在于让当前 CPU 有进程可运行，并不用太贪心，因此如果有进程被迁移过来或者当前 CPU 上有进程被唤醒都会推出负载均衡的过程。  
+
+
+负载均衡最核心的部分还是 load_balance 函数，这个我们将在后续统一分析。  
+
+
+## trigger_load_balance
+在周期性的 tick 中，同样执行负载均衡的操作，对应的函数为 trigger_load_balance，这个接口将会触发 SCHED_SOFTIRQ 软中断，该软中断对应的执行函数为 run_rebalance_domains。  
+
+run_rebalance_domains 和 idle_balance 不同的是，传入的 flag 参数根据当前 CPU 是否处于 idle 分为 CPU_IDLE 或者 CPU_NOT_IDLE，同时，根据 sd 的对应的 balance intercal 属性确定下次执行 balance 的时间，记录 last_balance。  
+
+主要的部分还是从当前 domain 向上遍历，调用 load_balance，是否真的需要执行进程迁移由 load_balance 函数进行判断。   
 
 
 
+## load_balance
 
 
 
