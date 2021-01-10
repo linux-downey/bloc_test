@@ -1,0 +1,59 @@
+中断以及其它异常模式的栈在哪里？  
+
+对于 svc 模式，内核基本上工作在这个模式下，这部分使用进程的内核栈。 
+
+对于中断以及其它模式，实际上发生中断时，硬件跳转到中断向量表处，sp 也会随之跳转，中断的栈的初始化为：
+
+
+struct stack {
+	u32 irq[3];
+	u32 abt[3];
+	u32 und[3];
+	u32 fiq[3];
+} ____cacheline_aligned;
+
+arch/arm/kernel/setup.c 中：
+
+void notrace cpu_init(void)
+{
+	struct stack *stk = &stacks[cpu];
+	__asm__ (
+	"msr	cpsr_c, %1\n\t"
+	"add	r14, %0, %2\n\t"
+	"mov	sp, r14\n\t"
+	"msr	cpsr_c, %3\n\t"
+	"add	r14, %0, %4\n\t"
+	"mov	sp, r14\n\t"
+	"msr	cpsr_c, %5\n\t"
+	"add	r14, %0, %6\n\t"
+	"mov	sp, r14\n\t"
+	"msr	cpsr_c, %7\n\t"
+	"add	r14, %0, %8\n\t"
+	"mov	sp, r14\n\t"
+	"msr	cpsr_c, %9"
+	    :
+	    : "r" (stk),
+	      PLC (PSR_F_BIT | PSR_I_BIT | IRQ_MODE),
+	      "I" (offsetof(struct stack, irq[0])),
+	      PLC (PSR_F_BIT | PSR_I_BIT | ABT_MODE),
+	      "I" (offsetof(struct stack, abt[0])),
+	      PLC (PSR_F_BIT | PSR_I_BIT | UND_MODE),
+	      "I" (offsetof(struct stack, und[0])),
+	      PLC (PSR_F_BIT | PSR_I_BIT | FIQ_MODE),
+	      "I" (offsetof(struct stack, fiq[0])),
+	      PLC (PSR_F_BIT | PSR_I_BIT | SVC_MODE)
+	    : "r14");
+}
+这部分嵌入汇编切换到各种异常模式，为其设置对应的栈地址，最后又切换回 svc 模式。   
+
+每种类型的栈占用 12 字节，处于中断模式处理的部分不多，因此这些空间也就够了，因为所有的其他模式又会跳到 svc 模式下进行真正的处理，arm 中断中 svc 模式是直接占用了内核栈空间。  
+
+具体的架构相关的函数为  drivers/irqchip/irq-gic.c：
+set_handle_irq(gic_handle_irq);
+	handle_arch_irq = handle_irq;
+
+在汇编层面调用了 handle_arch_irq 用于处理架构相关的中断处理。 
+
+也就是通过 gic_handle_irq 来处理中断相关。  
+
+

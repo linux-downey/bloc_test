@@ -240,7 +240,7 @@ linux 的中断向量表的定义在 arch/arm/kernel/entry-armv.S 中:
 ```
 可以看到, .vectors 段链接时确定的虚拟地址指定为 0xffff0000,加载地址指定为 __vectors_start 的地址, __vectors_start 被赋值为当前的地址定位符,并不确定,紧随着上一个段放置,可以确定的是 __vectors_start 是 .vectors 段的起始部分.  
 
-根据吓一跳 .stubs 段的描述,该段被放置在 .vectors + 0x1000 地址处,等于 __vectors_start + 0x1000,正是我们要找的 svc 向量的跳转地址,于是在内核向量代码部分搜索 .stub 段就可以找到 svc 跳转代码了:
+根据下一条 .stubs 段的描述,该段被放置在 .vectors + 0x1000 地址处,等于 __vectors_start + 0x1000,正是我们要找的 svc 向量的跳转地址,于是在内核向量代码部分搜索 .stub 段就可以找到 svc 跳转代码了:
 
 ```
 .section .stubs, "ax", %progbits
