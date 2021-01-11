@@ -57,3 +57,36 @@ set_handle_irq(gic_handle_irq);
 也就是通过 gic_handle_irq 来处理中断相关。  
 
 
+
+
+gic 的处理代码:
+1. CPU nIRQ 接收到中断,进入中断处理,会调用 gic 的中断处理代码.
+2. gic 中断处理代码中,先读取 INT ACK 寄存器,读取这个寄存器也相当于 CPU ack 了这个中断,这个寄存器只用到了 bit0~bit12,高三位为 CPUID(SGI指定目标CPU),低10位为 INT ID,获取到 INT ID,这是硬件 ID,硬件 ID 到软件 ID 还有一个映射阶段,如果 gic 没有 pending 的 INT,返回 1023. 
+3.如果 supports_deactivate 为真,表示 deactive 需要手动操作,就是把 INT ACK 寄存器里面的内容写到 EOI 寄存器中,当 EIO mode 为 1 时,这个操作会执行 priority drop,表示可以继续提交 CPU int,但是现在中断还没开,CPU 并不会受理.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
