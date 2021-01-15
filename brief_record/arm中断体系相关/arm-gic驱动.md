@@ -41,6 +41,46 @@ gicv2 是一个 gic 标准，按照惯例，标准只是规定了在具体的实
 
 
 ## gicv2 结构
+正如上面所提到的,GIC 对下连接各路中断源,对上输出到 CPU,GIC 的硬件设计也分成相应的两部分:
+* GIC distributor
+* GIC CPU interface
+
+distributor 翻译过来就是分发器,负责将中断源传递过来的中断进行分发,而 CPU interface 不言而喻,则是针对 CPU 的配置接口,在多核架构中,每个 CPU 对应一个 CPU interface,负责将 distributor 传递过来的中断传递给 CPU,同时和 CPU 进行系列的交互.因此,在 GIC 中,一个外部中断向上传递的流程为:中断产生源 -> GIC distributor -> GIC CPU interface -> CPU.   
+
+下面是 GIC 内部的硬件框图(TODO):
+
+
+在上文对中断源的描述中,只提到了外部中断,因为这是底层开发人员最熟悉,也是接触的最多的中断源,在 GIC 中称为 SPI,即 Shared Peripheral Interrupt(注意和 SPI 通信协议的区分),是所有 CPU 共享的中断,处理器外部的外设通常使用这些中断,比如 uart/i2c.  
+
+有共享中断,那就有私有中断,私有中断有两种:
+* Private Peripheral Interrupt (PPI):这些中断也对应硬件上的外设中断线,只不过这些中断是会被分发到指定的 CPU.  
+* Software-generated interrupt (SGI):这是软件上配置的中断,这类型中断的触发是通过软件上写 gic 的寄存器实现的,同时这类中断也是指定 CPU 的.  
+
+因此,在上面的硬件框图中,SPI 是共享的,而 SGI 和 PPI 是 percpu 类型的,而 SPI/PPI 具体连接哪些中断,由具体的实现来决定.  
+
+### distributor
+GIC 中的 distributor 是属于所有 CPU 共享的,主要控制中断的收集与分发,其具体实现的接口为:
+* 全局地控制是否将中断源传递到 CPU interface.
+* 控制单个中断线是否使能,如果不使能,对应中断线上产生的中断自然不会传递到 CPU interface.
+* 设置每个中断的优先级,当出现中断源的并发时,向 CPU interface 传递优先级更高的中断
+* 设置所有中断源传递的目标 CPU,可以指定某些中断只传递到特定的 CPU interface.
+* 设置中断触发模式,是电平触发还是边沿触发
+* 为每个中断配置为 Group0 或者 Group1,通常只有在实现了 secure 模式的处理器上才会区分 Group0 或者 Group1
+* 传递 SGI 到特定的 CPU 核,可以是单个,也可以是多个.  
+* 软件可以直接设置和清除外部中断的 pending bit,也就是软件也可以触发外部中断.  
+
+#### 中断号
+对于 GICv2,最多支持 1020 个中断源,这是规定的一个上限值,具体的数量需要看处理器以及 board 的实现,比如 cortex-A7 处理器中实现的 gic 只支持 480 个 SPI 中断,而实际基于 cortex-A7 实现的 imx6 只是使用了 128 个外设中断线.  
+
+在标准的规定中,每个中断都对应一个 ID 号,ID0-ID15 用于 SGI 中断,ID16-ID31 用于 PPI 中断,而 ID32- 1019 属于共享的 SPI 中断.  
+
+在多核中,对于硬件上的 PPI 中断,由 GIC 的 bank 寄存器控制,每个 PPI 线都只会对应一个特定的 CPU,PPI 对应哪些中断这是由处理器决定的,比如对于 cortex-A7 而言,PPI1 对应 Secure Physical Timer event,PPI2 对应 percpu 的 Non-secure Physical Timer event,从硬件上来看,
+
+
+
+### CPU interface
+
+## 中断上报流程
 
 
 
