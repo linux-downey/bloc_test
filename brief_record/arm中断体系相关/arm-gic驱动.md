@@ -269,7 +269,51 @@ int __init gic_of_init(struct device_node *node, struct device_node *parent)
 
 
 
-注1：
+注1：每一个 GIC 对应一个 gic_chip_data 结构，这个实例是全局静态数组 gic_data 中的一个成员，而 gic_cnt 随着每一个 GIC 的初始化会递增，也就是全局静态数组 gic_data 中保存着所有系统中的 GIC 描述结构体。 
+
+既然是通过设备树传递参数，通常第一步都是解析设备树，在 gic_of_setup 中负责干这件事，对于 GIC 设备节点而言，标准的节点属性为 reg 和 cpu-offset 属性，reg 通常描述两段内存 distributor 相关的寄存器组和 CPU interface 相关的寄存器组，也可能是连续的或者多段，根据具体实现而定，cpu-offset 属性针对那些不提供 bank 寄存器的 GIC 实现，不过大部分 GIC 的实现都带有 bank 寄存器组，因此该属性通常并不需要。  
+
+除了内核定义的标准的属性节点，还可以传入自定义的节点属性，自然在驱动程序中就需要自定义的解析方式。
+
+注2：全局变量 supports_deactivate 表示是否使用 EOI mode，该值默认为 true，这个 EOI 模式在前文中有提到，EOI 模式使能与否决定了在 CPU 处理完中断之后通知 GIC 是一步操作还是两步操作，不使能 EOI 模式时，一次写寄存器操作表示GIC 同时执行 priority drop 和 deactivate，而使能 EOI 模式，需要分两步操作两个不同的寄存器来执行这两个操作。当处理器不处于 hyper 模式或者没有足够的外设寄存器空间时，不使能 EOI 模式，也就是  supports_deactivate 为 0.
+
+注3：GIC 主要的初始化工作，下文详细讨论
+
+注4：如果 parent 参数不为 NULL，也就说明当前 GIC 是被级联的 GIC，对于级联的 GIC 自然是需要进行特殊处理的，TODO，未完成。 
+
+
+
+### __gic_init_bases
+
+__gic_init_bases 是 GIC 初始化的核心函数，不过在讲解这个函数之前，有必要先了解两个数据结构：irq_chip_data 和 irq_desc。  
+
+先来看看 irq_chip_data 结构：
+
+```c++
+struct gic_chip_data {
+	struct irq_chip chip;
+	union gic_base dist_base;
+	union gic_base cpu_base;
+	void __iomem *raw_dist_base;
+	void __iomem *raw_cpu_base;
+	u32 percpu_offset;
+	struct irq_domain *domain;
+	unsigned int gic_irqs;
+    ...
+};
+```
+
+内核代码看得多了，就会找到那么一些规律，比如：
+
+* 通常从一个组件的相关数据结构以及数据结构之间的关系基本能反映该组件的功能与结构，上面列出的这些数据成员基本反映了 GIC 的主要功能。
+* 通常内核中的命名都是相通的，比如 xxx_chip 用来对一个硬件控制器的抽象，比如 gpio_chip/pwm_chip，既然是硬件控制器，也就有硬件控制器相关的信息和对该硬件控制器相关的操作，所以 irq_chip 中包含大量针对 GIC 硬件操作的函数指针，作为回调函数在特定时间调用
+* domain 这个单词在内核中出场率也不低，通常同一类组件中存在层级或者模块化的结构，为了方面管理，就需要为其划分域，通俗地说就是分组，比如不同层级的 GIC 划分为 irq_domain，不同层级的 CPU 之间划分为 sched_domain，或者针对功耗的 pm_domain
+
+
+
+
+
+
 
 
 
