@@ -182,6 +182,23 @@ GIC 中的 distributor 是属于所有 CPU 共享的,主要控制中断的收集
 
 
 
+## 再谈优先级和抢占
+
+在 GIC 的初始化阶段就已经为每个外部中断初始化了优先级,在外部中断传递的过程中,优先级和抢占的功能体现在下面的情况中:
+
+1. distributor 总是会将最高优先级的外部中断传递给 CPU interface,而 CPU interface 会维护当前正在处理或者正在 assert CPU IRQ 线的中断优先级.,
+2.  CPU interface  assert CPU  的 IRQ 线,CPU 再通过寄存器的读操作获取外部中断 ID.但是,在 CPU 的 IRQ 线被 assert 到 CPU 读取寄存器的过程中,产生了更高优先级的中断,会发生什么?
+   distributor 会将新发生的高优先级的中断传递给 CPU interface,因此执行到 CPU 读取中断 ID 寄存器时,读取的也就是新中断的 ID 号,这种情况下,实现了高优先级中断的优先处理,从 CPU interface 的角度来说,这算是中断抢占,因为旧的中断已经提交,而新的高优先级中断横插一脚,而对于 CPU 来说,这并不算中断抢占,毕竟 CPU 还没有真正开始执行旧的中断,算是合理的优先级排序,毕竟抢占的概念通常用在正在执行的对象上.  
+3. 当 CPU 读取中断 ID 寄存器时,同时意味着向 CPU interface  ack 了该中断,并开始处理中断,如果这时候产生了更高优先级的中断,此时这个中断在满足以下条件的情况下就会抢占当前的中断:
+   * GIC 配置中断可抢占,中断的优先级配置中可以对中断进行分组,目前支持两个组:grp0 和 grp1,grp0 通常是针对 secure 模式,grp0 的中断可以传递搭配 CPU 的 IRQ 和 FIQ 线,而 grp1 通常应用在 nonsecure 模式,GIC 在初始化的时候可以为每个中断进行分组.
+     产生中断抢占的条件之一就是新的 pending 中断优先级要比当前 active 中断的优先级高,也就是抢占其实是以组为单位的. 
+     在 linux 默认的 GIC 驱动中,默认运行在 nonsecure 模式,而且不使用 FIQ 引脚,因此默认是不配置抢占功能的
+   * 硬件上的抢占是一回事,软件上是否响应又是另一回事,当 CPU ack 了一个外部中断时,这时候 CPU interface 会 deassert CPU IRQ 中断线,如果产生了中断抢占的条件 ,新的中断就会重新 assert CPU IRQ 线,对于 arm 来说,在中断处理的时候关闭了 CPU 的中断,即使 IRQ 被重新 assert 也不会理会,.当然, linux 系统是完全开放的,完全可能通过自行配置在 linux 中支持中断抢占. 
+
+
+
+
+
 ## GIC 的级联
 
 嵌入式系统中，通常一个 gic 足以管理所有的外部中断，但是在某些复杂的系统中，可能一个 GIC 并不够，非常容易想到的一个扩展方案就是增加 GIC 的数量，并列地增加 GIC 并不是一个好方案，比如两个 GIC 的中断输出同时连到 CPU 的 IRQ 上，这会带来一些识别上的额外工作，于是多个 GIC 之间采用级联的方式。  
@@ -303,11 +320,31 @@ struct gic_chip_data {
 };
 ```
 
-内核代码看得多了，就会找到那么一些规律，比如：
+通常内核中的命名都是相通的，比如 xxx_chip 用来对一个硬件控制器的抽象，比如 gpio_chip/pwm_chip，既然是硬件控制器，也就有硬件控制器相关的信息和对该硬件控制器相关的操作，所以 irq_chip 中包含大量针对 GIC 硬件操作的函数指针，作为回调函数在特定时间调用,比如 gic 驱动中的 gic_chip 的初始化:
 
-* 通常从一个组件的相关数据结构以及数据结构之间的关系基本能反映该组件的功能与结构，上面列出的这些数据成员基本反映了 GIC 的主要功能。
-* 通常内核中的命名都是相通的，比如 xxx_chip 用来对一个硬件控制器的抽象，比如 gpio_chip/pwm_chip，既然是硬件控制器，也就有硬件控制器相关的信息和对该硬件控制器相关的操作，所以 irq_chip 中包含大量针对 GIC 硬件操作的函数指针，作为回调函数在特定时间调用
-* domain 这个单词在内核中出场率也不低，通常同一类组件中存在层级或者模块化的结构，为了方面管理，就需要为其划分域，通俗地说就是分组，比如不同层级的 GIC 划分为 irq_domain，不同层级的 CPU 之间划分为 sched_domain，或者针对功耗的 pm_domain
+```c++
+static struct irq_chip gic_chip = {
+	.irq_mask		= gic_mask_irq,
+	.irq_unmask		= gic_unmask_irq,
+	.irq_eoi		= gic_eoi_irq,
+	.irq_set_type		= gic_set_type,
+	...
+};
+```
+
+这些函数都可以从名称看出它们所实现的功能,而这些函数都是对 GIC 中寄存器的控制.  
+
+domain 这个单词在内核中出场率也不低，通常同一类组件中存在层级或者模块化的结构，为了方面管理，就需要为其划分域，通俗地说就是分组，比如不同层级的 GIC 划分为 irq_domain，不同层级的 CPU 之间划分为 sched_domain，或者针对功耗的 pm_domain
+
+其它的一些数据成员在上文中已经介绍过了,比如 dist_base 和 cpu_base 是 distributor 和 CPU interface 对应寄存器组的地址,同时还需要兼容 GIC 没有实现 bank 寄存器的情况,这种情况下使用 percpu 的 __iomem 地址,因此使用一个 union 描述. 
+
+
+
+irq_chip_data 用于描述 gic 硬件相关的信息,其中包含的 irq_chip 主要描述 gic 的相关操作,而单个的 irq 则由 irq_desc 这个结构表示:
+
+```
+
+```
 
 
 
