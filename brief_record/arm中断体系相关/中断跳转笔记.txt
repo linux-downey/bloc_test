@@ -68,11 +68,102 @@ gic 的处理代码:
 
 
 
+## gic_handle_irq 的执行
+
+gic_handle_irq 的参数是 pt_regs,这是中断现场的寄存器值,因为在中断的处理过程中会破坏这些寄存器中的值,因此需要在中断处理完成之后将寄存器恢复到原样. 
+
+在这个函数中,开启一个循环,读取 INTACK 寄存器,读取到有效的 ID 号就进行处理,读取到无效的 ID 号(1023)就退出循环.当 ID 号大于 15 小于 1020 的时候,这是 PPI 和 SPI 的范围,调用 handle_domain_irq 对这些中断进行处理,当前的 domain 是顶层的 domain. 
+
+当 ID 号小于 15 时,内核中的实现是一些 IPI 中断(SMP系统),即 CPU 之间的通信,内核中目前定义的 IPI 如下:
+
+* IPI_WAKEUP
+* IPI_TIMER,这是指令集架构级别的定时器,发送的广播事件,通常是因为 CPU 进入休眠,本地的 timer 被关闭了.
+* IPI_RESCHEDULE:重调度中断,远程唤醒时会用到
+* IPI_CALL_FUNC
+* IPI_CPU_STOP:停止当前 CPU 上的进程,active balance 的时候会用到
+* IPI_IRQ_WORK
+* IPI_COMPLETION
+* IPI_CPU_BACKTRACE
+
+有些 ID 号还没有用到. 
+
+对于 SGI 而言,在读完寄存器 ID 之后,立刻回复 interrupt completion,好像直接 priority drop 也没关闭,反正 linux 也不会响应. 注意这里读到的中断号只是 root gic 的中断号,可能该中断号对应的是一个级联的 secondary GIC. 
+
+---
+
+对于 SPI 和 PPI 中断,调用 handle_domain_irq->__handle_domain_irq
+
+```c++
+int __handle_domain_irq(struct irq_domain *domain, unsigned int hwirq,
+			bool lookup, struct pt_regs *regs)
+{
+	struct pt_regs *old_regs = set_irq_regs(regs);
+	unsigned int irq = hwirq;
+	int ret = 0;
+
+	irq_enter();
+
+#ifdef CONFIG_IRQ_DOMAIN
+	if (lookup)
+		irq = irq_find_mapping(domain, hwirq);
+#endif
+
+	/*
+	 * Some hardware gives randomly wrong interrupts.  Rather
+	 * than crashing, do something sensible.
+	 */
+	if (unlikely(!irq || irq >= nr_irqs)) {
+		ack_bad_irq(irq);
+		ret = -EINVAL;
+	} else {
+		generic_handle_irq(irq);
+	}
+
+	irq_exit();
+	set_irq_regs(old_regs);
+	return ret;
+}
+```
+
+irq_find_mapping 就是通过 root GIC 的 hwirq 来获取逻辑 irq num.  
+
+这个 mapping 需要从 irq_create_direct_mapping 说起.(gic 初始化的时候再看)
+
+ hw 的 mapping 分为 direct mapping 和 tadix tree mapping,在上面的函数中,只是解析了一层的 hwirq 到逻辑 irq 的映射,然后通过该 irq 调用 generic_handle_irq.  
+
+generic_handle_irq 的调用路径为:generic_handle_irq-> generic_handle_irq_desc-> desc->handle_irq.
+
+也就是会调用 desc->handle_irq,这个 handle_irq 是high level 的中断处理函数,实际的执行函数在 irqaction 中,这个 handle_irq 在哪里定义的?
+
+在 gic 级联的时候,作为 secondary gic,会调用 gic_cascade_irq,这时候会调用 irq_set_chained_handler_and_data 将 desc->handle_irq 设置为 gic_handle_cascade_irq.
+
+普通的 desc->handle_irq 设置在 gic_init_base 中:
+
+gic_init_bases->irq_domain_add_legacy:传入 gic_irq_domain_ops,其中的 .map = gic_irq_domain_map 回调函数,该回调函数会在 map 的时候被调用,该函数中调用 irq_domain_set_info,传入的第 6 个参数就是 desc->handle_irq,这里传入的是 handle_fasteoi_irq 和 handle_percpu_devid_irq.  
+
+create_map 的时候会调用到 irq_domain_associate,这个函数中会调用到上面的 ->map 回调函数.
+
+接下来就是分析这两个函数. 
+
+对于级联的 desc->handle_irq  -- gic_handle_cascade_irq:
+
+中断处理函数针对的还是 GIC,因此需要再次操作 secondary gic 的寄存器获取当前 gic 中产生中断的 ID 号,然后 mask 该 irq,对应的操作就是设置对应的 DIST_ENABLE_CLEAR 标志位.  
+
+读取到的 ID 赋值为 gic_irq,这是 secondary 的 hwirq
+
+同样通过 irq_find_mapping 找到当前 domain 下的 mapping 方式,通过 gic irq 获取当前 domain 下对应的逻辑 irq(这个逻辑irq应该和 root gic 的逻辑 irq 是不同的),再通过逻辑 irq 调用 generic_handle_irq. 整个流程和 root gic 就差不多了. 
+
+从逻辑 irq 到 desc 的映射是统一的,并不区分 domain.其它的就和 root gic 的操作差不多了,所以,domain 目前来说只是针对 hwirq 到逻辑 irq 的映射问题.   
+
+对于普通的 desc->handle_irq -- handle_fasteoi_irq:
 
 
 
+其实级联的 irq 只是中间做了一层转换,最后还是调用了 handle_fasteoi_irq. 
 
+handle_fasteoi_irq->handle_irq_event->handle_irq_event_percpu->__handle_irq_event_percpu,在该函数中,针对 desc 上的每个 action->handler 都会调用,action->dev_id 是唯一识别码. 如果是 thread 类型的 irq,也会调用 __irq_wake_thread 
 
+但是我没看到 percpu 的 PPI 是怎么处理的.
 
 
 
