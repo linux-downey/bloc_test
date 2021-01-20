@@ -163,8 +163,6 @@ create_map 的时候会调用到 irq_domain_associate,这个函数中会调用�
 
 handle_fasteoi_irq->handle_irq_event->handle_irq_event_percpu->__handle_irq_event_percpu,在该函数中,针对 desc 上的每个 action->handler 都会调用,action->dev_id 是唯一识别码. 如果是 thread 类型的 irq,也会调用 __irq_wake_thread 
 
-但是我没看到 percpu 的 PPI 是怎么处理的.
-
 
 
 
