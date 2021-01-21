@@ -342,18 +342,92 @@ domain 这个单词在内核中出场率也不低，通常同一类组件中存�
 
 irq_chip_data 用于描述 gic 硬件相关的信息,其中包含的 irq_chip 主要描述 gic 的相关操作,而单个的 irq 则由 irq_desc 这个结构表示:
 
+```c++
+struct irq_desc {
+	...
+    struct irq_data		irq_data;
+    irq_flow_handler_t	handle_irq;
+    struct irqaction	*action;
+    wait_queue_head_t       wait_for_threads;
+    ...
+}
 ```
 
+作为描述单个 irq 的数据结构，irq_desc 的数据成员有很多，上面只是列出了比较重要的几个，其中：
+
+* irq_data : 从名称不难看出，这是 irq_desc 相关的数据成员，其中包含该中断的逻辑 irq，hwirq，以及该终端所属的 chip 和 domain，这个数据结构并不是指针而是实例结构，如果你经常阅读内核代码，就知道可以通过 irq_data 的指针反向获取到对应的 irq_desc 结构的地址。
+  因此，在实际的内核处理中，在外面抛头露面的是这个 irq_data，毕竟 irq_data 包含了索引到该中断的关键信息(irq,hwirq,chip,domain)，找到了 irq_data 也就相当于找到了 irq_desc，而不用直接操作整个臃肿的 irq_desc，这大概也是内核中将 irq_data 从 irq_desc 中独立出来的原因吧。  
+
+* handle_irq：按照命名的经验来看，这个函数应该就是中断的处理函数了，它也可以算是中断的处理函数，只不过是相对 high level 的，也就是在中断处理函数相对靠前的阶段被调用，为什么需要再添加一层 high level 的定义呢，自然是为了针对不同的处理情况进行抽象，比如上层的 PPI 中断和 SPI 中断需要分别处理。 
+* action：action 才是我们的正主，也就是内核或者驱动开发者在申请中断时传入的中断处理函数就被保存在这里，在中断处理的后一阶段被调用。
+  由于共享中断的存在，同一个中断号对应的 action 并不一定只有一个，struct  irqaction 结构中包含 next 指针，也就是将共享该中断线的所有 action 组成一个链表，在处理的时候再执行，对于共享的中断，需要通过 dev_id 来对某一个中断进行唯一识别。
+  同时，内核引入中断线程化的概念，也就是中断可以不在中断上下文中执行，而是在内核线程上下文中执行，action 中包含 thread_fn 以及 thread 等数据结构，以支持中断线程化。 
+* wait_for_threads：wait_queue_head_t 是一个等待队列头，这是在中断同步的时候使用的，比如进程在 disable 或者 free 某个 irq 时，需要等待 irq 执行完成，如果该 irq 的例程正在执行，该进程就会睡眠并记录在该等待队列中，在该中断处理完成之后就会唤醒这些进程。 
+
+
+
+了解完这两个数据结构，再回过头继续看 GIC 的驱动初始化代码：__gic_init_bases，按照一贯的风格，咱们还是讲逻辑为主，贴代码为辅。  
+
+在 __gic_init_bases 中，分为两种情况：
+
+* root gic 的处理
+* 非 root gic 的处理
+
+针对 root gic，中断输出引脚直接连接到 CPU 的 IRQ line，和 secondary gic 的区别在于 root gic 需要处理 SGI 和 PPI，而 secondary git 不需要，同时，在多核环境中，还需要配置相应的 CPU interface：
+
+```c++
+static int __init __gic_init_bases(struct gic_chip_data *gic,
+				   int irq_start,
+				   struct fwnode_handle *handle)
+{	
+    ...
+    if (gic == &gic_data[0]) {
+        set_smp_cross_call(gic_raise_softirq);                   ..................1
+        cpuhp_setup_state_nocalls(CPUHP_AP_IRQ_GIC_STARTING,     ..................2
+                          "AP_IRQ_GIC_STARTING",
+                          gic_starting_cpu, NULL);
+        set_handle_irq(gic_handle_irq);                          ..................3
+    }
+    ...
+}
 ```
 
+注1：在内核中，SGI 中断基本上都被用于 CPU 核之间的通信，又被称为 IPI 中断，由某一个 CPU 发给单个或者多个 CPU，set_smp_cross_call(gic_raise_softirq) 这个函数就是设置发送 IPI 中断的回调函数为 gic_raise_softirq，这个函数实现很简单，就是写 GIC 的 SGI 中断寄存器，对应的参数就是目标 CPU 的 mask 和对应的中断号。
+
+比如唤醒其它 CPU 时，  调用路径为 arch_send_wakeup_ipi_mask -> smp_cross_call -> gic_raise_softirq,对应的参数为目标 CPU 以及 0 (0号SGI中断为唤醒中断).
+
+注2：cpuhp_setup 开头的函数都是和 CPU hotplug 相关的，可以理解为注册在 CPU 热插拔时执行的回调函数，
+
+这里的调用注册了 gic_starting_cpu 回调接口，在 CPU 接入并 setup 时被调用，不难想到，当一个 CPU 启动并设置 GIC 时，需要对 GIC percpu 的部分进行初始化，一方面是 SGI 和 PPI 相关的，另一方面是和当前 CPU 对应的 CPU interface 相关的，因为这个回调接口将会被每个 CPU 调用，它只会设置本 CPU 对应的 CPU interface，包括 CPU 优先级的 mask 寄存器，以及 CPU interface 的 enable 设置等等。  
+
+注3：set_handle_irq(gic_handle_irq)，该函数用于设置中断发生时的 higher level 回调函数，之所以用 higher，是因为前面用了一个 high level 的概念，自然，这个回调函数在更早的时候被调用，gic_handle_irq 是中断处理程序的汇编代码调用，这是一个很重要的函数，也是后续在分析中断处理流程时的主角。
 
 
 
+root gic 相关的部分处理完了，接下来就处理非 root gic 部分，其实不能说是非 root gic 部分，因为这部分是共用的部分：
 
+```c
+static int __init __gic_init_bases(struct gic_chip_data *gic,
+				   int irq_start,
+				   struct fwnode_handle *handle)
+{
+    ...
+    gic_init_chip(gic, NULL, name, false);            
+    ret = gic_init_bases(gic, irq_start, handle);
+    ...
+}
+```
 
+gic_init_chip：从名字可以看出，这是对 gic_chip 结构的初始化，gic_chip 这个结构体中主要包含了很对针对 GIC 寄存器的回调函数，gic chip 中静态定义了一些公共的回调函数，比如 gic_mask_irq(屏蔽某个中断)、gic_set_type(设置中断线触发方式)等等，在 gic_init_chip 中主要设置了 name、parent 等识别参数，如果支持 EIO 模式，还会设置 EIO 相关的回调函数，不过一般情况下是不支持 EIO，即中断的 completion 回复直接一步到位。 
 
+如果是多核系统，还可以设置中断的 affinity
 
+gic_init_bases，这又是一个主要的函数，也是初始化的核心函数。 
 
+#### gic_init_bases
 
+gic_init_bases 函数也被分为两个部分：
 
-测试是否可以写硬件中断。
+* 不带 bank 寄存器的 GIC
+* 正常的 GIC
+
