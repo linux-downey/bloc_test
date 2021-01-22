@@ -296,7 +296,7 @@ int __init gic_of_init(struct device_node *node, struct device_node *parent)
 
 注3：GIC 主要的初始化工作，下文详细讨论
 
-注4：如果 parent 参数不为 NULL，也就说明当前 GIC 是被级联的 GIC，对于级联的 GIC 自然是需要进行特殊处理的，TODO，未完成。 
+注4：如果 parent 参数不为 NULL，也就说明当前 GIC 是被级联的 GIC，对于级联的 GIC 自然是需要进行特殊处理的，下文讨论。 
 
 
 
@@ -559,4 +559,38 @@ static int gic_init_bases(struct gic_chip_data *gic, int irq_start,
     ...
 }
 ```
+
+注1：建立 hwirq-逻辑irq 之间映射的第一步是确定 hwirq 的范围以及数量，GIC 硬件上支持多少中断是由硬件实现决定的，软件上通过读取 GIC_DIST_CTR 寄存器的低5位可以获取到 gic 的数量
+
+注2：对于 root gic，SGI 和 PPI 会被系统使用，而其它 secondary GIC 并不会使用到 SGI 和 PPI，因此对于 secondary GIC 而言，不用对前 32 个中断号进行映射，hwirq_base 为 32，而对于 root gic 而言，SGI 和 PPI 并不一定使用完整的 16 个，因此根据实际情况对其进行映射。 
+
+注3：有些奇怪的是，irq desc 的申请在 irq domain 建立之前，毕竟 irq desc 是全局数据类型，理论上应该由 irq domain 建立之后，即 hwirq 和逻辑 irq 之间的映射建立完成之后再通过逻辑 irq 分配对应的 irq domain，这里并没有这么做，实际上是使用了一个 allocated_irqs 全局 bit map，每次需要申请新的 irq desc 时，会先从这个 bit map 中找到合适且连续的空间，该空间的起始位置为 start，实际上这个 start 就是逻辑 irq，也就是此时基本上已经将 hwirq 和逻辑 irq 的映射建立完成，再通过调用 alloc_descs 为连续的逻辑 irq 分配对应的 irq desc，所有的 irq desc 可以使用数组也可以使用 radix tree。
+
+注4：irq_alloc_descs 的返回值是逻辑 irq 的起始值，此时分配的逻辑 irq 是连续的，因此，已经明确了逻辑 irq 的起始以及数量、hwirq 的起始以及数量，建立逻辑 irq 与 hwirq 之间的映射就很简单了。  
+
+实际上 irq_domain_add_legacy 这个函数并不仅仅是建立关系，还会根据当前 gic 的信息新建一个 irq_domain 结构：申请一个新的 irq domain 结构，并初始化对应的 ops、revmap、revmap_tree 等成员，这些 map 用于保存映射关系，同时将该 irq domain 链接到全局链表 irq_domain_list 中，方面后续的遍历工作。 
+
+ 初始化 irq domain 完成之后，就会调用 irq_domain_associate_many 建立 hwirq 和逻辑 irq 的映射关系，在该函数中，最终会确定使用线性映射还是使用 radix tree 的映射方式。如果在创建 irq domain 时提供了 irq_domain 中的 map 接口，就调用该用户提供的 map 接口进行映射，这种映射可以是自定义的，默认情况下是建立简单的线性映射，如果内核配置了 CONFIG_SPARSE_IRQ,就使用 radix tree 的方式进行映射，如果是线性映射，保存在 domain->linear_revmap 中，该数组中保存逻辑 irq 的值，hwirq 为下标，如果是 radix tree 的方式映射，则保存在 &domain->revmap_tree 中，hwirq 作为 key，逻辑 irq 为对应的 value。 
+
+到这里，irq domain 的建立与 irq 之间的映射关系就完成了，当发生中断时，内核只需要通过 domain 和 hwirq 两个参数调用 irq_find_mapping 函数就可以找到唯一的逻辑 irq num。  
+
+
+
+## 级联 GIC 的中断处理
+
+在 GIC 驱动中 gic_of_init 的最后初始化一部分为级联 GIC 的处理：
+
+```c++
+int __init
+gic_of_init(struct device_node *node, struct device_node *parent)
+{
+	if (parent) {
+		irq = irq_of_parse_and_map(node, 0);
+		gic_cascade_irq(gic_cnt, irq);
+	}    
+}
+
+```
+
+
 
