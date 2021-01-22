@@ -358,7 +358,7 @@ struct irq_desc {
 * irq_data : 从名称不难看出，这是 irq_desc 相关的数据成员，其中包含该中断的逻辑 irq，hwirq，以及该终端所属的 chip 和 domain，这个数据结构并不是指针而是实例结构，如果你经常阅读内核代码，就知道可以通过 irq_data 的指针反向获取到对应的 irq_desc 结构的地址。
   因此，在实际的内核处理中，在外面抛头露面的是这个 irq_data，毕竟 irq_data 包含了索引到该中断的关键信息(irq,hwirq,chip,domain)，找到了 irq_data 也就相当于找到了 irq_desc，而不用直接操作整个臃肿的 irq_desc，这大概也是内核中将 irq_data 从 irq_desc 中独立出来的原因吧。  
 
-* handle_irq：按照命名的经验来看，这个函数应该就是中断的处理函数了，它也可以算是中断的处理函数，只不过是相对 high level 的，也就是在中断处理函数相对靠前的阶段被调用，为什么需要再添加一层 high level 的定义呢，自然是为了针对不同的处理情况进行抽象，比如上层的 PPI 中断和 SPI 中断需要分别处理。 
+* handle_irq：按照命名的经验来看，这个函数应该就是中断的处理函数了，它也可以算是中断的处理函数，只不过是相对 high level 的，也就是在中断处理函数相对靠前的阶段被调用，为什么需要再添加一层 high level 的定义呢，自然是为了针对不同的处理情况进行抽象，比如上层的 PPI 中断和 SPI 中断需要分别处理,对于级联的 GIC 也需要做不同处理,不同的情况就对应不同的回调接口。 
 * action：action 才是我们的正主，也就是内核或者驱动开发者在申请中断时传入的中断处理函数就被保存在这里，在中断处理的后一阶段被调用。
   由于共享中断的存在，同一个中断号对应的 action 并不一定只有一个，struct  irqaction 结构中包含 next 指针，也就是将共享该中断线的所有 action 组成一个链表，在处理的时候再执行，对于共享的中断，需要通过 dev_id 来对某一个中断进行唯一识别。
   同时，内核引入中断线程化的概念，也就是中断可以不在中断上下文中执行，而是在内核线程上下文中执行，action 中包含 thread_fn 以及 thread 等数据结构，以支持中断线程化。 
@@ -398,7 +398,7 @@ static int __init __gic_init_bases(struct gic_chip_data *gic,
 
 注2：cpuhp_setup 开头的函数都是和 CPU hotplug 相关的，可以理解为注册在 CPU 热插拔时执行的回调函数，
 
-这里的调用注册了 gic_starting_cpu 回调接口，在 CPU 接入并 setup 时被调用，不难想到，当一个 CPU 启动并设置 GIC 时，需要对 GIC percpu 的部分进行初始化，一方面是 SGI 和 PPI 相关的，另一方面是和当前 CPU 对应的 CPU interface 相关的，因为这个回调接口将会被每个 CPU 调用，它只会设置本 CPU 对应的 CPU interface，包括 CPU 优先级的 mask 寄存器，以及 CPU interface 的 enable 设置等等。  
+这里的调用注册了 gic_starting_cpu 回调接口,函数的 nocalls 后缀表示本次注册不会调用到该接口,只是注册，它会在 CPU 接入并 setup 时被调用，不难想到，当一个 CPU 启动并设置 GIC 时，需要对 GIC percpu 的部分进行初始化，一方面是 SGI 和 PPI 相关的，另一方面是和当前 CPU 对应的 CPU interface 相关的，因为这个回调接口将会被每个 CPU 调用，它只会设置本 CPU 对应的 CPU interface，包括 CPU 优先级的 mask 寄存器，以及 CPU interface 的 enable 设置等等。  
 
 注3：set_handle_irq(gic_handle_irq)，该函数用于设置中断发生时的 higher level 回调函数，之所以用 higher，是因为前面用了一个 high level 的概念，自然，这个回调函数在更早的时候被调用，gic_handle_irq 是中断处理程序的汇编代码调用，这是一个很重要的函数，也是后续在分析中断处理流程时的主角。
 
@@ -428,6 +428,135 @@ gic_init_bases，这又是一个主要的函数，也是初始化的核心函数
 
 gic_init_bases 函数也被分为两个部分：
 
-* 不带 bank 寄存器的 GIC
-* 正常的 GIC
+* 不带 bank 寄存器的 GIC 特殊处理
+* irq domain 与 irq 映射关系的建立
+* GIC 寄存器的初始化设置
+
+对于不带 bank 寄存器的 GIC 实现,GIC 中有部分寄存器是和 CPU 相关的,比如大部分 CPU interface 相关的寄存器,多个 CPU 核自然不能使用同一套寄存器,需要在内核中为每个 CPU 分配对应的存储空间,因此需要使用到 percpu 相关的数据结构和变量,gic 相关数据结构中的 percpu 变量大多都是和这种情况相关的.    
+
+比如 struct gic_chip_data类型的 gic_data 数组中的每个成员,不带 bank 寄存器的 GIC 驱动中使用 gic->dist_base.percpu_base 记录 distributor 的基地址,否则使用 gic->dist_base.common_base.  
+
+大多数的 GIC 实现都支持 bank 寄存器,因此说它是正常的 GIC 实现.  
+
+至于 irq domain 和 irq 映射相关的,这是一个相对复杂的问题,暂时放到后面讲解.
+
+先来看一下GIC 寄存器的初始化设置部分,这部分其实就是对 GIC 中的一部分寄存器做一些初始化工作,和 GIC 的硬件实现有关,软件上的关联并不大,要理解这一部分的源代码,最好的方式就是阅读 GICv2 的手册以及具体的 GIC 实现(比如 cortex-A7 手册包含 GIC 的实现,或者 GIC400 手册),初始化分为两个函数:gic_dist_init 和 gic_cpu_init
+
+,不难看出,这两个函数分别针对 GIC 的 distributor 和 CPU 相关的初始化函数,这两个函数对应的设置项为:
+
+* 全局地使能中断从 distributor 到 CPU interface 的传递
+* 为每个中断设置传递的目标 CPU mask,通常就是一个特定的 CPU
+* 为每个中断设置默认的触发方式,默认为低电平触发(具体平台取决于 GIC 的驱动实现)
+* 为每个中断设置优先级
+* 初始化复位所有的中断线
+* 为每个 CPU interface 记录对应的 CPU mask,当然,这个 mask 只对应一个 CPU
+* 设置 CPU interface 的中断屏蔽 threshold
+* 其它的 CPU interface 的一些初始化工作
+
+做完这些初始化设置之后,GIC 就可以开始工作了,它所做的工作在前面的文章提到过多次:从各个中断源收集中断触发信息,然后根据配置将中断传递给预设的 CPU,仅此而已. 
+
+ 
+
+## irq domain
+
+domain 翻译过来就是 "域" 的意思,在内核中是一个比较常见的概念,也就是将某一类资源划分成不同的区域,相同的域下共享一些共同的属性, domain 实际上也是对模块化的一种体现.   
+
+比如常见的 sched_domain,鉴于 CPU 之间互操作的成本取决于硬件上 CPU 之间的距离,就是将不同距离的 CPU 划分为不同的域,同域内的操作成本相对较低,以此来合理地安排进程迁移这项重要的工作.  
+
+或者对于 power manage 这样的工作就体现得更为明显了,硬件上的电源提供通常分为多个独立的 block,每个 block 对应不同域,以此简化电源管理的逻辑.  
+
+irq domain 的产生是因为 GIC 对于级联的支持. 实际上,虽然内核对每个 GIC 都设立了不同的域,但是它只做了一件事:负责 GIC 中 hwirq 和逻辑 irq 的映射.   
+
+#### hwirq
+
+hwirq 即 hardware irq,也就是 GIC 硬件上的 irq ID,这是 GIC 标准定义的,在 GIC 的介绍中有提到:
+
+* 0~15 对应 SGI 中断,该中断是 percpu 的
+* 16~31 对应 PPI 中断,该中断是 percpu 的
+* 32~1020 对应 SPI 中断,即共享中断,是所有 CPU 共享的,这些中断会被分发到哪个 CPU 根据配置决定
+
+实际上,中断数量的多少取决于 GIC 的具体实现,有可能是 320/480 个或者更多,这些中断的实现在 ID 上也并不一定是连续的,总归是符合 GIC 的标准定义之内的,而且每个 GIC 的 hwirq 都是相同的.
+
+#### 逻辑irq   
+
+再回过头来看软件,其实软件上的要求很简单:当某个中断源产生中断时,我只要能够根据中断号的映射找到该中断对应的中断资源就好了,这里的中断资源包括中断回调函数/中断执行对应的参数等.
+
+因此,需要对硬件上的中断号做一层映射,也就是软件上维护一个全局且唯一的逻辑 irq 映射表,每一个 GIC 的每一个 ID 都有一个对应的唯一的逻辑 irq,然后大可以通过唯一的逻辑 irq 来匹配对应的中断资源.于是一个完整的映射表就完成了: GICn 的 hwirq -> 逻辑 irq -> 对应的中断 resource.  
+
+理解了 irq domain 所完成的工作,接下来的问题就是:如何建立 hwirq 与逻辑 irq 之间的映射表?
+
+#### 简单的映射
+
+在最简单也是最常见的情况下,系统中只有一个  root GIC,且 GIC 中所支持的中断是连续的,比如 0~31 对应 SGI 和 PPI 中断,系统中所有外设中断占用 32~319 中断号. 
+
+这种情况几乎不需要映射,直接使用 hwirq 作为 irq 就好,当然,考虑到软件上的兼容,还是需要一个 mapping 函数,只是 irq 的获取直接返回 hwirq 而已.  
+
+当然,也有可能是简单的映射,比如内核中使用的 SGI 和 PPI 不会用到 16 个,hwirq 上不使用但是软件上的 irq 可以使用,比如 irq num 为 8 的中断对应 hwirq 为 32 的中断,当然,具体怎么映射是很灵活的.
+
+#### 不连续的映射
+
+对于简单的映射,通常就是一个数组就搞定了,中断号或者对中断号做一些线性的运算作为数组下标,简单而且效率高,但是如果中断 ID 的实现是非连续的,使用数组就不大合适了,这时候通常使用 radix tree 对 hwirq 和 irq 进行映射,这种数据结构查找效率也很高,只是会占用稍微多一点点的内存,对于使用者而言,使用内核提供的接口,也比较简单. 
+
+#### 级联的 GIC
+
+在单个 GIC 的系统中,因为只存在一个 GIC, hwirq 也是唯一的,当系统中存在多个 GIC 时, 对于每个 GIC,hwirq 都是一样的,因此 hwirq 不再是唯一的,这时候需要考虑的问题就是如何将不同 GIC 中相同的 hwirq 映射为系统中的逻辑 irq.  
+
+最容易想到的办法就是增加一个 GIC ID 的参数,GIC ID 配合该 GIC 中对应的 hwirq 就可以唯一定位一个中断源了,内核中并不是增加一个 GIC ID,而是引入 irq domain 的概念,每个 GIC 对应一个独立的 domain,从原理上来说,不管用什么办法,只要能识别到 GIC,再通过 hwirq 就可以唯一定位中断源. irq domain 负责建立和维护当前 domain 下的 hwirq 到逻辑 irq 的映射.  
+
+比如,系统中存在一个 root GIC,一个 secondary GIC, root GIC domain 中将 0~479 GIC ID 映射为 0~479 的逻辑 irq,而在 secondary GIC domain 内,32~480 的 GIC ID 映射为  480~927 的逻辑 irq,每个 domain 保存各自的映射表,并提供相应的查询接口 irq_find_mapping,这个接口参数为 domain 和 hwirq,返回值为 hwirq 对应的逻辑 irq.  
+
+还是来一个示例更加实在:假设系统中存在两个 GIC,secondary GIC 连接到 root GIC 的 40 号引脚,也就是 hwirq 为 40,现在在 secondary GIC 的 48 号中断触发了,会发生什么呢? 
+
+* 首先,GIC 配置正常的情况下,中断会通过 root GIC 传递到 CPU,CPU 进入中断处理过程.
+* CPU 通过读取 root gic 相关寄存器获取到触发中断的 hwirq 为 40,执行 irq_find_mapping 函数,传入 root domain 和 hwirq 号,获取逻辑 irq,因为 root domain 中保存了当前 GIC hwirq 与逻辑 irq 的映射表
+* 获取到逻辑 irq 之后,通过 irq_to_desc 函数获取对应的 irq desc,irq desc 中包含了该中断相关的信息,包括对应的中断执行函数以及参数,执行 irq_desc 中的 high level 回调函数.
+* 因为 root GIC 的 40 号中断对应 child GIC,因此该 high level 函数是进一步到 secondary gic 中进行处理.和 root gic 一样,先读取 secondary gic 中触发的中断源的 hwirq,然后通过 secondary domain 中保存的 hwirq 到逻辑 irq 的映射获取对应的逻辑 irq,只是个查表过程. 
+* 获取到触发中断源的真实逻辑 irq,通过 irq_to_desc 获取对应的 irq desc,执行对应的中断处理函数.
+
+需要注意的是,irq desc 并不属于 domain 单独维护,而是全局的. 
+
+因此irq domain 目前只负责 hwirq-逻辑irq 之间的映射,irq desc 的保存是全局的,这样处理起来会更简单,和逻辑 irq 的映射类型,irq desc 与逻辑 irq 的映射也存在静态数组和 radix tree 两种方式. 
+
+
+
+画图,domain,desc,irq,hwirq,handle
+
+### irq domain 的初始化
+
+扯得有点远了... 再回到我们前面要讲的内容, irq domain 的初始化,这部分源代码在 gic_init_bases 中:
+
+```c++
+static int gic_init_bases(struct gic_chip_data *gic, int irq_start,
+			  struct fwnode_handle *handle)
+{
+    ...
+	gic_irqs = readl_relaxed(gic_data_dist_base(gic) + GIC_DIST_CTR) & 0x1f;
+	gic_irqs = (gic_irqs + 1) * 32;
+	if (gic_irqs > 1020)
+		gic_irqs = 1020;
+	gic->gic_irqs = gic_irqs;                     .............................1
+    ...
+    if (gic == &gic_data[0] && (irq_start & 31) > 0) {
+        hwirq_base = 16;
+        if (irq_start != -1)
+            irq_start = (irq_start & ~31) + 16;
+    } else {
+        hwirq_base = 32;                         ..............................2
+    }
+
+    gic_irqs -= hwirq_base; 
+
+    irq_base = irq_alloc_descs(irq_start, 16, gic_irqs,     ...................3
+                               numa_node_id());
+    if (irq_base < 0) {
+        WARN(1, "Cannot allocate irq_descs @ IRQ%d, assuming pre-allocated\n",
+             irq_start);
+        irq_base = irq_start;
+    }
+
+    gic->domain = irq_domain_add_legacy(NULL, gic_irqs, irq_base,    ..........4
+                                        hwirq_base, &gic_irq_domain_ops, gic);
+    ...
+}
+```
 
