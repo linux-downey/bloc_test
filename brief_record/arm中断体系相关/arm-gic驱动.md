@@ -296,7 +296,11 @@ int __init gic_of_init(struct device_node *node, struct device_node *parent)
 
 注3：GIC 主要的初始化工作，下文详细讨论
 
-注4：如果 parent 参数不为 NULL，也就说明当前 GIC 是被级联的 GIC，对于级联的 GIC 自然是需要进行特殊处理的，下文讨论。 
+注4：如果 parent 参数不为 NULL，也就说明当前 GIC 是被级联的 GIC，对于级联的 GIC 自然是需要进行特殊处理的,这部分在下文中详细讨论。
+
+ 
+
+
 
 
 
@@ -517,9 +521,19 @@ hwirq 即 hardware irq,也就是 GIC 硬件上的 irq ID,这是 GIC 标准定义
 
 因此irq domain 目前只负责 hwirq-逻辑irq 之间的映射,irq desc 的保存是全局的,这样处理起来会更简单,和逻辑 irq 的映射类型,irq desc 与逻辑 irq 的映射也存在静态数组和 radix tree 两种方式. 
 
+下图中描述了各个成员之间的关系(TODO):
 
+![](cpu-irqdomain-desc-flow-picture.jpg)
 
-画图,domain,desc,irq,hwirq,handle
+在上图中,GIC0 是 root GIC,而 GIC1 是连接在 GIC0 的 34 号中断上的次级 GIC. 
+
+各个 GIC domain 保存当前 GIC hwirq 对应的逻辑 irq 的映射表,而逻辑 irq 与 irq desc 的映射是全局的.
+
+对于 root GIC 上发生的中断,irq desc 将会直接调用到用户注册的 irqaction 中的回调函数,而对于 GIC1 上发生的中断,root GIC 执行 34 号中断对应的 desc 中的 high level 中断处理程序,该中断处理程序会进入到 GIC1 domain 中进行进一步的中断处理. 
+
+对于 root GIC,0~15 的 hwirq 不需要映射,PPI 中断和 SPI 中断一样进行映射,对于 secondary GIC 而言,SGI 和 PPI 都不使用,因此不需要映射. 
+
+上图中 irq 以及 irq desc 的映射基于线性映射,如果是 radix 的映射方式,就没有这么紧凑和规整了,**在实际的平台实现中,具体的映射实现也可能是非常灵活的,GIC 标准或者内核并没有规定应该怎么去映射.**不过其原理总归是为每个 hwirq 找一个对应的逻辑 irq 或者 desc 罢了,把握这个核心思想就够了. 
 
 ### irq domain 的初始化
 
@@ -592,5 +606,31 @@ gic_of_init(struct device_node *node, struct device_node *parent)
 
 ```
 
+irq_of_parse_and_map 负责通过设备树获取当前 GIC 是连接在父级 GIC 的哪一个中断 ID 上.通过这个中断 ID 才能通过父级 GIC 寻址到当前的 GIC. 
 
+gic_cascade_irq(gic_cnt, irq) 这个函数的作用就是将 high level 的中断处理函数指针修改为 gic_handle_cascade_irq,专门处理级联的情况,默认情况下,对于 root gic 而言,High level 的中断处理函数负责获取用户设置的中断数据,然后执行用户传入的 low level 中断处理程序.
+
+级联的情况不一样,假设 GIC1 连在 root GIC 的 40 号中断上,root GIC 的 40 号中断处理函数实际上是针对 GIC1 的处理,就需要向下多处理一层,可以来看看 gic_handle_cascade_irq 的源码实现:
+
+```c++
+static void gic_handle_cascade_irq(struct irq_desc *desc)
+{
+	struct gic_chip_data *chip_data = irq_desc_get_handler_data(desc);
+	struct irq_chip *chip = irq_desc_get_chip(desc);
+
+	status = readl_relaxed(gic_data_cpu_base(chip_data) + GIC_CPU_INTACK);
+	gic_irq = (status & GICC_IAR_INT_ID_MASK);                               
+    
+	cascade_irq = irq_find_mapping(chip_data->domain, gic_irq);
+	if (unlikely(gic_irq < 32 || gic_irq > 1020))
+		handle_bad_irq(desc);
+	else
+		generic_handle_irq(cascade_irq);
+	...
+}
+```
+
+这个 high level 的中断实现看起来并没有那么负责,就是读取当前 GIC(当前是级联的子 GIC)哪个中断号被触发,然后通过 irq_find_mapping 找到对应的当前触发中断的 hwirq,接着也就是调用通用的中断处理函数 generic_handle_irq.
+
+和 root GIC 的 high level 处理程序不同的地方在于这里有一个递归进入的过程.
 
