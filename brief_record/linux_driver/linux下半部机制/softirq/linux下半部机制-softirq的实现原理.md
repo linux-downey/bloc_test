@@ -224,7 +224,7 @@ asmlinkage __visible void do_softirq(void)
 }
 
 ```
-do_softirq() 同样判断内核线程是否在运行，然后调用 do_softirq_own_stack()，这个函数表示使用 softirq 自己的栈，默认情况下，无论是硬中断还是软中断，是没有自己的栈的，而是借用了被抢占进程的栈，irq 栈和内核栈是否分离这取决于硬件的设计，总之，do_softirq_own_stack() 函数最终会调用到 __do_softirq() 函数。  
+do_softirq() 同样判断内核线程是否在运行，然后调用 do_softirq_own_stack()，这个函数表示使用 softirq 自己的栈，默认情况下，无论是硬中断还是软中断，是没有自己的栈的，而是借用了被抢占进程的栈，irq 栈和内核栈是否分离这取决于硬件的设计和软件实现，总之，do_softirq_own_stack() 函数最终会调用到 __do_softirq() 函数。  
 
 
 ### __do_softirq 函数执行
@@ -271,7 +271,7 @@ restart：
 其实从函数命名就可以看出这个函数是用来处理软中断的，它的执行流程就是：通过扫描 irq_stat[this_cpu].__softirq_pending 变量的每一位来确定有哪些软中断需要被执行，如果对应标志位被置位，就调用 softirq_vec 向量数组中对应的 action 函数以执行 softirq，不知道你还记不记得，这个向量数组是在 open_softirq 时设置的。   
 
 在执行完所有应该执行的 softirq 之后，再次判断是否有 __softirq_pending 标志位被置位，也就是说在此次 softirq 执行的过程中是否又产生了 softirq 工作，如果有，将会判断三个条件：
-* softirq 的处理时间比较短，小于 MAX_SOFTIRQ_TIME，通常是 2ms。
+* softirq 的处理时间比较短，小于 MAX_SOFTIRQ_TIME，这个时间间隔的值设置为宏 MAX_SOFTIRQ_TIME，在 4.9 中默认为 msecs_to_jiffies(2)，也就是 2ms，不过需要将这 2ms 转换为 jiffies，实际上，这取决于系统内的 HZ 值，如果 HZ 不大于 500，最终的延时值就是一个 jiffies，虽然看起来设置为 2ms，实际上通常不是。
 * 没有高优先级的任务需要抢占运行
 * 重新调用 softirq 的次数小于 10
 
