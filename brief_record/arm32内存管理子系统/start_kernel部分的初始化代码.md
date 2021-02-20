@@ -4,7 +4,7 @@
 
 开启 mmu 之后,代码就跳转到了 start_kernel 部分. 
 
-
+image 的内存已经被 mapping 了,设备树的内存地址是不是也被 mapping 了?
 
 在内核中,静态定义了一个 task,也就是 init_task.
 
@@ -31,6 +31,6 @@ start_kernel 的实现在 init/main.c 中:
 * 调用 setup_processor,进行处理器的相关初始化工作,在该函数中,先获取编译时确定的 procinfo,比如 cpu_name,architecture ,  调用 cpu_init 设置 CPU 每个模式下的栈以及设置 per_cpu_offset 到 TPIDRPRW 寄存器中
 * 调用 setup_machine_fdt,主要是针对设备树的处理,首先就是对设备树的 compatible 属性进行匹配,获取对应的 machine_desc 结构.再调用 early_init_dt_scan_nodes 进行设备树的扫描工作,这里需要关注的节点有 chosen ,memory, chosen 主要是 bootargs,这个可以是 uboot 修改内核 dtb 产生的 chosen 节点,也可以是在编译内核时 dts 中指定的 chosen 节点.
   early_init_dt_scan_nodes 中会执行三次设备树的扫描,第一次扫描 /chosen,生成 boot_command_line,第二次会扫描 size,address cell,初始化数据宽度,第三次扫描 memory.
-  所有扫描到的 memory 区域都会通过 memblock_add(参数为 base,size) 添加到 memblock 中.  memblock 是一个静态定义的全局
+  所有扫描到的 memory 区域都会通过 memblock_add(参数为 base,size) 添加到 memblock 中.  memblock 是一个静态定义的全局,
 * 初始化 init_mm 的 start_code,end_code,end_data,brk 相关参数.
 * 
