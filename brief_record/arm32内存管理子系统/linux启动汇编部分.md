@@ -1,3 +1,7 @@
+使用 qemu 调试,默认情况下会将镜像加载到 0x10000000,在开启 mmu 之前,就需要先将 .head.text 和 .text 符号表重定向到 0x10008000,相应的内容也在对应的位置上. 
+
+
+
 在运行内核代码之前,系统环境为:
 
 MMU = off, D-cache = off, I-cache = dont care, r0 = 0,
@@ -10,11 +14,16 @@ r1 = machine nr, r2 = dtb pointer.
 #endif
 	@ ensure svc mode and all interrupts masked
 	safe_svcmode_maskall r9                   // 确定当前模式,屏蔽各类中断
-
-	mrc	p15, 0, r9, c0, c0		              // MIDR 寄存器,读取 CPU ID
-	bl	__lookup_processor_type		  //执行完成之后,r5=procinfo r9=cpuid
+	
+	// MIDR 寄存器,读取 CPU ID
+	// imx6ull - 0x410fc090,没问题.
+	mrc	p15, 0, r9, c0, c0		              
+	
+	// proc info 被静态地定义在 arm/mm/proc-v7.S 中,包括 cortex-a5/cortex-a9/cortex-a8/cortex-a7 的内容
+	// __proc_info_begin 为 0x80a88900，__proc_info_end 为 0x80a88b3c
+	// 执行完成之后,r5=procinfo,也就是 cortex-a9 对应的信息 r9=cpuid，还是 0x410fc090
+	bl	__lookup_processor_type		  
 	movs	r10, r5				@ invalid processor (r5=0)?
- THUMB( it	eq )		@ force fixup-able long branch encoding
 	beq	__error_p			@ yes, error 'p'
 
 
@@ -24,7 +33,9 @@ r1 = machine nr, r2 = dtb pointer.
 	adr	r3, 2f               
 	ldmia	r3, {r4, r8}    // r4 是虚拟地址 r8 是 PAGE_OFFSET
 	sub	r4, r3, r4			// 获取实际运行物理地址和虚拟地址的偏移量
-	add	r8, r8, r4			// PAGE_OFFSET加上偏移量,所以是实际的物理地址+0xc0000000
+	// PAGE_OFFSET加上偏移量,所以是实际的物理地址+0xc0000000,在当前板子上是 0x80000000
+	// r8 的寄存器值为 0x10000000（计算得到的实际加载的物理地址）
+	add	r8, r8, r4			
 #else
 	...
 #endif
@@ -33,7 +44,7 @@ r1 = machine nr, r2 = dtb pointer.
 	 * r1 = machine no, r2 = atags or dtb,
 	 * r8 = phys_offset, r9 = cpuid, r10 = procinfo
 	 */
-	bl	__vet_atags                      // 检查 r2 传入的 dtb/atags 是否有效
+	bl	__vet_atags                      // 检查 r2 传入的 dtb/atags 是否有效,也就是检查 magic
 #ifdef CONFIG_SMP_ON_UP
 	bl	__fixup_smp                      //如果运行SMP内核在单处理器系统中启动，做适当调整
 #endif
@@ -173,14 +184,18 @@ r8 - 物理偏移地址(0xc0000000+offset), r9- cpuid, r10 - procinfo
 
 ```assembly
 __create_page_tables:
-	
+	// pgtbl 这个宏用于获取启动页表物理地址
 	//.macro	pgtbl, rd, phys
+	// TEXT_OFFSET 一共 32 K，0x8000，PG_DIR_SIZE 的值为 0x4000，16K，也就是说 r4 最终的值为 0x10004000，r8 还是保持原来的值 0x10000000
+	// 同时定义了 swapper_pg_dir 这个变量，对应的值就是虚拟地址对应的页表地址，0x80004000(通常为 0xc0004000)
 	//add	\rd, \phys, #TEXT_OFFSET        r8 加上 TEXT_OFFSET 赋值给 r4,TEXT_OFFSET 在 makefile 中被定义,值为 0x00008000(32k),也正是 .head.text,.text 开始的地方(虚拟地址)
 	//sub	\rd, \rd, #PG_DIR_SIZE          r4 再减去 PG_DIR_SIZE(16K)
 	//.endm
 	
 	pgtbl	r4, r8				// r4 是程序的物理地址,已经向页面对齐了.
 
+	// 因为要存放页表，所以需要将这部分内存全部清零
+	// r4 的值是页表地址
 	mov	r0, r4                  // r4 -> r0
 	mov	r3, #0                  // r3 = 0
 	add	r6, r0, #PG_DIR_SIZE    // r0 再减去 0x4000
@@ -190,53 +205,31 @@ __create_page_tables:
 	str	r3, [r0], #4           // r0 地址处的值清零 
 	teq	r0, r6                 // 清零整个 16K 的地址空间
 	bne	1b
-/*************************************************************/
-#ifdef CONFIG_ARM_LPAE         // 地址扩展部分,不管
-	/*
-	 * Build the PGD table (first level) to point to the PMD table. A PGD
-	 * entry is 64-bit wide.
-	 */
-	mov	r0, r4
-	add	r3, r4, #0x1000			@ first PMD table address
-	orr	r3, r3, #3			@ PGD block type
-	mov	r6, #4				@ PTRS_PER_PGD
-	mov	r7, #1 << (55 - 32)		@ L_PGD_SWAPPER
-1:
-#ifdef CONFIG_CPU_ENDIAN_BE8
-	str	r7, [r0], #4			@ set top PGD entry bits
-	str	r3, [r0], #4			@ set bottom PGD entry bits
-#else
-	str	r3, [r0], #4			@ set bottom PGD entry bits
-	str	r7, [r0], #4			@ set top PGD entry bits
-#endif
-	add	r3, r3, #0x1000			@ next PMD table
-	subs	r6, r6, #1
-	bne	1b
 
-	add	r4, r4, #0x1000			@ point to the PMD tables
-#ifdef CONFIG_CPU_ENDIAN_BE8
-	add	r4, r4, #4			@ we only write the bottom word
-#endif
-#endif
-/*************************************************************/
-
+	// 静态定义的 mm_mmuflags 值为 PMD_TYPE_SECT | PMD_SECT_AP_WRITE | PMD_SECT_AP_READ | PMD_SECT_AF | PMD_FLAGS_SMP,对应 cortex-a9 为 0xc0e
 	ldr	r7, [r10, #PROCINFO_MM_MMUFLAGS] // mm_mmuflags 存到
 
 	// 大名鼎鼎的 identity mapping 部分.
 	// 这部分会被 paging_init 移除
 	
 	//该地址上三个部分,虚拟地址/__turn_mmu_on地址/__turn_mmu_on_end地址
+	// r0 的值为 0x10008138，保存的 __turn_mmu_on 和 __turn_mmu_on_end 的地址分别为 0x80100000，0x80100020，也就是 .text 段的起始位置，32个字节。
 	adr	r0, __turn_mmu_on_loc 
     //r3 - 虚拟地址,r5 - __turn_mmu_on地址,r6 - __turn_mmu_on_end地址
+    // pgtable 文件使用的是 /arch/arm/include/asm/pgtable-2level.h 而不是 /arch/arm/include/asm/pgtable-3level.h
 	ldmia	r0, {r3, r5, r6}  
 	sub	r0, r0, r3			// 获取偏移
 	add	r5, r5, r0			// 校正偏移
 	add	r6, r6, r0			// 校正偏移
-	mov	r5, r5, lsr #SECTION_SHIFT   // 
-	mov	r6, r6, lsr #SECTION_SHIFT   // 
+	// r5 和 r6 中保存的都是 __turn_mmu_on/ __turn_mmu_on_end 对应的物理地址 0x10100000/0x10100020
+	// SECTION_SHIFT 的值为 20
+	// 在执行完下面两条指令之后，r5 和 r6 的结果都变成了 0x101
+	mov	r5, r5, lsr #SECTION_SHIFT   
+	mov	r6, r6, lsr #SECTION_SHIFT   
 
-1:	orr	r3, r7, r5, lsl #SECTION_SHIFT	@ flags + kernel base
-	str	r3, [r4, r5, lsl #PMD_ORDER]	@ identity mapping
+	// 这里没有循环，页表基地址是 0x10004000，0x10004404 对应那一页的物理地址？再分析。
+1:	orr	r3, r7, r5, lsl #SECTION_SHIFT	@ flags + kernel base   // r3 = 0x10100c0e
+	str	r3, [r4, r5, lsl #PMD_ORDER]	@ identity mapping      // 将 0x10100c0e 保存到 0x10004404 的位置
 	cmp	r5, r6
 	addlo	r5, r5, #1			@ next section
 	blo	1b
@@ -244,114 +237,183 @@ __create_page_tables:
 	/*
 	 * Map our RAM from the start to the end of the kernel .bss section.
 	 */
-	add	r0, r4, #PAGE_OFFSET >> (SECTION_SHIFT - PMD_ORDER)
-	ldr	r6, =(_end - 1)
+	// 最终建立的内核页表如下：
+	// 地址：0x10006000 - 0x100060044
+	//	0x10006000:	0x10000c0e	0x10100c0e	0x10200c0e	0x10300c0e
+		0x10006010:	0x10400c0e	0x10500c0e	0x10600c0e	0x10700c0e
+		0x10006020:	0x10800c0e	0x10900c0e	0x10a00c0e	0x10b00c0e
+		0x10006030:	0x10c00c0e	0x10d00c0e	0x10e00c0e	0x10f00c0e
+		0x10006040:	0x11000c0e	0x11100c0e
+	// 这是映射的内核页表，属于物理地址
+	add	r0, r4, #PAGE_OFFSET >> (SECTION_SHIFT - PMD_ORDER) // r0 的值为 0x10006000
+	ldr	r6, =(_end - 1)         // r6 的值 0x8112a347，内核 image 的 .bss 段的结尾处.
 	orr	r3, r8, r7
 	add	r6, r4, r6, lsr #(SECTION_SHIFT - PMD_ORDER)
 1:	str	r3, [r0], #1 << PMD_ORDER
 	add	r3, r3, #1 << SECTION_SHIFT
 	cmp	r0, r6
 	bls	1b
-
-#ifdef CONFIG_XIP_KERNEL
-	/*
-	 * Map the kernel image separately as it is not located in RAM.
-	 */
-#define XIP_START XIP_VIRT_ADDR(CONFIG_XIP_PHYS_ADDR)
-	mov	r3, pc
-	mov	r3, r3, lsr #SECTION_SHIFT
-	orr	r3, r7, r3, lsl #SECTION_SHIFT
-	add	r0, r4,  #(XIP_START & 0xff000000) >> (SECTION_SHIFT - PMD_ORDER)
-	str	r3, [r0, #((XIP_START & 0x00f00000) >> SECTION_SHIFT) << PMD_ORDER]!
-	ldr	r6, =(_edata_loc - 1)
-	add	r0, r0, #1 << PMD_ORDER
-	add	r6, r4, r6, lsr #(SECTION_SHIFT - PMD_ORDER)
-1:	cmp	r0, r6
-	add	r3, r3, #1 << SECTION_SHIFT
-	strls	r3, [r0], #1 << PMD_ORDER
-	bls	1b
-#endif
-
+	
+	// 到这里就建立了两段物理地址的映射，identity mapping 和 kernel image mapping
+	
 	/*
 	 * Then map boot params address in r2 if specified.
 	 * We map 2 sections in case the ATAGs/DTB crosses a section boundary.
 	 */
-	mov	r0, r2, lsr #SECTION_SHIFT
-	movs	r0, r0, lsl #SECTION_SHIFT
-	subne	r3, r0, r8
+	// r2 是从 uboot 传递过来的物理地址，在 qemu 的调试中被放在了 0x18000000
+	mov	r0, r2, lsr #SECTION_SHIFT     // r0 为 0x180
+	movs	r0, r0, lsl #SECTION_SHIFT  // r0 为 0x18000000
+	subne	r3, r0, r8                  
 	addne	r3, r3, #PAGE_OFFSET
 	addne	r3, r4, r3, lsr #(SECTION_SHIFT - PMD_ORDER)
 	orrne	r6, r7, r0
-	strne	r6, [r3], #1 << PMD_ORDER
-	addne	r6, r6, #1 << SECTION_SHIFT
-	strne	r6, [r3]
-
-#if defined(CONFIG_ARM_LPAE) && defined(CONFIG_CPU_ENDIAN_BE8)
-	sub	r4, r4, #4			@ Fixup page table pointer
-						@ for 64-bit descriptors
-#endif
-
-#ifdef CONFIG_DEBUG_LL
-#if !defined(CONFIG_DEBUG_ICEDCC) && !defined(CONFIG_DEBUG_SEMIHOSTING)
-	/*
-	 * Map in IO space for serial debugging.
-	 * This allows debug messages to be output
-	 * via a serial console before paging_init.
-	 */
-	addruart r7, r3, r0
-
-	mov	r3, r3, lsr #SECTION_SHIFT
-	mov	r3, r3, lsl #PMD_ORDER
-
-	add	r0, r4, r3
-	mov	r3, r7, lsr #SECTION_SHIFT
-	ldr	r7, [r10, #PROCINFO_IO_MMUFLAGS] @ io_mmuflags
-	orr	r3, r7, r3, lsl #SECTION_SHIFT
-#ifdef CONFIG_ARM_LPAE
-	mov	r7, #1 << (54 - 32)		@ XN
-#ifdef CONFIG_CPU_ENDIAN_BE8
-	str	r7, [r0], #4
-	str	r3, [r0], #4
-#else
-	str	r3, [r0], #4
-	str	r7, [r0], #4
-#endif
-#else
-	orr	r3, r3, #PMD_SECT_XN
-	str	r3, [r0], #4
-#endif
-
-#else /* CONFIG_DEBUG_ICEDCC || CONFIG_DEBUG_SEMIHOSTING */
-	/* we don't need any serial debugging mappings */
-	ldr	r7, [r10, #PROCINFO_IO_MMUFLAGS] @ io_mmuflags
-#endif
-
-#if defined(CONFIG_ARCH_NETWINDER) || defined(CONFIG_ARCH_CATS)
-	/*
-	 * If we're using the NetWinder or CATS, we also need to map
-	 * in the 16550-type serial port for the debug messages
-	 */
-	add	r0, r4, #0xff000000 >> (SECTION_SHIFT - PMD_ORDER)
-	orr	r3, r7, #0x7c000000
-	str	r3, [r0]
-#endif
-#ifdef CONFIG_ARCH_RPC
-	/*
-	 * Map in screen at 0x02000000 & SCREEN2_BASE
-	 * Similar reasons here - for debug.  This is
-	 * only for Acorn RiscPC architectures.
-	 */
-	add	r0, r4, #0x02000000 >> (SECTION_SHIFT - PMD_ORDER)
-	orr	r3, r7, #0x02000000
-	str	r3, [r0]
-	add	r0, r4, #0xd8000000 >> (SECTION_SHIFT - PMD_ORDER)
-	str	r3, [r0]
-#endif
-#endif
-#ifdef CONFIG_ARM_LPAE
-	sub	r4, r4, #0x1000		@ point to the PGD table
-#endif
-	ret	lr
+	strne	r6, [r3], #1 << PMD_ORDER      // 将 0x18000c0e 存到 0x10006200
+	addne	r6, r6, #1 << SECTION_SHIFT    
+	strne	r6, [r3]                       // 将 0x18100c0e 存到 0x10006204
+	
+	ret	lr                                 
 ENDPROC(__create_page_tables)
+// 到这里，三段页面的 mapping 也就完成了，分别是 identity mapping、kernel imaging mapping、dtb mapping。
+```
+
+
+
+## 页表建立之后的工作
+
+```assembly
+/*
+	 * The following calls CPU specific code in a position independent
+	 * manner.  See arch/arm/mm/proc-*.S for details.  r10 = base of
+	 * xxx_proc_info structure selected by __lookup_processor_type
+	 * above.
+	 *
+	 * The processor init function will be called with:
+	 *  r1 - machine type
+	 *  r2 - boot data (atags/dt) pointer
+	 *  r4 - translation table base (low word)
+	 *  r5 - translation table base (high word, if LPAE)
+	 *  r8 - translation table base 1 (pfn if LPAE)
+	 *  r9 - cpuid
+	 *  r13 - virtual address for __enable_mmu -> __turn_mmu_on
+	 *
+	 * On return, the CPU will be ready for the MMU to be turned on,
+	 * r0 will hold the CPU control register value, r1, r2, r4, and
+	 * r9 will be preserved.  r5 will also be preserved if LPAE.
+	 */
+	ldr	r13, =__mmap_switched		 // 使用 sp 保存 __mmap_switched 的地址
+						@ mmu has been enabled
+	badr	lr, 1f				 // 设置返回地址到 lr 中，返回地址为 b	__enable_mmu
+
+	mov	r8, r4				    // 都设置为 0x10004000
+	
+	ldr	r12, [r10, #PROCINFO_INITFUNC]  // 
+	add	r12, r12, r10            // 值为 0x10118adc
+	// 执行 proc info 中的 initfunction，执行完成之后会跳转到 1f 处。
+	// 对应 cortex-a9 的函数为：__v7_ca9mp_setup
+	ret	r12                      
+1:	b	__enable_mmu
+ENDPROC(stext)
+	.ltorg
+#ifndef CONFIG_XIP_KERNEL
+2:	.long	.
+	.long	PAGE_OFFSET
+```
+
+
+
+## 处理器的初始化工作
+
+主要的工作：初始化 TLB、Caches，同时设置 MMU 的状态以便开启 MMU,将会返回到 b	__enable_mmu
+
+```assembly
+/*
+ *	__v7_setup
+ *
+ *	Initialise TLB, Caches, and MMU state ready to switch the MMU
+ *	on.  Return in r0 the new CP15 C1 control register setting.
+ *
+ *	r1, r2, r4, r5, r9, r13 must be preserved - r13 is not a stack
+ *	r4: TTBR0 (low word)
+ *	r5: TTBR0 (high word if LPAE)
+ *	r8: TTBR1
+ *	r9: Main ID register
+ *
+ *	This should be able to cover all ARMv7 cores.
+ *
+ *	It is assumed that:
+ *	- cache type register is implemented
+ */
+__v7_ca5mp_setup:
+__v7_ca9mp_setup:
+__v7_cr7mp_setup:
+	mov	r10, #(1 << 0)			@ Cache/TLB ops broadcasting
+	b	1f
+
+	...
+	
+1:	adr	r0, __v7_setup_stack_ptr      // r0 = 0x10118c08
+	ldr	r12, [r0]                     // r12 = 0x00f9a850
+	add	r12, r12, r0			      // r12 = 0x110b3458
+	stmia	r12, {r1-r6, lr}		  // 保存到临时的栈上，保护现场
+	bl      v7_invalidate_l1          // invalidate L1 cache
+	ldmia	r12, {r1-r6, lr}          // 恢复现场
+#ifdef CONFIG_SMP
+	orr	r10, r10, #(1 << 6)		@ Enable SMP/nAMP mode
+	ALT_SMP(mrc	p15, 0, r0, c1, c0, 1)
+	ALT_UP(mov	r0, r10)		@ fake it for UP
+	orr	r10, r10, r0			@ Set required bits
+	teq	r10, r0				@ Were they already set?
+	mcrne	p15, 0, r10, c1, c0, 1		
+#endif
+	b	__v7_setup_cont                // 
+
+```
+
+
+
+##  __enable_mmu
+
+```assembly
+/*
+ * Setup common bits before finally enabling the MMU.  Essentially
+ * this is just loading the page table pointer and domain access
+ * registers.  All these registers need to be preserved by the
+ * processor setup function (or set in the case of r0)
+ *
+ *  r0  = cp#15 control register
+ *  r1  = machine ID
+ *  r2  = atags or dtb pointer
+ *  r4  = TTBR pointer (low word)
+ *  r5  = TTBR pointer (high word if LPAE)
+ *  r9  = processor ID
+ *  r13 = *virtual* address to jump to upon completion
+ */
+__enable_mmu:
+	bic	r0, r0, #CR_A      
+	mov	r5, #DACR_INIT    
+	mcr	p15, 0, r5, c3, c0, 0		// r5 的值为 0x51
+	mcr	p15, 0, r4, c2, c0, 0		// r4 的值为 0x10004059
+	
+#endif
+	b	__turn_mmu_on
+ENDPROC(__enable_mmu)
+```
+
+
+
+```assembly
+	.align	5
+	.pushsection	.idmap.text, "ax"
+ENTRY(__turn_mmu_on)
+	mov	r0, r0
+	instr_sync
+	mcr	p15, 0, r0, c1, c0, 0		
+	mrc	p15, 0, r3, c0, c0, 0		// 到这里 mmu 就已经开启了
+	instr_sync
+	mov	r3, r3
+	mov	r3, r13
+	ret	r3                          // 为什么这里 pc 没有变成 0x8xx，还是 0x1xx
+__turn_mmu_on_end:
+ENDPROC(__turn_mmu_on)
 ```
 
