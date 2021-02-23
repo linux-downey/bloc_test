@@ -12,7 +12,7 @@ image 的内存已经被 mapping 了,设备树的内存地址是不是也被 map
 
 start_kernel 的实现在 init/main.c 中:
 
-* 调用 set_task_stack_end_magic,在 init 进程的 stack 处放置一个 magic,防止栈溢出. 
+* 调用 set_task_stack_end_magic,在 init 进程的 stack_start + sizeof(thread_info) 处放置一个 magic(0x57ac6e9d)防止栈溢出(仿真的结果). 
 * 调用 smp_setup_processor_id,通过读取 mpidr 寄存器获取系统中所有 CPU 的信息并编号,保存在 cpu_logical_map 中.
 * 调用 debug_objects_early_init 初始化 hash buckets.忽略
 * 调用 boot_init_stack_canary,初始化栈 canary,防止栈溢出攻击,获取一个随机值,放在栈溢出检测的位置,如果这个 canary 被修改,说明发生了栈溢出

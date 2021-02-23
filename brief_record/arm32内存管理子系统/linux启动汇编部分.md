@@ -211,6 +211,7 @@ __create_page_tables:
 
 	// 大名鼎鼎的 identity mapping 部分.
 	// 这部分会被 paging_init 移除
+	// identity mapping 建立的映射是物理地址和虚拟地址相同的，这部分代码并不多，在这里只有 32 字节，这部分代码的中间部分包括开启 mmu，因此在开启 mmu 前后分别使用的是物理地址和虚拟地址，这种情况下开启 mmu 之后的代码才能更方便地映射到对应的物理地址上。
 	
 	//该地址上三个部分,虚拟地址/__turn_mmu_on地址/__turn_mmu_on_end地址
 	// r0 的值为 0x10008138，保存的 __turn_mmu_on 和 __turn_mmu_on_end 的地址分别为 0x80100000，0x80100020，也就是 .text 段的起始位置，32个字节。
@@ -274,6 +275,8 @@ __create_page_tables:
 	ret	lr                                 
 ENDPROC(__create_page_tables)
 // 到这里，三段页面的 mapping 也就完成了，分别是 identity mapping、kernel imaging mapping、dtb mapping。
+// TTBR0 寄存器的值和虚拟地址共同组成了 level1 desc，level1 desc 的最后两个 bit 决定是使用 4K、64K、1M 还是 16M 的映射。
+// level1 desc 的组成为：TTBR0[32:14]+inputaddr[32:10]+2bits desc type，因此，第一级的页表需要 16K 的内存来保存，这个地址也就是 0x10004000 到 0x10008000。 
 ```
 
 
@@ -388,10 +391,16 @@ __v7_cr7mp_setup:
  *  r9  = processor ID
  *  r13 = *virtual* address to jump to upon completion
  */
+ 
+ // 此时 TTBCR 寄存器的值为 0x0
+ // TTBCR 最高位表示 PAE 位，0 表示使用 32bits short description。
+ // TTBCR 低三位为 N 位，决定了 level1/2 描述符中的对齐，0 表示按照 2^0 = 1bit 进行对齐，同时说明 TTBR1 寄存器没有用到
 __enable_mmu:
 	bic	r0, r0, #CR_A      
 	mov	r5, #DACR_INIT    
 	mcr	p15, 0, r5, c3, c0, 0		// r5 的值为 0x51
+	// TTBR0 的值为 0x10004059，其中 0x10004000 为地址，0x59 为功能位,主要就是设置属性。
+	// 
 	mcr	p15, 0, r4, c2, c0, 0		// r4 的值为 0x10004059
 	
 #endif
@@ -415,5 +424,68 @@ ENTRY(__turn_mmu_on)
 	ret	r3                          // 为什么这里 pc 没有变成 0x8xx，还是 0x1xx
 __turn_mmu_on_end:
 ENDPROC(__turn_mmu_on)
+```
+
+## 开启 MMU 之后的工作
+
+开启 MMU 之后，程序就跳转到了 __mmap_switched_data，这个部分的代码既不属于 .head.text 也不属于 .text 段。 
+
+```assembly
+/*
+ * The following fragment of code is executed with the MMU on in MMU mode,
+ * and uses absolute addresses; this is not position independent.
+ *
+ *  r0  = cp#15 control register
+ *  r1  = machine ID
+ *  r2  = atags/dtb pointer
+ *  r9  = processor ID
+ */
+	__INIT
+__mmap_switched:
+	adr	r3, __mmap_switched_data
+	// 在这里清除 bss 段
+	
+	ldmia	r3!, {r4, r5, r6, r7}
+	cmp	r4, r5				@ Copy data segment if needed
+1:	cmpne	r5, r6
+	ldrne	fp, [r4], #4
+	strne	fp, [r5], #4
+	bne	1b
+
+	mov	fp, #0				@ Clear BSS (and zero fp)
+1:	cmp	r6, r7
+	strcc	fp, [r6],#4
+	bcc	1b
+
+ // 最主要的工作还是设置了 sp，将 sp 设置为 0x81000000(init_thread_union)+8184(两个页面长度 -8) = 0x81001ff8.这也是 init_task 的栈空间，因此，从 start_kernel 开始，实际上就相当于在执行 init_task 进程。 
+ ARM(	ldmia	r3, {r4, r5, r6, r7, sp})
+ THUMB(	ldmia	r3, {r4, r5, r6, r7}	)
+ THUMB(	ldr	sp, [r3, #16]		)
+	str	r9, [r4]			@ Save processor ID
+	str	r1, [r5]			@ Save machine type
+	str	r2, [r6]			@ Save atags pointer
+	cmp	r7, #0
+	strne	r0, [r7]			
+	b	start_kernel
+ENDPROC(__mmap_switched)
+
+	.align	2
+	.type	__mmap_switched_data, %object
+__mmap_switched_data:
+	.long	__data_loc			
+	.long	_sdata				
+	.long	__bss_start			@ r6
+	.long	_end				@ r7
+	.long	processor_id			@ r4
+	.long	__machine_arch_type		@ r5
+	.long	__atags_pointer			@ r6
+#ifdef CONFIG_CPU_CP15
+	.long	cr_alignment			@ r7
+#else
+	.long	0				@ r7
+#endif
+	.long	init_thread_union + THREAD_START_SP @ sp
+	.size	__mmap_switched_data, . - __mmap_switched_data
+
 ```
 
