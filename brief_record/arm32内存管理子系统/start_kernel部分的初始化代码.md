@@ -28,9 +28,51 @@ start_kernel 的实现在 init/main.c 中:
 
 ## setup_arch
 
-* 调用 setup_processor,进行处理器的相关初始化工作,在该函数中,先获取编译时确定的 procinfo,比如 cpu_name,architecture ,  调用 cpu_init 设置 CPU 每个模式下的栈以及设置 per_cpu_offset 到 TPIDRPRW 寄存器中
-* 调用 setup_machine_fdt,主要是针对设备树的处理,首先就是对设备树的 compatible 属性进行匹配,获取对应的 machine_desc 结构.再调用 early_init_dt_scan_nodes 进行设备树的扫描工作,这里需要关注的节点有 chosen ,memory, chosen 主要是 bootargs,这个可以是 uboot 修改内核 dtb 产生的 chosen 节点,也可以是在编译内核时 dts 中指定的 chosen 节点.
-  early_init_dt_scan_nodes 中会执行三次设备树的扫描,第一次扫描 /chosen,生成 boot_command_line,第二次会扫描 size,address cell,初始化数据宽度,第三次扫描 memory.
-  所有扫描到的 memory 区域都会通过 memblock_add(参数为 base,size) 添加到 memblock 中.  memblock 是一个静态定义的全局,
+* 调用 setup_processor,进行处理器的相关初始化工作,在该函数中,先获取编译时确定的 procinfo,赋值到 list 中，这里的 procinfo 和刚开始的汇编部分获取的 procinfo 是一样的,比如 cpu_name,architecture .
+
+  需要注意的是，procinfo 里面设置了 struct processor proc 相关的数据，其中有一系列的回调函数，包括 set_pte_ext 这个用于设置 pte 页表的回调函数，switch_mm 等。
+  调用 cpu_init 设置 CPU 每个模式下的栈以及设置 per_cpu_offset 到 TPIDRPRW 寄存器中
+
+* 调用 setup_machine_fdt,主要是针对设备树的处理,首先就是对设备树的 compatible 属性进行匹配,获取对应的 machine_desc 结构.
+  
+  machine desc 用于描述特定于硬件的信息，管理和架构相关的参数，比如 architecture、irq 、l2 cache 等。
+  machine desc 是被静态定义的，放在镜像的 .init.arch.info 段中，并在链接脚本中定义了两个变量\_\_arch_info_begin 和 \_\_arch_info_end 来指定 mdesc 的位置。
+  machine desc 的静态定义可以使用 MACHINE_START 和 MACHINE_END 包括起来，或者使用 DT_MACHINE_END 和 MACHINE_END 包括起来定义。
+  静态定义的 machine desc 中包含一个 dt_compat 定义，用于在寻找 mdesc 的时候和 dtb 中的 compatible 进行匹配。 
+  
+  fdt blob 的虚拟地址被存放到 initial_boot_params 全局变量中。
+  
+  再调用 early_init_dt_scan_nodes 进行设备树的扫描工作,这里需要关注的节点有 chosen ,memory, chosen 主要是 bootargs,这个可以是 uboot 修改内核 dtb 产生的 chosen 节点,也可以是在编译内核时 dts 中指定的 chosen 节点.
+  early_init_dt_scan_nodes 中会执行三次设备树的扫描,第一次扫描 /chosen,生成 boot_command_line,
+  第二次会扫描 size,address cell,初始化数据宽度,赋值给 dt_root_address_cells 和 dt_root_addr_cells
+  第三次扫描 memory.对应的设备数节点属性为 memory@n 或者 memory 属性
+  所有扫描到的 memory 区域都会通过 early_init_dt_add_memory_arch->memblock_add(参数为 base,size) 添加到 memblock.memory.region 中.  memblock 是一个静态定义的全局,
+  reserved memory 由 arm_memblock_init 指定,memblock 数据结构：
+  
+  ```c++
+  struct memblock {
+  	bool bottom_up;  /* is bottom up direction? */
+  	phys_addr_t current_limit;
+  	struct memblock_type memory;
+  	struct memblock_type reserved;
+  };
+  struct memblock_type {
+  	unsigned long cnt;	/* number of regions */
+  	unsigned long max;	/* size of the allocated array */
+  	phys_addr_t total_size;	/* size of all regions */
+  	struct memblock_region *regions;
+  };
+  struct memblock_region {
+  	phys_addr_t base;
+  	phys_addr_t size;
+  	unsigned long flags;
+  };
+  ```
+  
+  region 的初始化会指向一个 INIT_MEMBLOCK_REGIONS 个成员的 region 数组，后续添加的 region 都会加到该数组中，reserved 则表示保留内存。
+  
 * 初始化 init_mm 的 start_code,end_code,end_data,brk 相关参数.
+
+* early_fixmap_init/early_ioremap_init/parse_early_param 暂时不分析，early_paging_init 直接返回了,adjust_lowmem_bounds 也差不多直接返回
+
 * 
