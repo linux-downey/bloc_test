@@ -39,7 +39,7 @@ vmalloc_min 最终的值为 0xf0000000
 
 VMALLOC_END 为 vmalloc 结束地址，VMALLOC_OFFSET 为 vmalloc 偏移地址 8M。
 
-
+VMALLOC_START 是起始地址，但是 qemu 中打印出来的起始地址是 0+VMALLOC_OFFSET，这就有点不合理了，需要再测试一下。理论上应该是高端内存开始的地方  high_memory+VMALLOC_OFFSET， 可能是因为 qemu 里面的内存采集有问题导致的。 
 
 ### swapper_pg_dir
 
@@ -52,6 +52,14 @@ boot 阶段页表的虚拟地址，在 imx6ull 上的是 0x80004000。
 设备数 blob 对应的虚拟地址,imx6ull 上对应 0x88000000
 
 
+
+### TASK_SIZE
+
+用户空间的 task 大小
+
+```c
+#define TASK_SIZE		(UL(CONFIG_PAGE_OFFSET) - UL(SZ_16M))
+```
 
 
 
