@@ -75,4 +75,126 @@ start_kernel 的实现在 init/main.c 中:
 
 * early_fixmap_init/early_ioremap_init/parse_early_param 暂时不分析，early_paging_init 直接返回了,adjust_lowmem_bounds 也差不多直接返回
 
-* 
+* adjust_lowmem_bounds 调整 memblock 的物理映射，后面再分析。
+
+* arm_memblock_init:
+  首先，调用 memblock_reserve 保留内核本身所占的空间
+  如果定义了 initrd，也要为 initrd 保留对应的内核空间(initrd 为什么不会被回收？)
+  调用 arm_mm_memblock_reserve,为 swapper_pg_dir 保留内存空间
+  调用架构相关的  mdesc->reserve() 来保留内存，imx6ull 并没有指定
+  为设备树 blob 保存物理地址空间
+  early_init_fdt_scan_reserved_mem -> __fdt_scan_reserved_mem,扫描设备树中的保留内存(reserved_memory指定的)，如果指定了 nomap，直接将这部分保留内存从 memblock 中删除，否则添加到 memblock 的 reserved 节点中。    调用 fdt_init_reserved_mem,处理真正由开发者指定的 memory，reserved_mem_count 指定数量，reserved_mem 是一个 16 成员的数组，放置指定的保留内存，还处理 CMA 相关的保留内存，这部分后续再细究。
+  dma_contiguous_reserve 保留 DMA 的连续内存地址
+  这一部分主要就是设置保留内存。 
+  
+* 再次执行 adjust_lowmem_bounds ，先不管
+
+* paging_init，这是很重要的函数了,下面单独讲。 
+
+
+
+arm32 的页表介绍：
+
+https://people.kernel.org/linusw/arm32-page-tables
+
+### paging_init
+
+
+
+#### 页表相关的宏
+
+##### pgd_index(addr)
+
+```c
+#define pgd_index(addr)		((addr) >> PGDIR_SHIFT)
+```
+
+对于二级页表的 arm32 而言，PGDIR_SHIFT 为 21
+
+获取虚拟地址 addr 对应 pgd 的偏移地址
+
+
+
+##### pgd_offset
+
+```c
+#define pgd_offset(mm, addr)    ((mm)->pgd + pgd_index(addr))
+```
+
+获取进程虚拟地址对应的 pgd 项地址。
+
+
+
+##### pgd_offset_k
+
+```c
+#define pgd_offset_k(addr)	pgd_offset(&init_mm, addr)
+```
+
+init_task 相当于内核的初始化进程，init_mm 也就是内核对应的 mm 结构
+
+这个宏也就是 init_mm->pgd + addr >> 21.
+
+init_mm->pgd  通常为 内核起始地址 + 0x0004000，也就是 16K 处。 
+
+
+
+##### pud_offset
+
+arm32 不支持 pud，因此 pud_offset 就等于 pgd_offset。
+
+
+
+##### pmd_offset
+
+arm32  如果不支持 LAPE 扩展地址，pmd = pud = pgd
+
+不讨论扩展地址的情况
+
+
+
+##### pmd_off_k
+
+```c
+static inline pmd_t *pmd_off_k(unsigned long virt)
+{
+	return pmd_offset(pud_offset(pgd_offset_k(virt), virt), virt);
+}
+```
+
+因此，pmd_off_k  返回的就是 0x80004000 + 偏移地址 处对应的 L1 表项。 
+
+因为内核 image 的映射是在 0x80006000 地址，暂时不会清除掉内核的页表映射。 
+
+
+
+#### map_lowmem
+
+映射低端的物理内存，内核 image 之前，内核 image ，内核 image 到 lowmem_limit.
+
+
+
+#### dma_contiguous_remap
+
+map dma 的保留内存。
+
+
+
+#### early_fixmap_shutdown
+
+重新 map fixmap 相关的页面。
+
+arm32 好像没有 fixmap？
+
+
+
+#### devicemaps_init
+
+device 的 mapping.
+
+向量表的 mapping，从 memblock 申请两个页面用来存放 vector 相关代码。 
+
+
+
+### bootmem_init
+
