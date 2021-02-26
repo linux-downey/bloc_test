@@ -63,6 +63,17 @@ boot 阶段页表的虚拟地址，在 imx6ull 上的是 0x80004000。
 
 
 
+### __phys_to_pfn
+
+```c++
+#define	__phys_to_pfn(paddr)	PHYS_PFN(paddr)
+#define PHYS_PFN(x)	((unsigned long)((x) >> PAGE_SHIFT))
+```
+
+物理地址右移 12 bit，也就是除以 4096
+
+
+
 
 
 
