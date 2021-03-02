@@ -156,16 +156,21 @@ void __paginginit free_area_init_node(int nid, unsigned long *zones_size,
 	unsigned long start_pfn = 0;
 	unsigned long end_pfn = 0;
 
-
+	// contig_page_data 的部分成员赋值
 	pgdat->node_id = nid;
 	pgdat->node_start_pfn = node_start_pfn;
 	pgdat->per_cpu_nodestats = NULL;
 
 	start_pfn = node_start_pfn;
-	// 计算每个 zone 的 total pages，这是基于 memory 节点计算的，包括 reserved 部分。 
+	// 计算每个 zone 的 total pages，这是基于 memory 节点计算的，包括 reserved 部分。赋值到  contig_page_data 中
 	calculate_node_totalpages(pgdat, start_pfn, end_pfn,
 				  zones_size, zholes_size);
-
+	
+    // 为对应所有物理内存的 struct page 申请内存
+    // 在这里，物理内存长度为 0x10000000 = 256M，每个页面 4K，一共 64K 个物理页面
+    // 每个页面的 struct page 占用 0x20 的空间，一共占用 0x200000 的空间
+    // 由 memblock 申请，保存在 memblock.reserved 区域中。 
+    // 将这片内存的首 page 地址保存在 pgdat->node_mem_map 中。 
 	alloc_node_mem_map(pgdat);
 #ifdef CONFIG_FLAT_NODE_MEM_MAP
 	printk(KERN_DEBUG "free_area_init_node: node %d, pgdat %08lx, node_mem_map %08lx\n",
@@ -174,7 +179,15 @@ void __paginginit free_area_init_node(int nid, unsigned long *zones_size,
 #endif
 
 	reset_deferred_meminit(pgdat);
+    // 为每个区域的 zone->pageblock_flags 申请内存空间，4 字节。 
+    // 针对每个物理内存中的每个 page 进行初始化，包括是否设置为 movable，设置 page 所属的 zone，refcount等等(free_area_init_core->memmap_init->memmap_init_zone)
+    // 初始化各个 zone->free_area[order].free_list,这个就是 buddy 子系统中存放页面的地方（init_currently_empty_zone->zone_init_free_lists）
 	free_area_init_core(pgdat);
 }
 ```
 
+这个函数结束之后，bootmem_init 函数基本上就已经完成了，因此，bootmem_init 基本上做的事情就是：
+
+初始化 contig_page_data 结构，并赋值，包括 zone_size，zone 中的各个 page 属性，同时为所有 struct  page 结构申请内存，并保存在 contig_page_data->node_mem_map 中。 
+
+每个 page 做一些初始化设置,包括一些 flag 设置，这些设置作用于每个 page 对应的 struct  page 结构，也就是  contig_page_data->node_mem_map 执行的内存部分。
