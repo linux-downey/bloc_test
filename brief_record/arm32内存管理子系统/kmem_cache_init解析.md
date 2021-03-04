@@ -52,6 +52,7 @@ struct kmem_cache_cpu {
     // 指向下一个可用的 object
 	void **freelist;	
     // 全局唯一的 trasaction id？ 主要用来同步？
+    // 这个被初始化为 cpu num，用于检测，如果在操作过程中执行了进程切换，将进程切换到另一个 CPU 上了，通不过 nid 的检查就需要进行重新操作
 	unsigned long tid;	
     // slab 内存的 page 指针，当前的 page
 	struct page *page;	
