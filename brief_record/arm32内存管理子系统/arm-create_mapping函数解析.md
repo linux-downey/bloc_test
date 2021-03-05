@@ -12,6 +12,10 @@ pgd = pgd_offset(mm, addr)：通过虚拟地址 addr 获取 pgd 的位置，这�
 
 
 
+arm 页表结构的博客文章：https://blog.csdn.net/geshifei/article/details/89574508
+
+
+
 ## struct map_desc
 
 ```c
