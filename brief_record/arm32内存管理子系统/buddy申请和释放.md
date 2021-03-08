@@ -359,3 +359,191 @@ failed:
 alloc_page 的参考网址：https://blog.csdn.net/kickxxx/article/details/9287003
 
 MIGRATE_HIGHATOMIC的说明：https://blog.csdn.net/frank_zyp/article/details/89249469
+
+
+
+
+
+# buddy 释放 pages - free_pages
+
+
+
+```c++
+free_pages // 释放的时候需要传入 order 参数，通过 get_order(size) 获取
+    __free_pages
+    	put_page_testzero
+    	free_hot_cold_page(order==0 的情况，传入 cold 参数为 false)
+    		
+    	__free_pages_ok(order>0)
+            
+```
+
+
+
+## free_hot_cold_page
+
+```c++
+void free_hot_cold_page(struct page *page, bool cold)
+{
+	struct zone *zone = page_zone(page);
+	struct per_cpu_pages *pcp;
+	unsigned long flags;
+	unsigned long pfn = page_to_pfn(page);
+	int migratetype;
+
+	if (!free_pcp_prepare(page))
+		return;
+
+	migratetype = get_pfnblock_migratetype(page, pfn);
+	set_pcppage_migratetype(page, migratetype);
+    // 整个过程关中断执行
+	local_irq_save(flags);
+	__count_vm_event(PGFREE);
+
+	/*
+	 * We only track unmovable, reclaimable and movable on pcp lists.
+	 * Free ISOLATE pages back to the allocator because they are being
+	 * offlined but treat RESERVE as movable pages so we can get those
+	 * areas back if necessary. Otherwise, we may have to free
+	 * excessively into the page allocator
+	 */
+    // 如果 migratetype 为 ISOLATE 类型，就调用 free_one_page 接口，这是通用的 buddy 释放接口
+	// pcp 链表上只会维护 unmoveable、reclaimable、movable 三种迁移状态的页面
+    if (migratetype >= MIGRATE_PCPTYPES) {
+		if (unlikely(is_migrate_isolate(migratetype))) {
+			free_one_page(zone, page, pfn, 0, migratetype);
+			goto out;
+		}
+        // 如果不是 ISOLATE 的页面，就修改为 MOVABLE 的页面。
+		migratetype = MIGRATE_MOVABLE;
+	}
+	// 单个页面的释放看起来非常简单，如果是 cold 类型，就将它添加到 pcp->lists 的末尾，如果是 hot 类型，就添加到链表前面，通常都是作为 hot 进行添加，在下次申请一页的时候，就会直接返回这个最常用到的页面，有利于缓存的命中。 
+	pcp = &this_cpu_ptr(zone->pageset)->pcp;
+	if (!cold)
+		list_add(&page->lru, &pcp->lists[migratetype]);
+	else
+		list_add_tail(&page->lru, &pcp->lists[migratetype]);
+	pcp->count++;
+    // 如果 pcp->list 上的页面太多了也不行，这个标准是 pcp->count 也就是页面数量大于 pcp->high 这个值了，就会释放一部分 pcp page，释放的数量为 pcp->batch,明显 pcp->batch 不能大于 pcp->high，不能一次性给放空了。
+	if (pcp->count >= pcp->high) {
+		unsigned long batch = READ_ONCE(pcp->batch);
+		free_pcppages_bulk(zone, batch, pcp);
+		pcp->count -= batch;
+	}
+
+out:
+	local_irq_restore(flags);
+}
+
+```
+
+
+
+
+
+## __free_pages_ok
+
+__free_pages_ok 会调用到：
+
+```c++
+static void free_one_page(struct zone *zone,
+				struct page *page, unsigned long pfn,
+				unsigned int order,
+				int migratetype)
+{
+	unsigned long nr_scanned;
+	spin_lock(&zone->lock);
+    
+    // 暂时不明白这两个函数是在干嘛
+	nr_scanned = node_page_state(zone->zone_pgdat, NR_PAGES_SCANNED);
+	if (nr_scanned)
+		__mod_node_page_state(zone->zone_pgdat, NR_PAGES_SCANNED, -nr_scanned);
+
+	if (unlikely(has_isolate_pageblock(zone) ||
+		is_migrate_isolate(migratetype))) {
+		migratetype = get_pfnblock_migratetype(page, pfn);
+	}
+	__free_one_page(page, pfn, zone, order, migratetype);
+	spin_unlock(&zone->lock);
+}
+```
+
+
+
+
+
+
+## 两个统计数组
+
+extern atomic_long_t vm_zone_stat[NR_VM_ZONE_STAT_ITEMS];
+extern atomic_long_t vm_node_stat[NR_VM_NODE_STAT_ITEMS];
+
+这两个数组中保存着 buddy 系统的统计信息，NR_VM_ZONE_STAT_ITEMS 和 NR_VM_NODE_STAT_ITEMS 是两个枚举常量，定义在 include/linux/mmzone.h 中。
+
+```c++
+enum zone_stat_item {
+	/* First 128 byte cacheline (assuming 64 bit words) */
+	NR_FREE_PAGES,
+	NR_ZONE_LRU_BASE, /* Used only for compaction and reclaim retry */
+	NR_ZONE_INACTIVE_ANON = NR_ZONE_LRU_BASE,
+	NR_ZONE_ACTIVE_ANON,
+	NR_ZONE_INACTIVE_FILE,
+	NR_ZONE_ACTIVE_FILE,
+	NR_ZONE_UNEVICTABLE,
+	NR_ZONE_WRITE_PENDING,	/* Count of dirty, writeback and unstable pages */
+	NR_MLOCK,		/* mlock()ed pages found and moved off LRU */
+	NR_SLAB_RECLAIMABLE,
+	NR_SLAB_UNRECLAIMABLE,
+	NR_PAGETABLE,		/* used for pagetables */
+	NR_KERNEL_STACK_KB,	/* measured in KiB */
+	NR_KAISERTABLE,
+	NR_BOUNCE,
+	/* Second 128 byte cacheline */
+#if IS_ENABLED(CONFIG_ZSMALLOC)
+	NR_ZSPAGES,		/* allocated in zsmalloc */
+#endif
+#ifdef CONFIG_NUMA
+	NUMA_HIT,		/* allocated in intended node */
+	NUMA_MISS,		/* allocated in non intended node */
+	NUMA_FOREIGN,		/* was intended here, hit elsewhere */
+	NUMA_INTERLEAVE_HIT,	/* interleaver preferred this zone */
+	NUMA_LOCAL,		/* allocation from local node */
+	NUMA_OTHER,		/* allocation from other node */
+#endif
+	NR_FREE_CMA_PAGES,
+	NR_VM_ZONE_STAT_ITEMS };
+
+enum node_stat_item {
+	NR_LRU_BASE,
+	NR_INACTIVE_ANON = NR_LRU_BASE, /* must match order of LRU_[IN]ACTIVE */
+	NR_ACTIVE_ANON,		/*  "     "     "   "       "         */
+	NR_INACTIVE_FILE,	/*  "     "     "   "       "         */
+	NR_ACTIVE_FILE,		/*  "     "     "   "       "         */
+	NR_UNEVICTABLE,		/*  "     "     "   "       "         */
+	NR_ISOLATED_ANON,	/* Temporary isolated pages from anon lru */
+	NR_ISOLATED_FILE,	/* Temporary isolated pages from file lru */
+	NR_PAGES_SCANNED,	/* pages scanned since last reclaim */
+	WORKINGSET_REFAULT,
+	WORKINGSET_ACTIVATE,
+	WORKINGSET_NODERECLAIM,
+	NR_ANON_MAPPED,	/* Mapped anonymous pages */
+	NR_FILE_MAPPED,	/* pagecache pages mapped into pagetables.
+			   only modified from process context */
+	NR_FILE_PAGES,
+	NR_FILE_DIRTY,
+	NR_WRITEBACK,
+	NR_WRITEBACK_TEMP,	/* Writeback using temporary buffers */
+	NR_SHMEM,		/* shmem pages (included tmpfs/GEM pages) */
+	NR_SHMEM_THPS,
+	NR_SHMEM_PMDMAPPED,
+	NR_ANON_THPS,
+	NR_UNSTABLE_NFS,	/* NFS unstable pages */
+	NR_VMSCAN_WRITE,
+	NR_VMSCAN_IMMEDIATE,	/* Prioritise for reclaim when writeback ends */
+	NR_DIRTIED,		/* page dirtyings since bootup */
+	NR_WRITTEN,		/* page writings since bootup */
+	NR_VM_NODE_STAT_ITEMS
+};
+```
+
+每个对应的枚举常量对应一个数组元素，表示 buddy 的一类信息。
