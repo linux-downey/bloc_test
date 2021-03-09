@@ -99,6 +99,23 @@ https://people.kernel.org/linusw/arm32-page-tables
 
 ### paging_init
 
+kmap init 主要负责高端内存 和 FIXADDR 的映射，后续再研究。
+
+```
+static void __init kmap_init(void)
+{
+#ifdef CONFIG_HIGHMEM
+	pkmap_page_table = early_pte_alloc(pmd_off_k(PKMAP_BASE),
+		PKMAP_BASE, _PAGE_KERNEL_TABLE);
+#endif
+
+	early_pte_alloc(pmd_off_k(FIXADDR_START), FIXADDR_START,
+			_PAGE_KERNEL_TABLE);
+}
+```
+
+
+
 
 
 #### 页表相关的宏

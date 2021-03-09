@@ -87,9 +87,62 @@ static unsigned long __init free_low_memory_core_early(void)
 	memblock_clear_hotplug(0, -1);
 
     // 标记所有的 reserved 内存
+    // 这部分内存不会释放到 buddy 中去，对于系统来说，这部分内存已经消失了
+    //所有的 reserved region：
+    /*
+    {base = 0x10004000, size = 0x4000, flags = 0x0}
+    {base = 0x10100000, size = 0x102a348, flags = 0x0}
+    {base = 0x18000000, size = 0x17456, flags = 0x0}
+    {base = 0x3f30d000, size = 0xd2000, flags = 0x0}
+    {base = 0x3f3e1918, size = 0xc1a6e8, flags = 0x0}
+    {base = 0x3fffc880, size = 0x3c, flags = 0x0}
+    {base = 0x3fffc8c0, size = 0x3c, flags = 0x0}
+    {base = 0x3fffc900, size = 0x78, flags = 0x0}
+    {base = 0x3fffc980, size = 0x4, flags = 0x0}
+    {base = 0x3fffc9c0, size = 0x4, flags = 0x0}
+    {base = 0x3fffca00, size = 0x4, flags = 0x0}
+    {base = 0x3fffca40, size = 0x4, flags = 0x0}
+    {base = 0x3fffca80, size = 0x20, flags = 0x0}
+    {base = 0x3fffcac0, size = 0x20, flags = 0x0}
+    {base = 0x3fffcb00, size = 0x20, flags = 0x0}
+    {base = 0x3fffcb28, size = 0x1b, flags = 0x0}
+    {base = 0x3fffcb44, size = 0x1b, flags = 0x0}
+    {base = 0x3fffcb60, size = 0x7b, flags = 0x0}
+    {base = 0x3fffcbdc, size = 0x1b, flags = 0x0}
+    {base = 0x3fffcbf8, size = 0x1b, flags = 0x0}
+    {base = 0x3fffcc14, size = 0x1b, flags = 0x0}
+    {base = 0x3fffcc30, size = 0x1b, flags = 0x0}
+    {base = 0x3fffcc4c, size = 0x1b, flags = 0x0}
+    {base = 0x3fffcc68, size = 0x1b, flags = 0x0}
+    {base = 0x3fffcc84, size = 0x1b, flags = 0x0}
+    {base = 0x3fffcca0, size = 0xa9, flags = 0x0}
+    {base = 0x3fffcd4c, size = 0x19, flags = 0x0}
+    {base = 0x3fffcd68, size = 0x19, flags = 0x0}
+    {base = 0x3fffcd84, size = 0x19, flags = 0x0}
+    {base = 0x3fffcda0, size = 0x1d, flags = 0x0}
+    {base = 0x3fffcdc0, size = 0x3d, flags = 0x0}
+    {base = 0x3fffce00, size = 0x25, flags = 0x0}
+    {base = 0x3fffce28, size = 0x24, flags = 0x0}
+    {base = 0x3fffce58, size = 0x31a8, flags = 0x0}
+    {base = 0x5c000000, size = 0x14000000, flags = 0x0}
+    */
 	for_each_reserved_mem_region(i, &start, &end)
 		reserve_bootmem_region(start, end);
 	// 针对每个 range，释放内存，返回值是释放的内存数量，以页为单位。 
+    // 不包括 reserved 部分，但是整个内存块被 reserved 部分切分了。 
+    // 所有的 memory 内存：
+    /*
+    	0x10000000,0x10004000
+    	0x10008000,0x10100000
+    	0x1112a348,0x18000000
+    	0x18017456,0x3f30d000
+    	0x3f3df000,0x3f3e1918
+    	0x3fffc000，0x3fffc880
+    	0x3fffc8bc，0x3fffc8c0
+    	0x3fffc8fc，0x3fffc900
+    	...
+    */
+    
 	for_each_free_mem_range(i, NUMA_NO_NODE, MEMBLOCK_NONE, &start, &end,
 				NULL)
 		count += __free_memory_core(start, end);
@@ -97,6 +150,12 @@ static unsigned long __init free_low_memory_core_early(void)
 	return count;
 }
 ```
+
+
+
+
+
+
 
 
 

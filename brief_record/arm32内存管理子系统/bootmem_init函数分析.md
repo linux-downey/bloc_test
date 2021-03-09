@@ -81,7 +81,8 @@ void __init bootmem_init(void)
 	memblock_allow_resize();
 	max_low = max_high = 0;
     
-	// min 是物理地址的最低点(页帧号)，max_low 是低端内存的最高点，max_high 是高端内存最高点
+	// min 是物理地址的最低点(页帧号)，max_low 是低端内存的最高点，max_high 是高端内存最高点，也就是物理地址的内存终点
+    // memblock.memory 中保存的物理内存描述是从低地址到高地址的，因此，获取物理地址的最大值就是找到 memblock.memory 最后一个 regions 即可计算得到。 
 	find_limits(&min, &max_low, &max_high);
 
 	early_memtest((phys_addr_t)min << PAGE_SHIFT,
@@ -98,6 +99,7 @@ void __init bootmem_init(void)
 	 */
 	zone_sizes_init(min, max_low, max_high);
 
+    // 把物理地址起始页帧、低端内存最高地址、高端内存最高地址保存下来。
 	min_low_pfn = min;
 	max_low_pfn = max_low;
 	max_pfn = max_high;
@@ -166,9 +168,9 @@ void __paginginit free_area_init_node(int nid, unsigned long *zones_size,
 	calculate_node_totalpages(pgdat, start_pfn, end_pfn,
 				  zones_size, zholes_size);
 	
-    // 为对应所有物理内存的 struct page 申请内存
+    // 为对应所有物理内存的 struct page 申请内存,包括高端内存
     // 在这里，物理内存长度为 0x10000000 = 256M，每个页面 4K，一共 64K 个物理页面
-    // 每个页面的 struct page 占用 0x20 的空间，一共占用 0x200000 的空间
+    // 每个页面的 struct page 占用 0x20 的空间(32字节)，一共占用 0x200000 的空间
     // 由 memblock 申请，保存在 memblock.reserved 区域中。 
     // 将这片内存的首 page 地址保存在 pgdat->node_mem_map 中。 
 	alloc_node_mem_map(pgdat);
@@ -186,8 +188,20 @@ void __paginginit free_area_init_node(int nid, unsigned long *zones_size,
 }
 ```
 
+
+
 这个函数结束之后，bootmem_init 函数基本上就已经完成了，因此，bootmem_init 基本上做的事情就是：
 
 初始化 contig_page_data 结构，并赋值，包括 zone_size，zone 中的各个 page 属性，同时为所有 struct  page 结构申请内存，并保存在 contig_page_data->node_mem_map 中。 
 
 每个 page 做一些初始化设置,包括一些 flag 设置，这些设置作用于每个 page 对应的 struct  page 结构，也就是  contig_page_data->node_mem_map 执行的内存部分。
+
+目前使用了两个 zone：normal 和 highmem，前面的 zone_dma 和 zone_dma32 并没有使用，dma 设备可以直接使用 normal 部分的内存。
+
+定义了三个 zone，最后一个 zone 是 movable，没有相关的 page。
+
+
+
+b bootmem_init
+
+print/x memblock.memory.regions.size
