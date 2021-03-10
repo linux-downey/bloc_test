@@ -8,7 +8,7 @@
 
 // 服务端
 
-qemu-system-arm -S -s -m 1G -M sabrelite -kernel arch/arm/boot/zImage -dtb arch/arm/boot/dts/100ask_imx6ull-14x14.dtb
+qemu-system-arm -S -s -m 1.5G -M sabrelite -kernel arch/arm/boot/zImage -dtb arch/arm/boot/dts/100ask_imx6ull-14x14.dtb
 
 
 
