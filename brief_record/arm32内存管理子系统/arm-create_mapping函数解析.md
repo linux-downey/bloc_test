@@ -218,9 +218,10 @@ ENTRY(cpu_v7_set_pte_ext)
 //       r2 = 0
 #ifdef CONFIG_MMU
 	str	r1, [r0]			     // 将 r1 保存到 r0 位置，也就是把 entry 值写入对应位置
+								 // 这是 linux pte
 
 	bic	r3, r1, #0x000003f0      // 将 r1 的 bit12-bit4 清零，r3 = 0x3fffe00f
-	bic	r3, r3, #PTE_TYPE_MASK   // ,r3 = 0x3fffe00c,PTE_TYPE_MASK = 3,表示 pte 的类型，决定是 4K 映射还是 64K 还是 1M.
+	bic	r3, r3, #PTE_TYPE_MASK   // r3 = 0x3fffe00c,PTE_TYPE_MASK = 3,表示 pte 的类型，决定是 4K 映射还是 64K 还是 1M.
 	orr	r3, r3, r2                // r3 = 0x3fffe00c,设置最后一位 ng bit
 	orr	r3, r3, #PTE_EXT_AP0 | 2  // r3 = 0x3fffe01e,access pointer 控制
 
@@ -229,21 +230,21 @@ ENTRY(cpu_v7_set_pte_ext)
 
 	eor	r1, r1, #L_PTE_DIRTY      // r1 = 0x3fffe18f
 	tst	r1, #L_PTE_RDONLY | L_PTE_DIRTY   
-	orrne	r3, r3, #PTE_EXT_APX    //被执行，r3 = 0x3fffe21e
+	orrne	r3, r3, #PTE_EXT_APX    //r3 = 0x3fffe21e
 
 	tst	r1, #L_PTE_USER             // 
-	orrne	r3, r3, #PTE_EXT_AP1    // 被执行，r3 = 0x3fffe23e
+	orrne	r3, r3, #PTE_EXT_AP1    // r3 = 0x3fffe23e
 
 	tst	r1, #L_PTE_XN               // 
-	orrne	r3, r3, #PTE_EXT_XN     // 被执行，r3 = 0x3fffe23e
+	orrne	r3, r3, #PTE_EXT_XN     // r3 = 0x3fffe23e
 
 	tst	r1, #L_PTE_YOUNG           
-	tstne	r1, #L_PTE_VALID        // 被执行，r1 =0x3fffe18f
-	eorne	r1, r1, #L_PTE_NONE     // 被执行，r1 = 0x3fffe98f
-	tstne	r1, #L_PTE_NONE         // 被执行，r1 = 0x3fffe98f
+	tstne	r1, #L_PTE_VALID        // r1 = 0x3fffe18f
+	eorne	r1, r1, #L_PTE_NONE     // r1 = 0x3fffe98f
+	tstne	r1, #L_PTE_NONE         // r1 = 0x3fffe98f
 	moveq	r3, #0                  // r3 = 0x3fffe23e
 
- ARM(	str	r3, [r0, #2048]! )      // 把 r3 存到 0xefffdfc0(r0+2048)
+ ARM(	str	r3, [r0, #2048]! )      // 把 r3 存到 0xefffdfc0(r0+2048)，这是硬件 pte
  THUMB(	add	r0, r0, #2048 )
  THUMB(	str	r3, [r0] )
 	ALT_SMP(W(nop))
