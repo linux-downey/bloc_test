@@ -138,13 +138,33 @@ memblock 作为内核早期的内存管理器，有几个重要的阶段：
 
 ## buddy 初始化准备阶段
 
-在 paging_init 函数中建立完页表之后，在 paging_init 函数的后半段执行 bootmem_init，开始向 buddy 系统靠近。  
+在 paging_init 函数中建立完页表之后，在 paging_init 函数的后半段执行 bootmem_init，对 zone 执行初始化工作。  
 
+```c++
+void __init bootmem_init(void)
+{
+    unsigned long min, max_low, max_high;
+	find_limits(&min, &max_low, &max_high);
+    zone_sizes_init(min, max_low, max_high);
+    ...
+}
+```
 
+find_limits 函数将会找到三个物理内存边界：
 
+* min：物理内存的起始页帧
+* max_low：memblock 的 limit 参数，也对应低端内存与高端内存的分界点，通常比例为 3:1(768:256)  或者 7:1(896:128)，假设物理起始页面号为 0x10000，低端内存与高端内存比例为 3:1，max_low 的值就是 0x40000。
+* max_high：物理地址的结束页帧号
 
+这三部分信息就是当前 imx6ull 平台用于初始化 zone 的内存信息，实际上只用到两个 zone 空间：NORMAL 和 HIGHMEM，ZONE_MOVEABLE 区域并没有实际管理内存。
 
+需要注意的是，包括 paging_init 函数在内，都是属于 setup_arch 的子函数，这些都是和硬件架构强相关的，不同的硬件完全可能使用不同的 zone 空间，比如 x86 下就可能针对 ZONE_DMA 进行初始化，64 位系统需要使用到 ZONE_DMA32 而不需要使用 ZONE_HIGHMEM。
 
+zone_sizes_init 函数负责初始化部分 zone 相关的信息：
+
+```c++
+
+```
 
 
 
