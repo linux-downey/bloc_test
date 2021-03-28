@@ -61,7 +61,7 @@ SPARSEMEM 在内存的描述中使用了 section 的概念(注意这里的sectio
 
 而 DISCONTIGMEM 和 SPARSEMEM  类型的映射，同样可以参考 include/asm-generic/memory_model.h 头文件。  
 
- 
+ **需要注意的是，对于内核初始化阶段来说，内存空洞实际上指的是 memblock.memory 成员中保存的物理内存不连续，这种情况可能是本身提供的物理内存不连续造成的，也可能是用户 reserved nomap 类型的内存造成的。**
 
 ### 内存域 - zone
 
@@ -170,13 +170,36 @@ find_limits 函数将会找到三个物理内存边界：
 
 需要注意的是，包括 paging_init 函数在内，都是属于 setup_arch 的子函数，这些都是和硬件架构强相关的，不同的硬件完全可能使用不同的 zone 空间，比如 x86 下就可能针对 ZONE_DMA 进行初始化，64 位系统需要使用到 ZONE_DMA32 而不需要使用 ZONE_HIGHMEM。
 
-zone_sizes_init 函数负责初始化部分 zone 相关的信息：
+zone_sizes_init 函数负责初始化部分 zone 相关的信息，从函数名就可以看出，该函数负责初始化和统计 zone 相关的信息，主要是两个方面：
 
-```c++
+* 统计 hole 信息，也就是内存空洞，用的是反向统计的方式，先假设某个 zone 内全部空间都为 hole，再扫描 memblock，减去 memblock 中提供的物理内存区间，也就是 zone 区域内的内存空洞
+* 将物理内存划分给不同的 zone，比如在 imx6ull 中，低 768M 物理内存划分为 ZONE_NORMAL 管理的内存，除此之外的划分给高端内存区 ZONE_HIGHMEM， 
 
-```
+将统计完的所有 zone 信息收集起来，作为调用 free_area_init_node 的参数，在 buddy子系统-数据结构与基本原理(TODO)中说到，整个 buddy 子系统由数据结构 contig_page_data 描述，这是一个 struct pglist_data 类型的数据结构，其中包含 buddy 子系统的所有管理信息，既然要建立 buddy 子系统的框架，自然主要就是针对该结构体的初始化操作，对该结构的初始化操作就在 free_area_init_node  中完成：
+
+* 初始化一些常规结构，比如 NUMA node 节点 id node_id，该节点下的第一个物理页面 node_start_pfn 等等。
+
+* 根据 zone_sizes_init  计算得到的 zone_size(所有 zone 的 size 总和) 和 zhole_size 计算得到总的 page 数量，计算出来有什么用呢？一方面是做个记录，给 contig_page_data 的 node_spanned_pages(线性区域内总的 page 数量，包括 hole) 和 node_present_pages(线性区域内提供的物理 page 数量，除去 hole) 赋值，另一个更重要的事情是：给所有 page 对应的 struct page 结构申请内存，在 imx6ull(arm32)平台上，一个 struct page 的 size 为 0x20，因此如果物理上提供了 2G 内存，就需要申请 2G / 4K * 0x20 = 16M 内存空间，**申请到的内存块的虚拟基地址保存在 contig_page_data ->node_mem_map 中，尽管此时使用 memblock 申请到的内存为物理内存，因为该内存属于线性映射区，可以直接通过 phys_to_virt 转换成虚拟地址**
+
+* 因为之前已经分别统计了各个 zone 中的页面相关信息，因此调用 free_area_init_core 对 zone 中的管理成员进行初始化，包括 zone->zone_start_pfn、zone->spanned_pages、zone->present_pages，初始化 zone 中一些管理成员比如 lock、name、zone_pgdata 成员等。
+
+* 初始化 zone 中的 pcp page，对应 zone->pageset 结构体成员，这个成员在 buddy 中是非常重要的，pcp 的意思是 per cpu page，为了更高效地执行单页的内存分配，buddy 子系统除了维护主要的 zone->free_area 之外，还维护了一个单页链表，毕竟内核中单页的申请是非常频繁的，因此缓存一些单页以提高分配效率是非常要必要的，同时使用 percpu 机制可以避免多核操作所带来的缓存问题。 
+
+* 接着，在 free_area_init_core->init_currently_empty_zone 中调用了 zone_init_free_lists，该函数用于初始化 buddy 子系统的主角，zone->free_area 结构，free_area 的结构是这样的：
+  ![image-20210324215731256](free_area详细结构.png)
+   其实初始化的过程很简单，就是逐级遍历 free_area 中每一项，调用 INIT_LIST_HEAD 对每个链表头进行初始化，同时将每个 order 数据成员的 nr_free 初始化为 0
+  
+* 在 buddy 框架初始化的最后呢，就是对每个页面结构(struct page) 进行初始化，其中包括设置部分页面迁移属性为 MIGRATE_MOVABLE，为所有页面设置 关联的 zone、ref count、lru 链表头等。
+
+  ```
+  在这里会初始化页面的 refcount 为 1，并不是标记所有页面正在使用，而是因为在 memblock 将页面移交给 buddy 子系统时，使用的是页面释放的接口 free_page，该接口会先将 refcount 减一，然后判断是否为 0，只有 refcount 为 0 的页面才会被 buddy 子系统回收。
+  ```
+
+  
 
 
+
+不难发现，在 paging_init -> bootmem_init 函数中，几乎完成了 buddy 子系统框架的建立，其中包括所有页面结构 struct page 内存的申请、buddy 全局管理结构 contig_page_data  的初始化、zone 以及 page 针对 zone 的分配、pcp page 以及 free_area 结构的初始化，buddy 的雏形已经完成，接下来的工作就是将 memblock 管理的所有页面提交给 buddy 子系统，完成内存管理工作的交接，关于这一部分我们下节再讨论。 
 
 
 
