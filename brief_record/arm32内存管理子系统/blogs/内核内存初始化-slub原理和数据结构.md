@@ -193,3 +193,8 @@ struct kmem_cache {
 
 
 
+### struct page
+
+slub 的分配也 page 的管理是强相关的，而 struct page 中针对 slub 分配有一些特定的字段，了解这些字段才能更好地理解 slub 分配过程。 
+
+struct page 是一个很神奇的结构，
