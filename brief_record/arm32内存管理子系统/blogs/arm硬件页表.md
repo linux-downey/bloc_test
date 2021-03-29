@@ -142,7 +142,7 @@ C：cache 标志位，决定页表的遍历过程是否支持 Inner memory 的 c
 
 
 
-#### memory 模型
+#### 指令集层面的 memory 模型
 
 在 TTBR0 中，不难发现其 bit0-bit6 是针对页表基地址相关的内存访问属性，其中包括 inner、outer、shareable 等等这些概念，其实我也并没有完全理解这部分概念，就照着手册中写的翻译一下吧，有兴趣的朋友可以参考 armv7 手册以及 cortex-Ax 处理器实现手册：
 

@@ -30,21 +30,28 @@
 
 ## 基本术语
 
-在下文的讨论中，使用的几个名词需要说明，以免混淆：
+在下文的讨论中，使用的几个名词需要说明，以免混淆，这些并不是官方概念，只是为了讲解方便而定义的概念：
 
-* slab：
+* 缓存：这里的缓存并不是 CPU 硬件上的概念，而是软件上的概念，slub 内存管理器就是基于缓存的机制实现的，即将 buddy 分配的页面平等分为多份放在内存中，等待用户的使用和放回，在 buddy 子系统的页面与 slub 对象中做了一层中间转换，也就称为缓存。 
+
+* 缓存对象：在 slab 或 slub 中，针对的是特定的数据结构或者单一的对象执行内存分配，比如为内核中的 struct inode、struct dentry 结构建立缓存，也可以自定义结构进行缓存，这些被视为缓存对象。
+
+* slab：slab 对应的英文名为块、板、组，在最先实现的分配器中，slab 用来表示一个缓存块组，包含多个缓存块，slab 内存管理器也因此得名，由于 slub 是基于 slab 的衍生版，因此也就使用了 slab 这个概念，因此在后文的阅读中请注意 slab 指的是 slab 内存管理器还是一个缓存块组。
+* 缓存块(object)：对应程序中的 object，一个缓存块对应一个具体的分配对象，当用户分配内存空间时即返回一个空闲的缓存块，slub 是基于缓存块的管理
+
+![image-20210328214313826](/home/book/bloc_test/brief_record/arm32内存管理子系统/blogs/缓存对象-块-slab概念.png)
 
 
 
 ## slub 概览
 
-同时，由于 slub 是基于 slab 分配器衍生而来的，多数接口兼容，因此 slub 的实现代码中保留着一些 slab 分配器的概念，比如对于 slub 中的缓存块组，依旧称之为 slab(不是指 slab 分配器，而是缓存块组)。
+由于 slub 是基于 slab 分配器衍生而来的，多数接口兼容，因此 slub 的实现代码中保留着一些 slab 分配器的概念，比如对于 slub 中的缓存块组，依旧称之为 slab(不是指 slab 分配器，而是缓存块组)。
 
 那么，回到最核心的问题，slub 分配算法是如何工作的呢？
 
 *  slub 基于 buddy 子系统，slub 分配器所占用的页面由 buddy 子系统分配而来，在特定时候也将释放到 buddy 子系统中
 * slub 分配器基于一种缓存机制，是针对同一类型对象的缓存，也就是完整的页面会根据目标对象分成多个缓存块，每次分配内存就返回其中一块。这种由多个相同大小的块组成的页面就是一个 slab(注意这里所说的一个 slab 其实是一个缓存块组)，其实页内分配器其实并不是严谨的说法，只是为了表达 slub 是针对小内存的分配，这种内存分配是完全可能跨页的。因此，一个 slab 可能包含多个页面，只是通常对于比较小的缓存对象是一个页面。
-* 系统默认创建了特定 size 的 slab 缓存块组，默认创建了从 8 - 192 bytes(以 8 为间隔) 的 slab，基本覆盖了小内存的申请需求，且不会造成明显的内存浪费(一个缓存对象最多浪费 7 个 bytes)，同时，最大的特点是：内存申请者可以通过目标对象的大小自定义 slab，假设一个内核中出场率很高的结构需要频繁申请释放内存，占用 260 bytes，可以使用 kmem_cache_create 函数为其创建一个专用的 slab，该 slab 中包含连续且多个刚好为 260  bytes 的空闲缓存块，后续针对该对象的申请释放不会浪费哪怕一个字节的内存(在某些情况下可能会浪费一些对齐字节)，解决了内存在实际使用中利用率的问题。
+* 系统默认创建了特定 size 的 slab 缓存块组，默认创建了 8、16、32(及以上) bytes 的 slab，基本覆盖了小内存的申请需求，且不会造成明显的内存浪费，同时，最大的特点是：内存申请者可以通过目标对象的大小自定义 slab，假设一个内核中出场率很高的结构需要频繁申请释放内存，占用 260 bytes，可以使用 kmem_cache_create 函数为其创建一个专用的 slab，该 slab 中包含连续且多个刚好为 260  bytes 的空闲缓存块，后续针对该对象的申请释放不会浪费哪怕一个字节的内存(在某些情况下可能会浪费一些对齐字节)，解决了内存在实际使用中利用率的问题。
 * 内存利用率还取决于另一个因素：管理成本，也就是 slab 分配器本身要占用的空间。slub 中对一个 slab 的管理是基于链式结构，一方面，因为一个 slab 中缓存都是同一对象，因此不需要过于复杂的数据结构来管理，另一方面，slub 分配器巧妙地使用空闲页面来记录缓存对象，省去了一部分内存的开销。
 
 slub 的整体框架如下：
@@ -61,7 +68,24 @@ slub 的整体框架如下：
 
 对于 slab 的管理来说，最基本的就是了解当前 slab 中哪些缓存块是空闲的，哪些是被占用的，slub 使用的方式是链式结构，同时只记录空闲缓存块，也就是 kmem_cache 中保存 slab 中第一个空闲缓存块的位置，而第一个空闲缓存块中保存下一个空闲缓存块的位置，依次类推，这种利用没有分配出去的内存来记录下一节点的方式节约了不少内存。
 
-上面只是粗略地介绍了一下 slub 的框架与基本概念，接下来我们再深入到 slub 中，看看其对应的具体实现。
+
+
+### slub 基本原理概述
+
+对于一个缓存对象而言，一切的起点从 kmem_cache_create 开始，该接口返回对应 kmem_cache 结构，也就是管理该缓存对象的数据结构。在 kmem_cache_create 创建对象缓存时，同时会创建一个用于对象分配的 slab，这是个 percpu 类型 slab，以 cpu_slab 成员表示。
+
+当用户开始申请缓存块时，slub 分配器扫描 cpu_slab，尝试找到一个空闲的 object，理想情况是存在空闲的 object 然后返回给请求者，如果不存在，就需要向 buddy 子系统申请页面并初始化为一个新的 slab，然后满足分配需求。
+
+当用户释放缓存块时，可能存在多种情况：
+
+* 释放的正好是当前 cpu_slab 上的 object，这种情况下直接将 object 放入即可，更新一下空闲链表
+* 释放的是之前已用完的 slab，该 slab 变成一个 partial slab，需要将该 partial slab 重新管理起来，链接到 cpu_slab 的 partial 链表上，cpu_slab 的 partial 链表也不能无限存放 partial slab，当超过一定数量时将其转移到 pernode 的 partial 链表中。
+* 释放的是 partial slab 上的 object，直接放进去即可，更新一下空闲链表
+* 释放的是 partial slab 中的最后一个 object，也就是释放之后该 slab 为空，当这类空 slab 达到一定数量时，slab 会被释放，对应的页面被返回给 buddy 子系统。
+
+当存在 partial slab 时，object 的分配会优先使用 cpu_slab 中缓存的 slab 分配，再使用 cpu_slab 上链接的 partial slab，最后使用 pernode 的 partial slab，直到所有 partial 被申请完，就再从 buddy 子系统中申请页面创建新的 slab。
+
+更多的细节可以参考后续的源码分析。
 
 
 
@@ -89,7 +113,6 @@ struct kmem_cache {
 	struct kmem_cache_order_objects min;
 	gfp_t allocflags;	
 	int refcount;		
-	void (*ctor)(void *);
 	int inuse;		
 	int align;		
 	int reserved;		
@@ -121,6 +144,52 @@ struct kmem_cache {
 
 * node[MAX_NUMNODES]：这原本是最后一个成员，因为它涉及到 slub 的基本实现机制，因此提到前面来讲。
   在 slub 中，每个缓存对象通常会维护两重 slab，一重就是上面提到的 cpu_slab，一重就是当前 struct kmem_cache_node 类型的 slab，后缀 node 表示该 slab 是 per node(NUMA node) 的，MAX_NUMNODES 就是 NUMA node 节点的数量，在非 NUMA 系统中就代表是所有CPU 共享的，在缓存块分配和释放的时候，自然是优先处理 percpu 类型的 slab，毕竟分配效率高，但是也不能无限制地扩展 percpu 类型的 slab，因此就会使用到 per node 的 slab，其实这种策略也相当于是做了一层缓存，在 per node 类型的 slab 之后，就是 buddy 子系统，当缓存对象对应的空闲 slab 过多时，需要将页面返回给 buddy，如果用完了，就得从 buddy 申请，以维持一种动态的平衡。 
+该结构对应的成员如下：
+  
+  ```
+  struct kmem_cache_node {
+      spinlock_t list_lock;
+      unsigned long nr_partial;
+      struct list_head partial;
+  }
+  ```
+  
+  * list_lock：操作链表时的保护锁
+  * nr_partial：当前 node 上保留的 partial slab 的数量
+  * partial：连接 partial slab 的链表头
+  
+* min_partial：(kmem_cache_node) node  上存在的 slab 数量的下限值，当缓存块被释放时，如果挂在 kmem_cache_node 上的 slab 中全部 object 都是 free 的，这时候会有两种情况:如果 kmem_cache_node 的 partial 上数量大于等于 min_partial 时，就会直接释放掉这个 slab，让它回到 buddy 系统，而如果kmem_cache_node 的 partial 上数量小于 min_partial 时，就会把这个空的 slab 保留下来。
 
-* min_partial：(kmem_cache_node) node  上存在的 slab 数量的下限值，当对象缓存块被释放时，
+  ```
+  partial 的意思为部分的，partial slab 的产生是因为已经分配完的 slab 中被释放了一个或多个缓存块(object)。
+  ```
+
+* size：一个缓存块(object)所占用的内存空间，包含对齐字节
+
+* object_size：object 实际大小
+
+* offset：slub 中利用空闲的 object 内存，来保存下一个空闲 object 的指针，以此组成一个链表结构，该 offset 就是存放 next 指针的基地址偏移，通常情况下是 0。
+
+* cpu_partial：上面提到了 min_partial，用于限制 node 中保存的 partial slab 数量，而当前变量从 cpu 前缀可以看出这是用于限制 cpu_slab 上保存的 partial 链表数量，当 cpu_slab 上保留的 partial slab超过该值时，这些 partial slab 将会被转移到 node 中。
+
+* oo：这是 struct kmem_cache_order_objects 的结构体，这个结构体实际上是一个 unsigned long 型变量拆成两部分，其功能也是分为两部分，在 32 bits 系统中每部分占用 16 bits，分别为：object 和 order，因此命名为 oo。
+  object 表示一个 slab 中可保存的 object 数量，order 表示一个 slab 占用的页面数量，order 为页面阶数，如果你了解 buddy 子系统，就知道当 order 为 0 时，slab 占用 2^0=1 页，当 order 为 1 时，slab 占用 2^1=2 页，以此类推。
+  因此 object = (2^order) * PAGE_SIZE / size
+  而 order 值是由 size 决定的，见后续的源码分析。
+
+* max、min：同样是  struct kmem_cache_order_objects 类型的结构体，限定 oo 的上限和下限
+
+* allocflags：从 buddy 子系统分配内存时使用的掩码
+
+* refcount：引用计数，内核中惯用的回收机制
+
+* inuse：和 page->inuse 的概念，待研究：TODO？。
+
+* align：对齐字节数
+
+* list：链表节点，通过该节点将当前 kmem_cache 链接到 slab_caches 链表中。	
+
+* kobj：用于导出信息到 /sys 的子目录中
+
+
 
