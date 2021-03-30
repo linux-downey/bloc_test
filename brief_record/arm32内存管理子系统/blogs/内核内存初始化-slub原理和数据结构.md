@@ -195,6 +195,37 @@ struct kmem_cache {
 
 ### struct page
 
-slub 的分配也 page 的管理是强相关的，而 struct page 中针对 slub 分配有一些特定的字段，了解这些字段才能更好地理解 slub 分配过程。 
+slub 的分配是基于物理页面的管理，而 struct page 中针对 slub 分配有一些特定的字段，了解这些字段才能更好地理解 slub 分配过程。 
 
-struct page 是一个很神奇的结构，
+struct page 是一个很神奇的结构，它经过内核开发人员的精心设计，已经精简到极致，毕竟系统带有多少物理页面，就需要为多少物理页面申请对应的 struct page 结构，假设在一个 1M 个页面(4G物理内存)的系统中，struct page 每多占用 4 bytes，就会多占用 4M 物理内存空间。 
+
+因此，在 struct page 结构中存在很多的 union 结构，通过 union 结构可以复用其中的某些字段，当然，这里只会讨论和页面管理相关的字段：
+
+```
+struct page{
+    ...
+	void *freelist;
+	unsigned counters;
+	struct {			
+        unsigned inuse:16;
+        unsigned objects:15;
+        unsigned frozen:1;
+    };
+    struct list_head lru;
+	struct page *next;
+	short int pobjects;
+    ...
+}
+```
+
+* freelist : 指向关联的 slab (缓存块组)中第一个空闲的 object，没有则置为 NULL。
+* counters：和 refcount 作用类似，操作时受 slab_lock 的保护。
+* inuse：记录 page 所关联的 slab 中已经被使用的 object 数量。 
+* objects：包含的 object 的数量
+* frozen：当 slab 位于 cpu_slab (page 指针直接指向或者cpu partial 链表上)上时，frozen 为 1，当 slab 被转移到 node 中或者已经用完的情况下，frozen 为 0。
+* lru：链表节点，对于页面管理而言，lru 节点有两个作用：
+  * 当 page 处于伙伴系统管理时，lru 用于链接同一阶的伙伴页面
+  * 当 page 处于 slub 管理时，lru 用于链接到node  partial 链表、discard 链表或 debug 模式下的 full 链表。
+* next：用于链接到 cpu partial 链表
+* pobjects：pobjects 保存 cpu_partial 列表中 slab 数量
+
