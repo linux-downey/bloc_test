@@ -158,7 +158,7 @@ struct kmem_cache {
   * nr_partial：当前 node 上保留的 partial slab 的数量
   * partial：连接 partial slab 的链表头
   
-* min_partial：(kmem_cache_node) node  上存在的 slab 数量的下限值，当缓存块被释放时，如果挂在 kmem_cache_node 上的 slab 中全部 object 都是 free 的，这时候会有两种情况:如果 kmem_cache_node 的 partial 上数量大于等于 min_partial 时，就会直接释放掉这个 slab，让它回到 buddy 系统，而如果kmem_cache_node 的 partial 上数量小于 min_partial 时，就会把这个空的 slab 保留下来。
+* min_partial：(kmem_cache_node) node  上存在的 slab 数量的阈值，当缓存块被释放时，如果挂在 kmem_cache_node 上的 slab 中全部 object 都是 free 的，这时候会有两种情况:如果 kmem_cache_node 的 partial 上数量大于等于 min_partial 时，就会直接释放掉这个 slab，让它回到 buddy 系统，而如果kmem_cache_node 的 partial 上数量小于 min_partial 时，就会把这个空的 slab 保留下来。
 
   ```
   partial 的意思为部分的，partial slab 的产生是因为已经分配完的 slab 中被释放了一个或多个缓存块(object)。
@@ -183,7 +183,7 @@ struct kmem_cache {
 
 * refcount：引用计数，内核中惯用的回收机制
 
-* inuse：和 page->inuse 的概念，待研究：TODO？。
+* inuse：等于创建缓存对象时用户传入 size 参数(对齐后)，注意和 page->inuse 成员完全不是一个概念。
 
 * align：对齐字节数
 

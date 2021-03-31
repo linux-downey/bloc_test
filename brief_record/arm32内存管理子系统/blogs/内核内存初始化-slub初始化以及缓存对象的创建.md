@@ -7,7 +7,7 @@ slub 的初始化函数在 buddy 子系统初始化完成之后，核心的初�
   解决方案是：先静态地分别定义 struct kmem_cache 和 struct kmem_cache_node 两个结构，临时用于创建 
   struct kmem_cache 和 struct kmem_cache_node 这两个缓存对象本身，再就可以创建其它对象了。
 * 初始化第二部分就是初始化一些常用的 slub 缓存 ，比如给 kmalloc 使用的 8 bytes/16 bytes/32 bytes 等常用 size 的缓存对象，对于只指定 size 的 kmalloc 调用，使用的就是这些缓存对象，不过对于频繁申请释放的数据结构，可以使用 kmem_cache_create 创建专用的 slub 缓存。 
-  这部分对应的函数接口为 kmem_cache_init -> create_kmalloc_caches，具体创建了哪些 kmalloc 对应的缓存对应，可以通过 /sys/kernel/slab/ 目录查看，以 kmalloc-* 命名的 slab 都是在此创建的。
+  这部分对应的函数接口为 kmem_cache_init -> create_kmalloc_caches，所创建缓存对象的 size 以 8 的倍数递增，最多可扩展到 64M，但是一般内核最多为两个页面申请缓存对象，可以通过 /sys/kernel/slab/ 目录查看，以 kmalloc-* 命名的 slab 都是在此创建的。
 
 
 
@@ -100,7 +100,7 @@ static struct kmem_cache *create_cache(const char *name,
 
 向缓存行对齐在特定情况下并不一定合适，毕竟为了对齐而填充无效字节意味着空间的浪费，如果一个缓存对象只有 8 bytes，但是一个缓存行为 64 字节，这种对齐明显有些得不偿失，因此可以不指定 SLAB_HWCACHE_ALIGN 标志位，这种情况下如果传入的对齐参数小于 ARCH_SLAB_MINALIGN 就会使用 ARCH_SLAB_MINALIGN 作为对齐参数，该值通常为 sizeof(unsigned long long)
 
-如果传入的对齐参数大于 ARCH_SLAB_MINALIGN 又不设置 SLAB_HWCACHE_ALIGN标志位，那么就将传入的 align 值向 sizeof(void\*) 上界(ROUND_UP)对齐，这不大好理解，举个例子，在 32 位平台上，如果 align 为 10，sizeof(void\*) 为 4，那么最终就向 12 字节对齐，如果 align 为 7，就向 8 字节对齐。 
+如果传入的对齐参数大于 ARCH_SLAB_MINALIGN 又不设置 SLAB_HWCACHE_ALIGN标志位，那么就将传入的 align 值向 sizeof(void\*) 上界(ROUND_UP)对齐，也就是 align 的值等于它大于 sizeof(void*) 的最小倍数值，举个例子，在 32 位平台上，如果 align 为 10，sizeof(void\*) 为 4，那么最终就向 12 字节对齐，如果 align 为 7，就向 8 字节对齐。 
 
 ### __kmem_cache_create
 
