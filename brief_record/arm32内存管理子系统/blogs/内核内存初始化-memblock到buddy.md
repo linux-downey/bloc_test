@@ -69,7 +69,7 @@ memblock 对于移交物理内存的策略是：对于已经分配出去的被�
 
 出于分配效率的考虑，内核还会为每个 zone 维护一个 percpu 类型的单页链表，对应的成员结构为 zone->pageset，其存储结构为：
 
-![image-20210327173342097](D:\bloc_test\brief_record\arm32内存管理子系统\blogs\pcplist结构.png)
+![image-20210327173342097](pcplist结构.png)
 
 pcp 页面和普通内存页面不一样的是，pcp 页面只包含 UNMOVABLE、MOVABLE、RECLAIMABLE 类型页面的缓存，不支持 CMA 等页面类型。
 

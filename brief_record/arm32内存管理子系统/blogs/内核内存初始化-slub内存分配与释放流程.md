@@ -146,6 +146,10 @@ slab_alloc_node 是 slub 内存分配的核心实现，涉及到比较多的实�
     创建了新的 slab 之后，拿出 freelist 指向的第一个 object 返回给申请者即可。
     需要注意的是，尽管这种情况下申请的页面会交由 percpu 的 slab_cpu 管理，但是并不是从 percpu 的内存区进行申请，而是从普通内存区申请。只是 slab_cpu 这个结构需要从 percpu 内存中申请，而不是 slab 对应的页面。 
 
+下面是 slub 申请操作流程图：
+
+![image-20210401014133879](slub申请流程.png)
+
 
 
 ## kfree
@@ -212,16 +216,37 @@ static __always_inline void do_slab_free(struct kmem_cache *s,
 * 如果当前 object 不属于当前优先分配的 slab 中，也就执行 slowpath，slowpath 分为几种情况：
 
   * 当释放的 object 属于 slab_cpu->partial 或者 node->partial 中时，直接将 object 放入到对应的 partial slab 中，更新空闲 object 链表。
-
   * 当释放的 object 属于一个原本已经用完的 slab 时，释放这个 object 之后该 slab 就成为了一个 partial slab，原本的 page->freelist 需要修改为指向当前释放的 object，page->inuse 减去 1，同时该 slab 所属的 page 需要被 slub 重新管理起来，也就是将其添加到 slab_cpu->partial 链表上，因此 page->frozen 置为 1。该操作对应的函数为：\_\_slab_free->put_cpu_partial
     另一个需要考虑的情况是，当一个 full slab 变为 parital slab 时，都会被添加到 slab_cpu->partial 链表上，但是也不能无限制地添加，链表过长会导致操作效率的降低，因此， slab_cpu->partial 链表上的 partial slab 一旦超过某个值，就将所有的 slab 一次性全部转移到 per node 的 node->partial 链表上，这个触发转移的阈值就是 kmem_cache->cpu_partial 成员。该操作对应的函数为：\_\_slab_free->put_cpu_partial->unfreeze_partials.
     为什么是一次性全部转移而不是转移部分呢？
     我的猜测是：如果只转移部分，好处在于在频繁地分配操作时，当 slab_cpu->page 中对应的 object 分配完时，可以在同为 percpu 类型的 slab_cpu->partial 上找到可用的 partial slab，坏处是如果后续依旧是频繁地释放操作，那就需要频繁地往 node->partial 链表上转移 partial slab，而 slab_cpu->partial 上的 partial slab 超出限制本就意味着某个或者某些程序在执行频繁的释放操作，一次性全部转移更符合当时的场景。
-
   * 当释放的 object 是 partial slab 的最后一个 object 时，也就是该 partial slab 释放之后就变成了一个 empty slab，但是它不会被立即释放，而是当它被转移到 node->partial 上，同时 node->partial 上的 partial slab 数量即  node->nr_partial 超过指定的值，才会将该 empty slab 释放，也就是将该 slab 对应的 page 释放回 buddy 子系统。触发释放的 node->nr_partial 由 kmem_cache 的 min_partial 成员决定。min_partial 这个变量名有些歧义，容易让人理解为最小的 partial 数量，实际上是 node->nr_partial 达到这个数量且存在 empty slab，就释放 empty slab。
-该操作对应的操作函数为：\_\_slab_free->put_cpu_partial->unfreeze_partials->discard_slab。
+  该操作对应的操作函数为：\_\_slab_free->put_cpu_partial->unfreeze_partials->discard_slab。
 
+  
 
+  下面是 slub 释放操作流程图
+
+  ![image-20210401013935629](slub释放流程.png)
 
 ### tid 成员的操作
 
+在 slub 的源码中经常可以看到类似这样的代码片段：
+
+```c++
+do {
+		tid = this_cpu_read(s->cpu_slab->tid);         
+		c = raw_cpu_ptr(s->cpu_slab);                  ......................a
+	} while (IS_ENABLED(CONFIG_PREEMPT) &&
+		 unlikely(tid != READ_ONCE(c->tid)));          ......................b
+```
+
+percpu 的 slab_cpu->tid 是一个特定于 cpu 的变量，该代码片段执行的逻辑为：先读取当前 cpu 的 tid 字段，然后再获取当前 CPU 的 cpu_slab 结构，最后判断之前读取到的 tid 和 cpu_slab->tid 是不是一致，如果不一致，就需要重新执行这一过程。
+
+看起来这样的操作好像并没有什么意义，实际上这是操作 percpu 类型变量的一个常见问题：在操作过程中进程可能切换到另一个 CPU 上，导致 CPU 操作到与之不匹配的 percpu 变量。
+
+在这里，tid 和 slub 分配释放的逻辑没有关系，仅仅是为了防止进程突然切换到另一个 CPU 上，比如上面的 a 处，假设在执行完 this_cpu_read 之后，进程从 CPU0 上被切换到 CPU1 上执行，接下来获取到的 cpu_slab 就是 CPU1 对应的 cpu_slab，而 tid 是属于 CPU0 的，这自然不是操作的本意，会造成一些数据的混乱，而且非常难以调试。
+
+因此，通过先获取 tid，然后在操作完成之后再次获取 tid 的方式来防止出现这个问题，如果出现了 tid 不一致，说明进程切换到了不同的 CPU，需要重新加载 tid 和 slab_cpu 的值。
+
+实际上，针对 percpu 的进程切换到不同 CPU 问题，另一种方案是关抢占，只要当前 CPU 的内核抢占被关闭，当前进程就不会被切出，但是关中断是一种比较粗暴的做法，这会影响到内核的实时性，内核并不推荐使用关抢占的做法。毕竟在操作 percpu 变量的期间，是允许进程切换的，只是不允许当前进程切换到另一个 CPU，尽管重新 load tid 和 slab_cpu 效率不高，但是这种情况非常少见，也就。

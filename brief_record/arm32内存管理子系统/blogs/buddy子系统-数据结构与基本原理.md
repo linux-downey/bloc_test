@@ -72,10 +72,10 @@ typedef struct pglist_data {
 * node_zones：buddy 子系统中内存管理是以 zone 为单位的，也就是内存的分配在具体的 zone 内进行，关于 zone 的概念可以参考TODO，对于不同的 zone 有不同的特性，其内存管理的特性也有一些区别，每个 zone 对应一个数组成员，内核中支持多少个 zone 取决于硬件，硬件特性决定了软件配置，imx6ull 中 MAX_NR_ZONES 为 3，表示支持 3 个 zone，分别为 ZONE_NORMAL、ZONE_HIGHMEM 和 ZONE_MOVABLE。
   实际上，struct zone 结构才是 buddy 系统内存管理的体现，下文中将详细介绍。
   
-* node_zonelists：当当前的 zone 无法满足内存分配的需求时，zonelists 用于指定备用 node zone 列表，这里的 node 表示 numa node，在非 numa 架构中，不使用 zonelists。
+* node_zonelists：当当前的 zone 无法满足内存分配的需求时，zonelists 用于指定备用 node zone 列表，这里的 node 表示 numa node，在非 numa 架构中，zonelist 只包含本地内存对应的 zonelist，一个 zonelist 中包含本地内存中所有的 zone。
 
 * nr_zones：node 中 zone 的数量，原本我以为这个值就是等于 MAX_NR_ZONES，但是本着严谨的态度看了一眼源代码，发现不是这么回事，nr_zones 这个成员针对的是实际管理了物理内存的 zone 的数量，也就是说，尽管有些 ZONE 被配置到内核中，但是实际上并没有真正地管理内存，就不算在 nr_zones 中。
-  比如我手头上的这个 imx6ull 开发板，ZONE_MOVABLE 区域没有管理物理内存，尽管 MAX_ZONELISTS 为 3，但是 nr_zones 为 2，仔细一想也是，如果 nr_zones 恒等于 MAX_NR_ZONES，也就没有使用这个变量的必要了，直接使用宏就好，我猜测使用 nr_zones 记录真实使用的 zone 主要是减少在操作中没必要的遍历。 
+  比如我手头上的这个 imx6ull 开发板，ZONE_MOVABLE 区域没有管理物理内存，尽管 MAX_NR_ZONES 为 3，但是 nr_zones 为 2，仔细一想也是，如果 nr_zones 恒等于 MAX_NR_ZONES，也就没有使用这个变量的必要了，直接使用宏就好，我猜测使用 nr_zones 记录真实使用的 zone 主要是减少在操作中没必要的遍历。 
 
 * node_mem_map：struct page 数据基地址，每个页面都由一个 struct page 结构来管理，对于 FLATMEM 类型的内存模型，所有页面对应的 struct page 在启动阶段被统一申请，放在连续的物理内存地址上，node_mem_map 指向这片内存的基地址。
 
