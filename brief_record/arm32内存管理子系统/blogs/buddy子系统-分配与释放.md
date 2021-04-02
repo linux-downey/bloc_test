@@ -138,32 +138,23 @@ high 表示安全的水位线，代表此时的内存还有富余，当水位线
 
 
 
-了解完了 watermark 的相关知识，再回过头来看内存申请：
+了解完了 watermark 的相关知识，再回过头来看内存申请的具体实现：
 
 ```c++
 static struct page *
 get_page_from_freelist(gfp_t gfp_mask, unsigned int order, int alloc_flags,
 						const struct alloc_context *ac)
 {
-	struct zoneref *z = ac->preferred_zoneref;
-	struct zone *zone;
-	struct pglist_data *last_pgdat_dirty_limit = NULL;
-
 	for_next_zone_zonelist_nodemask(zone, z, ac->zonelist, ac->high_zoneidx,
-								ac->nodemask) {
+								ac->nodemask) {             ................1
 		struct page *page;
 		unsigned long mark;
-
-		if (cpusets_enabled() &&
-			(alloc_flags & ALLOC_CPUSET) &&
-			!__cpuset_zone_allowed(zone, gfp_mask))
-				continue;
         
 		if (ac->spread_dirty_pages) {
 			if (last_pgdat_dirty_limit == zone->zone_pgdat)
 				continue;
 
-			if (!node_dirty_ok(zone->zone_pgdat)) {
+			if (!node_dirty_ok(zone->zone_pgdat)) {         ................2
 				last_pgdat_dirty_limit = zone->zone_pgdat;
 				continue;
 			}
@@ -171,11 +162,9 @@ get_page_from_freelist(gfp_t gfp_mask, unsigned int order, int alloc_flags,
 
 		mark = zone->watermark[alloc_flags & ALLOC_WMARK_MASK];
 		if (!zone_watermark_fast(zone, order, mark,
-				       ac_classzone_idx(ac), alloc_flags)) {
+				       ac_classzone_idx(ac), alloc_flags)) { ...............3
 			int ret;
 
-			/* Checked here to keep the fast path fast */
-			BUILD_BUG_ON(ALLOC_NO_WATERMARKS < NR_WMARK);
 			if (alloc_flags & ALLOC_NO_WATERMARKS)
 				goto try_this_zone;
 
@@ -186,13 +175,10 @@ get_page_from_freelist(gfp_t gfp_mask, unsigned int order, int alloc_flags,
 			ret = node_reclaim(zone->zone_pgdat, gfp_mask, order);
 			switch (ret) {
 			case NODE_RECLAIM_NOSCAN:
-				/* did not scan */
 				continue;
 			case NODE_RECLAIM_FULL:
-				/* scanned but unreclaimable */
 				continue;
 			default:
-				/* did we reclaim enough */
 				if (zone_watermark_ok(zone, order, mark,
 						ac_classzone_idx(ac), alloc_flags))
 					goto try_this_zone;
@@ -203,7 +189,7 @@ get_page_from_freelist(gfp_t gfp_mask, unsigned int order, int alloc_flags,
 
 try_this_zone:
 		page = buffered_rmqueue(ac->preferred_zoneref->zone, zone, order,
-				gfp_mask, alloc_flags, ac->migratetype);
+				gfp_mask, alloc_flags, ac->migratetype);   .................4
 		if (page) {
 			prep_new_page(page, order, gfp_mask, alloc_flags);
 			if (unlikely(order && (alloc_flags & ALLOC_HARDER)))
@@ -216,6 +202,76 @@ try_this_zone:
 	return NULL;
 }
 ```
+
+1. 执行物理页面分配时，将会按照 zoneref 数组和 zonelist 中的顺序对各个 zone 进行扫描，在一个 node 内，根据当次分配的 gfp mask 确定需要从哪个 zone 分配，然后以从高到低的顺序扫描各个zone，扫描完一个 node 之后，再处理 zonelist 中指定的备用 node。
+   比如顺序为 ZONE_HIGHMEM->ZONE_NORMAL->ZONE_DMA。
+
+2. 当申请页面的 gfp_mask 中包含 \_\_GFP_WRITE 时，表示申请的物理页面将会生成脏页，单个 node 中会对 dirty page 数量存在限制，超出限制时，buddy 就不会在当前 zone 中分配 \_\_GFP_WRITE 类型的物理页面了，转而向扫描下一个 zone 区域。
+   node_dirty_ok 用于判断 node 中脏页面是否超出限制，被标记为 NR_FILE_DIRTY、NR_UNSTABLE_NFS、NR_WRITEBACK 这几种类型的页面将会被视为 dirty page。
+
+3. 执行内存水位的相关处理，在分配之前，先会获取本次内存分配水位线限制，该水位线由 alloc_flags 的最后两位决定，0~2 分别对应 MIN、LOW、HIGH，如果用户没有指定，会默认指定为 LOW。
+   zone_watermark_fast 用于判断内存水位值是否满足本次申请需求，另一个用于判断内存水位线的函数为 zone_watermark_ok，实际上 zone_watermark_fast 最终也是调用 zone_watermark_ok，从 fast 可以看出，这是内核在尝试走捷径，其实是针对单个页面分配的优化，因为内核中申请单个页面的情形非常普遍(slub/slab通常只申请单个页面)，单个页面时就可以快速判断页面余量并且返回，而多个页面的情况下需要通过相对复杂的计算才能确定。 
+   zone_watermark_ok 的实现实际上在上文中对 watermark 的介绍中讲得七七八八了，也是水位线控制的核心实现，这里做一个简要的分析：
+
+   ```c++
+   bool __zone_watermark_ok(struct zone *z, unsigned int order, unsigned long mark,
+   			 int classzone_idx, unsigned int alloc_flags,
+   			 long free_pages)
+   {
+       const bool alloc_harder = (alloc_flags & ALLOC_HARDER);
+       free_pages -= (1 << order) - 1;
+   
+   	if (alloc_flags & ALLOC_HIGH)
+   		min -= min / 2;
+       
+       if (likely(!alloc_harder))
+   		free_pages -= z->nr_reserved_highatomic;
+   	else
+   		min -= min / 4;                      ..........................a
+               
+       if (!(alloc_flags & ALLOC_CMA))
+   		free_pages -= zone_page_state(z, NR_FREE_CMA_PAGES);
+       
+       if (free_pages <= min + z->lowmem_reserve[classzone_idx])
+   		return false;
+   
+   	if (!order)
+   		return true;                         ..........................b
+       
+       for (o = order; o < MAX_ORDER; o++) {
+   		struct free_area *area = &z->free_area[o];
+   		int mt;
+   
+   		if (!area->nr_free)
+   			continue;
+   
+   		for (mt = 0; mt < MIGRATE_PCPTYPES; mt++) {
+   			if (!list_empty(&area->free_list[mt]))
+   				return true;                  .........................c
+   		}
+   
+   		if ((alloc_flags & ALLOC_CMA) &&
+   		    !list_empty(&area->free_list[MIGRATE_CMA])) {
+   			return true;
+   		}
+           
+   		if (alloc_harder &&
+   			!list_empty(&area->free_list[MIGRATE_HIGHATOMIC]))
+   			return true;                       ........................d
+   	}
+   }
+   ```
+
+   a.  alloc_harder 标志位在用户传入的标志位中带有 \_\_GFP_ATOMIC 且不带有 \_\_GFP_NOMEMALLOC 标志时被置位，这个标志位具有较高的分配优先级，意味着可以在更艰难的情况下同样需要完成内存分配，这个标志位表示可以使用低水位线的内存或者保留内存。 
+   ALLOC_HIGH 这个标志位同样表示本次内存分配具有较高的优先级，可以使用更低水位线的内存。
+
+   对于这两个标志位而言，ALLOC_HIGH 可以使用水位线 1/2 处的内存执行分配，如果 alloc_harder 标志同时被置位，甚至可以使用水位线 1/4 处的内存。
+   z->nr_reserved_highatomic 中记录了专门为高优先级内存分配请求的保留页面的数量，如果 alloc_harder 标志位没有被置位，在计算 freepage 数量时就需要排除这一部分内存页面。 
+   这部分 highatomic 页面并不是在 buddy 初始化的时候被保留的，而是
+
+
+
+
 
 
 
