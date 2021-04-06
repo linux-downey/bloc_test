@@ -1,32 +1,51 @@
-# armv7-A系列-arm状态寄存器
+# armv7-A系列2-arm状态寄存器
 在上一章中，我们介绍了 arm 的核心寄存器以及相对应的作用，这一章我们将继续介绍 armv7 架构中的另一个寄存器：状态寄存器。  
 
 顾名思义，状态寄存器的作用就是保存处理的的状态信息，程序运行期间可以通过查看状态寄存器来进行相应的处理，或者通过设置状态寄存器来修改处理器当前运行模式。  
 
 
 ## 状态寄存器
-在 armv7 中，状态寄存器为 CPSR，即 Current Program Status Register，该状态寄存器中保存了处理器运行时的状态信息，它的内容如下图所示：TODO
+在 armv7 中，状态寄存器为 CPSR，即 Current Program Status Register，该状态寄存器中保存了处理器运行时的状态信息：
+
+![](https://gitee.com/linux-downey/bloc_test/raw/master/zhihu_picture/armv7/CPSR%E5%AF%84%E5%AD%98%E5%99%A8.jpg)
 
 CPSR 寄存器为 32 位，其中：
 
 * N：bit31，当运算结果为负且运算指令要求更新寄存器时，该位会被置位。
+
 * Z：bit30，当运算结果为0且运算指令要求更新寄存器时，该位会被置位。
+
 * C：bit29，当运算结果产生进位且指令要求更新寄存器时，该位会被置位，具体进位规则见下文。
+
 * V：bit28，当运算结果产生符号位溢出且指令要求更新寄存器时，该位会被置位，具体溢出规则见下文。
+
 * Q：bit27，累积饱和位，置为1表示某些指令中发生溢出或饱和，通常与数字信号处理（DSP）有关。
-* IT[1:0],bit[26:25],IT 位，同后续 IT[7:2] 相关。
+
+* IT[1:0]，bit[26:25]，IT 位，同后续 IT[7:2] 相关。
+
 * J：bit24，指示处理器当前是否处于 Jazelle 状态。
+
 * bit[23:20]，保留位。
-* GE[3:0],bit[19:16]，大于或者等于标志位，主要被 SIMD 指令使用，SIMD 全称为 single instruction multiple data，armv7 提供一条指令同时处理多个寄存器数据，属于扩展指令。
+
+* GE[3:0]：bit[19:16]，大于或者等于标志位，主要被 SIMD 指令使用，SIMD 全称为 single instruction multiple data，armv7 提供一条指令同时处理多个寄存器数据，属于扩展指令。
+
 * IT：bit[15:10]，Thumb IT 指令集的 if-then 执行状态位。
+
 * E：bit9，指示当前处理器是运行于大端模式还是小端模式，同时，也可以通过设置该位来切换大小端模式。
-* mask bits，bit[8:6],屏蔽位 A、I、F，分别对应异步终止、快中断和中断，当对应的位为1时，相应的功能被屏蔽，当处理器需要屏蔽中断时，通常就是设置该屏蔽位。
+
+* mask bits，bit[8:6]，屏蔽位 A、I、F，分别对应异步终止、快中断和中断，当对应的位为1时，相应的功能被屏蔽，当处理器需要屏蔽中断时，通常就是设置该屏蔽位。
+
 * T，bit5，指示处理器当前使用 thumb 指令集还是 arm 指令集，当前位和 J bit决定当前处理器的指令集，是 arm、Thumb、Jazelle 还是 ThumbEE 指令集。J、T的值对应指令集关系为：00-arm指令集，01-Thumb指令集，10-Jazelle指令集，11-ThumbEE指令集。
+
 * M，bit[4:0],模式位，指示处理器当前位于哪种运行模式下，细节见下文。
+
+  
 
 
 ## 用户状态寄存器
-armv7 架构有多种模式代表不同的系统操作权限，同样的，对于状态寄存器的操作也需要做相应的权限管理，在 User 模式下，状态寄存器为 APSR，即 Application Program Status Register，其实 APSR 是 CPSR 的限制版本，我们可以看下图：
+armv7 架构有多种模式代表不同的系统操作权限，同样的，对于状态寄存器的操作也需要做相应的权限管理，在 User 模式下，状态寄存器为 APSR，即 Application Program Status Register，其实 APSR 是 CPSR 的限制版本，参考下图：
+
+![](https://gitee.com/linux-downey/bloc_test/raw/master/zhihu_picture/armv7/apsr%E5%AD%97%E6%AE%B5.png)
 
 使用 APSR 而不是 CPSR 本质上是因为需要对用户空间做相应限制，所以寄存器的某些 bit 需要对用户空间不可见，比如 mask bits[8:6]，如果用户空间可以更新 irq 的屏蔽位，那应用程序很容易就能让整个机器瘫痪。  
 
@@ -45,6 +64,8 @@ without using a read, modify, write sequence. If it does this, it must write zer
 在实际的编程中，很少会出现需要手动修改 APSR 最高字节的情况，一般都是执行指令时自动根据运算结果更新状态寄存器，下一条指令根据上一条指令的结果决定指令的执行。  
 
 对于 APSR 的低 16 位，写是无效的，尽管读操作可能可以获取到对应 CPSR 寄存器的结果，这由具体实现决定，但是不要做这种假设，arm 也不建议读 APSR 的 [15:0] 返回 CPSR 的 [15:0] 位。
+
+
 
 ## 状态位的更新
 在 C 语言中，执行分支指令通常是通过 if 语句判断某个条件是否满足，再根据结果执行不同的分支指令，C 代码总归是要翻译成汇编代码的，从汇编的角度来看，分之代码或者说逻辑判断是如何完成的呢？   
@@ -122,7 +143,9 @@ result = sign_sum<7:0> = 0x81
 ## 条件指令
 上一条指令的执行结果保存在 CPSR 的状态位中，在代码中如何使用这些状态位呢？我们接着往下看:
 
-armv7 中并没有定义特定的条件指令，而是将每条 arm 指令编码的最高四位作为条件判断，也就是 bit[31:28]，这四位的编码对应的执行条件如下表：TODO
+armv7 中并没有定义特定的条件指令，而是将每条 arm 指令编码的最高四位作为条件判断，也就是 bit[31:28]，这四位的编码对应的执行条件如下表：
+
+![](https://gitee.com/linux-downey/bloc_test/raw/master/zhihu_picture/armv7/%E6%9D%A1%E4%BB%B6%E6%8C%87%E4%BB%A4%E7%BC%96%E7%A0%81%E4%BB%A5%E5%8F%8A%E5%AF%B9%E5%BA%94%E7%9A%84%E5%90%8E%E7%BC%80.png)
 
 表中覆盖的 0b0000～ 0b1110 表示指令的条件执行，而 0b1111 为某些指令特有的，这些指令不支持条件执行。  
 
@@ -189,11 +212,44 @@ int main(void)
 
 
 ## 模式位
-armv7架构一共支持 9 种处理器模式，对应 M 位的关系为：TODO
+armv7架构一共支持 9 种处理器模式，对应 M 位(bits[4:0])的关系为：
 
-对于 User 模式而言，是没有权限操作 CPSR 的 mode 部分来更新系统模式的，其它模式都处于 PL1 特权级，所以 User 模式下进入到 PL1 特权级需要使用 svc 指令，而对于其他本来就处于 PL1 的模式而言，更改处理器模式可以直接设置 CPSR 中对应的位，处理器就会自动跳到对应的异常向量处
+![](https://gitee.com/linux-downey/bloc_test/raw/master/zhihu_picture/armv7/cpsr%E6%A8%A1%E5%BC%8F%E4%BD%8D%E5%AF%B9%E5%BA%94%E6%A8%A1%E5%BC%8F.jpg)
 
-对于不同的模式，会使用 bank 寄存器，比如在 User 模式下使用的 sp 指针和 svc 模式下使用的 sp 指针其实并不是指向同一片内存，这是独立的两个实体，关于这一部分将在armv7 处理器模式部分详细讨论。  
+### 状态寄存器的访问以及模式切换
+
+arm 为访问状态寄存器提供了特定的指令，mrs 和 msr，m 表示 move，r 表示 register，即通用寄存器，而 s 对应 special 寄存器，由于 arm 指令中通常将源操作数放在后面，因此，mrs 表示将 special 寄存器中的内容 move 到通用寄存器中，而 msr 相反。 
+
+对于 User 模式而言，是没有权限操作 CPSR 的 mode 部分来更新系统模式的，其它模式都处于 PL1 特权级，所以 User 模式下进入到 PL1 特权级需要使用 svc 指令，而对于其他本来就处于 PL1 的模式而言，更改处理器模式可以直接设置 CPSR 中对应的位，处理器就会自动跳到对应的异常向量处，理论上是这样，实际的处理器模式切换通常是这样的：
+
+```assembly
+	msr	spsr_cxsf, ${target_mode_bits}                        
+    ...
+    movs	pc, lr	
+```
+
+cpsr 的前缀 c 表示 current，而 spsr 的前缀 s 表示 saved，在处理器发生中断或者异常时，自动从一个模式跳转到另一个模式下，而原模式下的 cpsr/apsr 将会被自动保存在目标模式的 spsr 中，通常异常处理程序需要获取原模式下的 cpsr 寄存器信息。
+
+当需要切换模式时，通常会将需要切换的模式位设置先保存到 spsr 中，然后执行 movs 指令，mov 指令的后缀 s 在 arm 中有两种意思,如果目标寄存器为非 pc,它的隐含操作为当前执行的操作结果会更新状态寄存器,如果目标寄存器为 pc,它的隐含操作为将 spsr 中的值赋值给 cpsr,通常代表着模式切换,因此这个时候也就跳转到了 svc 模式下. 
+
+上面代码中，spsr 寄存器后多出了一个 _cxsf 后缀，实际上这是 4 个单独的后缀：c、x、s、f 分别对应 cpsr 中 4 个 8 位域，其中：
+
+* f：cpsr[31:24]，条件标志域，主要包括 N、Z、C 等条件标志码
+* s：cpsr[23:16]，状态位域
+* x：cpsr[15:8]，扩展位域
+* c：cpsr[7:0]，控制位域，只要包括中断控制、模式位控制位
+
+
+
+
+
+### 参考
+
+[armv7-A-R 参考手册](https://gitee.com/linux-downey/bloc_test/blob/master/%E6%96%87%E6%A1%A3%E8%B5%84%E6%96%99/armv7-A-R%E6%89%8B%E5%86%8C.pdf)
+
+
+
+[专栏首页(博客索引)](https://zhuanlan.zhihu.com/p/362640343)
 
 
 
