@@ -124,16 +124,16 @@ val1 = 222
 ### 操作数属性值
 在上述的示例中，输入操作数和输出操作数都会使用到 attr 字段，即操作数的属性，下面是其属性对应的列表：
 
-TODO
-=,+,& 图
+![](https://gitee.com/linux-downey/bloc_test/raw/master/zhihu_picture/armv7/pre_attr_pic.jpg)
 
-"=" 表示只写，通常用于所有输出操作数的属性
-"+" 表示读写，只能被列为输出操作数的属性，否则编译会报错。
+
+
+* "=" 表示只写，通常用于所有输出操作数的属性
+* "+" 表示读写，只能被列为输出操作数的属性，否则编译会报错。
 
 在输出操作数中，必须指定其中一个。  
 
-TODO
-r 相关的图。
+![](https://gitee.com/linux-downey/bloc_test/raw/master/zhihu_picture/armv7/post_attr_char_pic.jpg)
 
 从图中可以看出，除了最常应用到的 "r" 属性(使用通用寄存器处理操作数)，还有其他的很多特性，包括使用浮点寄存器
 ("f")，或者使用立即数("I")等等，对于 arm 和 thumb 指令集也有较大的区别。  
@@ -227,9 +227,17 @@ asm __volatile__ ("mov r0,r0");
 比如对于 CPU 内部状态寄存器的操作，就不会有输入输出，通常都会加上。  
 
 
-这只是一个相对简单的入门介绍，更多详细资料可以参考官方手册：[inline-arm-assembly](https://gcc.gnu.org/onlinedocs/gcc-9.3.0/gcc/Using-Assembly-Language-with-C.html#Using-Assembly-Language-with-C)
 
 
+
+
+### 参考
+
+[官方手册：[inline-arm-assembly](https://gcc.gnu.org/onlinedocs/gcc-9.3.0/gcc/Using-Assembly-Language-with-C.html#Using-Assembly-Language-with-C)](https://gitee.com/linux-downey/bloc_test/blob/master/%E6%96%87%E6%A1%A3%E8%B5%84%E6%96%99/armv7-A-R%E6%89%8B%E5%86%8C.pdf)
+
+
+
+[专栏首页(博客索引)](https://zhuanlan.zhihu.com/p/362640343)
 
 
 
