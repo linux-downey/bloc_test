@@ -2,6 +2,9 @@
 由于arm使用的是精简指令集，相对于 x86 的汇编，指令编码要相对简单很多，每条 arm 指令都是 32 位而且操作都是地址对齐的，跳转指令是程序运行的核心部分，自然需要重点讲一讲。  
 
 armv7 的跳转方式分为以下两种:
+
+
+
 * b，bl 指令，指定地址进行跳转
 * 设置 PC 指针的值实现跳转
 
@@ -13,6 +16,9 @@ armv7 的跳转方式分为以下两种:
 ### 跳转指令
 
 标准的跳转指令有两种:b，bl，由此衍生出的 bx，blx，bnz 等等，b 和 bl 的区别非常简单: 
+
+
+
 * b 表示直接跳转
 * bl 先将下一条指令地址保存在 lr 中，然后执行跳转，这样有利于程序的返回，如果是是汇编调用 C 程序，在需要返回的情况下，只能使用 bl 指令，如果是汇编代码中的互相跳转，倒是都可以，因为返回到跳转点的方式有很多。   
 
@@ -49,9 +55,9 @@ PC 指针中存储的是下一条执行的指令，这是大多数资料中对 P
 
 
 #### PC 指针的跳转
-写 pc 指针并不会出现读 pc 指针的问题，在 thumb 指令集中，ADD 和 MOV 指令可以写 pc 执行跳转，写入 PC 的值将会被强制对齐，对齐的字节数根据对应的指令集而定，thumb下是半字，arm下是字，也就是最低位(或两位)将会被跳转指令忽略。
+写 pc 指针并不会出现读 pc 指针的问题，在 thumb 指令集中，ADD 、 MOV、POP 等指令可以写 pc 执行跳转，写入 PC 的值将会被强制对齐，对齐的字节数根据对应的指令集而定，thumb下是半字，arm下是字，也就是最低位(或两位)将会被跳转指令忽略。
 
-而在 arm 指令集中，很多通用指令可以写 pc 指针，比如：ADD、AND、ASR、BIC 等。
+而在 arm 指令集中，很多通用指令可以写 pc 指针，比如：ADD、AND、ASR、BIC 等(具体列表参考手册)。
 
 除了这些通用指令写 pc，还有一些专门用于跳转的指令默认操作的就是 pc 指针，比如 B、BL、BX、BLX 等，这些是一些复合指令，也就是说这些指令包含的操作可能不仅仅是对 pc 的操作，可能还隐含其它操作。
 
@@ -74,20 +80,33 @@ arm 指令集分为两种:arm1 和 arm2 两个小版本。arm 指令集功能强
 
 #### bx
 
-对于 thumb 下的 bx，它的表达式为: BX Rm， 即跳转到寄存器中保存的地址处。它的指令编码是这样的:TODO
+对于 thumb 下的 bx，它的表达式为: BX Rm， 即跳转到寄存器中保存的地址处。它的指令编码是这样的:
+
+![](https://gitee.com/linux-downey/bloc_test/raw/master/zhihu_picture/armv7/thumb-bx%E6%8C%87%E4%BB%A4%E7%BC%96%E7%A0%81.png)
 
 Rm 占用 4 个 bit，所以 Rm 的范围为 r0~r15。  
 
-对于 arm 下的 bx，表达式是一样的，它的指令编码是这样的:TODO
+对于 arm 下的 bx，表达式是一样的，它的指令编码是这样的:
+
+![](https://gitee.com/linux-downey/bloc_test/raw/master/zhihu_picture/armv7/arm%E4%B8%8B%E7%9A%84bx%E6%8C%87%E4%BB%A4%E7%BC%96%E7%A0%81.jpg)
 
 同样的，Rm 占用 4 个 bit，与 thumb 下的 bx 不同的时， arm 指令集的 bx 支持条件执行，比如 bxz，bxne 等等。  
 
 但是使用 bx 指令并不是无条件切换指令集，而是取决于跳转地址的最后一位，遵循以下的规则:
+
+
+
 * 如果 Rm 中 bit[0] 为 0，处理器切换到或保持在 arm 指令集。
+
 * 如果 Rm 中 bit[0] 为 1，处理器切换到或保持在 thumb 指令集。 
+
+  
 
 ### blx
 blx 的规则相对比 bx 要复杂，因为 blx 指令分为两种形式:
+
+
+
 * blx register:即 bx Rm
 * blx imm:参数为立即数。指定的地址或者是标号。  
 
@@ -95,9 +114,13 @@ blx 的规则相对比 bx 要复杂，因为 blx 指令分为两种形式:
 
 blx imm 的切换机制显得更直接一点，只要调用了 blx imm 指令，指令集就无条件切换， thumb->arm 或者 arm->thumb，对应的指令集编码为:
 
-thumb 指令集 blx 编码:TODO
+thumb 指令集 blx 编码:
 
-arm 指令集 blx 编码:TODO
+![](https://gitee.com/linux-downey/bloc_test/raw/master/zhihu_picture/armv7/thumb%E4%B8%8B%E7%9A%84blx%20%E7%BC%96%E7%A0%81.jpg)
+
+arm 指令集 blx 编码:
+
+![](https://gitee.com/linux-downey/bloc_test/raw/master/zhihu_picture/armv7/arm%E4%B8%8B%E7%9A%84blx%E7%BC%96%E7%A0%81.jpg)
 
 对于 32 位的 thumb 指令，跳转的目的地址组成为: imm32 = S:J1:J2:imm10H:imm10L:00，一共 25 位，所以跳转范围为 ±16MB。无条件跳转到 arm 指令集(实际上还涉及到 J1，J2，S 位的判断，以及 thumbEE 指令集，这种情况暂时不涉及，有兴趣的朋友可以查看手册获取详细信息)。  
 
@@ -119,7 +142,7 @@ main:
 back:
     blx _exit         //退出
 
-。thumb               //指定代码编译为 thumb 指令集
+.thumb               //指定代码编译为 thumb 指令集
 foo:
     pop {pc}         //将栈上保存的 back 标号地址赋值给 pc，即实现跳转，同时指令集切换为 arm
 
@@ -131,8 +154,22 @@ foo:
 
 ## 小结
 针对跳转指令以及指令集切换，总结如下:
+
+
+
 * arm 下，PC 的值为 当前地址+8，thumb 下，PC 的值为 当前地址+4。
 * 使用数据操作指令操作 PC 实现程序跳转时，目标地址的最后一位确定跳转后的指令集，0 表示 arm 指令集，1 表示 thumb 指令集。
 * 使用 bx register 或者 blx register 时，register 中地址值的最后一位确定跳转后的指令集，0 表示 arm 指令集，1 表示 thumb 指令集。
 * 使用 blx imm(imm表示立即数) 指令时，无条件切换指令集，当前是 arm，则切换到 thumb，反之亦然。  
 
+
+
+### 参考
+
+[armv7-A-R 参考手册](https://gitee.com/linux-downey/bloc_test/blob/master/%E6%96%87%E6%A1%A3%E8%B5%84%E6%96%99/armv7-A-R%E6%89%8B%E5%86%8C.pdf)
+
+
+
+[专栏首页(博客索引)](https://zhuanlan.zhihu.com/p/362640343)
+
+原创博客，转载请注明出处。
