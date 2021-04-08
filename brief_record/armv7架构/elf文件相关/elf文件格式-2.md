@@ -89,7 +89,6 @@ typedef struct {
   * SHT_FINI_ARRAY(15):    函数指针数组,数组中的每个函数指针执行收尾工作,在 main 之后执行.  
   * SHT_PREINIT_ARRAY(16): 函数指针数组,数组中的每个函数指针执行更早期的初始化工作,在 main 之前执行.  
   * SHT_GROUP(17):         包含一个 section 组,对于存在一些内部关系的 section,将其归为一个 section group,比如当两个 section 存在内部引用时,一个 section 被删除,而另一个 section 就失去了意义,使用 group 可以绑定 section 之间的关系,但是这种做法并不多见.  
-
 * sh_flags : 该 section 对应的属性,常见的属性有以下几种:
   * SHF_WRITE(1 << 0):                可写的数据
   * SHF_ALLOC(1 << 1):                在执行的时候需要从系统申请内存
@@ -102,7 +101,6 @@ typedef struct {
   * SHF_GROUP	(1 << 9):               section group 中的成员
   * SHF_TLS (1 << 10):                线程本地存储数据 section
   * SHF_COMPRESSED	(1 << 11):        压缩数据
-
 * sh_addr:该 section 对应的执行时虚拟地址,对于目标文件而言,所有 section 都为 0,因为目标文件中的 section 无法确定最后的执行地址,而可执行文件中将要被加载到内存中的 section 将会在链接阶段分配虚拟地址,而那些执行时不被加载的 section ,该值也是 0,典型的不加载的 section 有:.strtab,.symtab,.comment 等.  
 * sh_offset:该 section 在文件中的偏移值,需要注意的是,文件中的偏移地址和 section 的虚拟地址并没有线性的偏移关系.  
 * sh_size: section 的 size,以 byte 为单位.  
@@ -110,6 +108,8 @@ typedef struct {
 * sh_info: 额外的 section 信息.  
 * sh_addralign: section 内的对齐宽度.注意区分section 内对齐宽度与 section 之间的对齐宽度,section 之间的对齐宽度由下一个 section 的 sh_addralign 来决定,比如当前 section 对齐宽度为 4,下一个 section 的对齐宽度为 1,而当前 section 最后一个条目结束地址为 103 bytes,下一个 section 的起始地址就是 103,而不会对齐到 104.  
 * sh_entsize: 如果该 section 中保存的是列表,该字段指定条目大小.   
+
+
 
 ## 不同类型的 section 数据组织方式
 上文中提到不同的 section 可能分属不同的类型,而不同的类型自然包含着不同含义的数据,起到不同的作用,有一部分 section 针对链接过程而存在,有一部分针对加载过程而存在.针对加载过程的 section 数据分为两种:一种是需要被加载器进行解析,给加载过程提供辅助信息,另一种就是程序代码和数据,加载器直接将其 copy 到对应的虚拟地址即可,二进制代码和数据由 CPU 执行.   
