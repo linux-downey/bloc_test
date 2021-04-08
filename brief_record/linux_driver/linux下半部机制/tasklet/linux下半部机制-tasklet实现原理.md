@@ -2,6 +2,8 @@
 
 按照惯例，对于 linux 的接口，我们的讨论都是由表及里，先从内核提供的 API 开始，先知道如何使用，然后再进一步深入原理，这一章我们来讨论 tasklet 的实现原理，tasklet 的实现在内核文件：kernel/softirq.c 中。  
 
+
+
 ## tasklet 的实现
 
 ### 全局数组
@@ -22,7 +24,7 @@ static DEFINE_PER_CPU(struct tasklet_head, tasklet_hi_vec);
 
 
 ### 软中断的初始化
-tasklet 是基于软中断实现的，这是我们上一章就提到的，在软中断的枚举列表中，有这么两项：
+tasklet 是基于软中断实现的，这是我们在软中断章节中就提到的，在软中断的枚举列表中，有这么两项：
 
 ```c++
 enum
@@ -64,9 +66,11 @@ softirq_init 的第一步就是初始化全局列表，将 tail 指针指向 &he
 *tail = t;
 tail = t->ext;
 ```
-*tail = t 等价于 head=t,也就相当于将节点 t 链接到 head 上，这部分的链表操作确实有点麻烦。  
+*tail = t 等价于 head = t,也就相当于将节点 t 链接到 head 上，这部分的链表操作确实有点不好理解。  
 
 初始化完全局列表之后就调用 open_softirq 注册 tasklet 对应的软中断，软中断的执行函数为 tasklet_action，tasklet_hi_action 对应高优先级的 tasklet，该执行函数将放到最后分析。  
+
+
 
 
 ### tasklet 成员的添加
@@ -100,8 +104,13 @@ __tasklet_schedule 的实现比较简单，就是将传入的 tasklet 结构链�
 
 然后执行 raise_softirq_irqoff 设置 tasklet 软中断就绪。  
 
+
+
 ### tasklet 的执行
 tasklet 是基于软中断实现的，所以 tasklet 被调度的节点也就是软中断被执行的节点：
+
+
+
 * 硬中断退出时执行软中断
 * 重新使能软中断的时候执行软中断
 
@@ -147,13 +156,31 @@ static __latent_entropy void tasklet_action(struct softirq_action *a)
 }
 ```
 
-tasklet 的执行也非常简单，总的来说就是从全局链表的头结点开始，逐个地取出 tasklet 并执行，详细地流程为：
+tasklet 的执行也非常简单，一旦系统中存在需要调度执行的 tasklet 任务，其对应的软中断就会被执行，然后就是从 tasklet 全局链表的头结点开始，逐个地取出 tasklet 并执行，详细地流程为：
+
+
 
 * 执行前获取头结点，并设置链表节点为空，后续使用该头结点来索引所有的 tasklet。 
 * 在执行 tasklet 之前需要执行 tasklet_trylock，这个函数在单核系统下直接返回 1，在 SMP 下，这个函数将会设置 state 的 TASKLET_STATE_RUN 位，以限制同一个 tasklet 不会在不同的 cpu 上并发执行。  
 * 执行 atomic_read(&t->count)，count 是用来管理 tasklet 的使能状态的计数器，默认为 0 ，表示该 tasklet 是 enable 状态，当大于 0 时，表示为 disable 状态，所以在这里做判断，如果 tasklet->count 大于 0 ，就不执行。  
 * 清除 state 的 TASKLET_STATE_SCHED 位。  
 * 调用 tasklet 工作函数，然后将设置的 TASKLET_STATE_RUN 清除(单核下什么也不做)。  
+
+
+
+
+
+### 参考
+
+4.14 内核代码
+
+
+
+
+
+[专栏首页(博客索引)](https://zhuanlan.zhihu.com/p/362640343)
+
+
 
 
 

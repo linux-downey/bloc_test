@@ -2,6 +2,8 @@
 
 在 linux 的下半部机制中，tasklet 算是一个折中的方案，相对于 softirq 而言，它算是一个"简单好用"的接口，简单好用主要在于两点：
 
+
+
 * tasklet 不允许同一个 tasklet 在多个 CPU 上并发执行，同时 tasklet 是 percpu 实现的，所以不需要考虑 SMP 下的并发操作，因此其执行函数在编程上要简单很多，要知道处理并发向来是个麻烦的问题
 * tasklet 可以动态地定义，实现更方便
 
@@ -12,8 +14,12 @@
 而对于 workqueue 而言，tasklet 执行效率自然是要高一些的，因为 tasklet 的实现基于 softirq，不过同样还是运行在中断上下文，执行函数中不能出现任何可能导致阻塞的代码，这和 workqueue 是本质上的区别。  
 
 
+
+
 ## tasklet 的使用
 和其他的下半部机制一样，tasklet 的使用依旧分为两个部分：
+
+
 
 * 初始化
 * 调度使用
@@ -43,7 +49,9 @@ state 中的标志位分为两种：TASKLET_STATE_SCHED 和 TASKLET_STATE_RUN
 
 另一个 state：TASKLET_STATE_RUN，这个只有在 SMP 架构中才会被使用，CPU 在执行 tasklet 时要检查该标志位，如果该标志位被置位，表示该 tasklet 正在某个 CPU 上被执行，则当前 tasklet 不允许执行，直到该 tasklet 成员被执行完，也就是等到该标志位被置为0.  
 
-count 则表示 tasklet 是否使能，0 表示 enable，大于 0 表示 disable，至于为什么使用 count 而不是使用 bool 类型的值，是因为 enable 和 disable 支持嵌套地执行，当该 tasklet 被 disable 两次时，count 就为 2，同样需要调用两次 enable 才能使能该 tasklet。  
+count 则表示 tasklet 是否使能，0 表示 enable，大于 0 表示 disable，至于为什么使用 count 而不是使用 bool 类型的值，是因为 tasklet 的 enable 和 disable 行为支持嵌套地执行，当该 tasklet 被 disable 两次时，count 就为 2，同样需要调用两次 enable 才能使能该 tasklet。
+
+  
 
 
 ## tasklet 结构的初始化
@@ -90,6 +98,8 @@ void tasklet_hi_schedule(struct tasklet_struct *t)
 
 
 
+
+
 ## 代码示例
 以下是一个简单的 tasklet 示例：
 
@@ -127,6 +137,18 @@ module_exit(mtasklet_exit);
 ```
 
 
+
+
+
+### 参考
+
+4.14 内核代码
+
+
+
+
+
+[专栏首页(博客索引)](https://zhuanlan.zhihu.com/p/362640343)
 
 
 

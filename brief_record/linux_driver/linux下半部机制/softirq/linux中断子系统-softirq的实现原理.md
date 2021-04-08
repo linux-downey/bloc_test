@@ -1,6 +1,8 @@
 # linux 下半部机制-softirq 的实现原理
 
-在上一章中我们了解了 softirq 的使用方法，按照我们一贯的风格，由表及里。我们来看看 softirq 的实现原理,软中断的实现代码在。   
+在上一章[softirq使用](https://zhuanlan.zhihu.com/p/363225092)中我们了解了 softirq 的使用方法，按照我们一贯的风格，由表及里。我们来看看 softirq 的实现原理。  
+
+ 
 
 
 ## softirq 初始化
@@ -27,7 +29,9 @@ void open_softirq(int nr, void (*action)(struct softirq_action *))
 	softirq_vec[nr].action = action;
 }
 ```
-将用户传入的 action 函数复制到 softirq_vec[nr].action 中。所以 softirq_vec 相当于一个向量数组，根据数组下标就可以找到对应的 action 回调函数。所以，用户在 raise_softirq 的时候只需要传入 nr，就可以使用 nr 作为数组下标找到对应的 action 函数了。  
+将开发者传入的 action 函数复制到 softirq_vec[nr].action 中。所以 softirq_vec 相当于一个向量数组，根据数组下标就可以找到对应的 action 回调函数。所以，用户在 raise_softirq 的时候只需要传入 nr，就可以使用 nr 作为数组下标找到对应的 action 函数了。  
+
+
 
 
 ### 内核如何知道是否有 softirq 需要执行
@@ -48,8 +52,11 @@ irq_cpustat_t irq_stat[NR_CPUS] ____cacheline_aligned;
 ```
 
 数组成员的数量为当前系统中 CPU 的数量，每个数组元素包含两个成员：
+
+
+
 * 软中断标志位，__softirq_pending，每一个在枚举结构中定义的变量软中断都对应该变量中的一位，因为这个变量是 32 位的，所以系统目前最多支持 32 个软中断。
-* ipi_irqs ：这是 IPI 类型的软中断，属于 cpu 与 cpu 之间的中断，在 SMP 系统中，cpu 可以向另一个 cpu 发送中断信号，这个中断信号并非硬件上的，所以也属于软中断的一种，IPI 类型的中断不在这里详细讨论。  
+* ipi_irqs ：这是 IPI 类型的软中断，属于 cpu 与 cpu 之间的中断，在 SMP 系统中，cpu 可以向另一个 cpu 发送中断信号(arm中通过写 gic 触发 SGI 中断)，这个中断信号并非硬件上的，所以也属于软中断的一种，IPI 类型的中断可以参考[linux内核的中断处理](https://zhuanlan.zhihu.com/p/363158242)。  
 
 当开发者需要执行自己的软中断时，调用 raise_softirq(nr) 函数，该函数就会把需要执行的 irq 标志位置位,它的实现是这样的：
 
@@ -75,7 +82,11 @@ inline void raise_softirq_irqoff(unsigned int nr)
 ```
 
 raise_softirq 的实现主要是三个部分：
+
+
+
 * 关本地中断：很多朋友会有疑问了，不是说软中断可以被硬中断抢占执行吗，为什么这里关中断了？需要注意的是，raise_softirq 函数并不是真正执行软中断，只是设置标志位来表示这个软中断处于 pending 状态，表示可以在软中断调度点被调度执行了。  
+
 * 关闭中断后，调用 raise_softirq_irqoff，raise_softirq_irqoff 中调用 __raise_softirq_irqoff(nr) 函数，根据跟踪代码可以发现，这个函数其实就是执行了下面这一段代码：
 
     ```
@@ -85,6 +96,8 @@ raise_softirq 的实现主要是三个部分：
     也就是将当前 cpu 的 __softirq_pending 对应的软中断位置1.
 
 * raise_softirq_irqoff 的 in_interrupt 函数用于判断当前是否处于中断环境下(包含硬中断、softirq、tasklet)，是则返回真，通常情况下，raise_softirq 会在硬中断处理程序中调用，也有一些特殊情况下它的调用不在中断环境下，这个时候需要唤醒内核线程来处理该 softirq 以保证能快速地处理 softirq，因为 softirq 的调度时机为中断退出和重新使能 softirq 的时候，如果不主动唤醒内核线程处理，将会导致该 softirq 被延迟。  
+
+
 
 
 ### softirq 内核线程的初始化
@@ -142,9 +155,9 @@ static void run_ksoftirqd(unsigned int cpu)
 	local_irq_enable();
 }
 ```
-在该函数中调用了 __do_softirq() 函数，从名字可以看出这个函数负责处理 softirq。  
+在该函数中调用了 __do_softirq() 函数，从名字可以看出这个函数负责处理 softirq。该函数将在下文中详细讨论。  
 
-该函数将在下文中详细讨论。  
+
 
 
 ### softirq 的调度点
@@ -167,7 +180,7 @@ void irq_exit(void)
 
 看到这部分代码很容易产生一个疑惑：硬中断的退出函数 irq_exit() 不应该还是处在硬中断上下文中吗？这样的话 invoke_softirq() 永远也不会被调用了。   
 
-事实上，程序处在哪个上下文并不是由执行函数来划定的，而是由一个标志位来确定，这个标志位就是 current_thread_info()->preempt_count，利用该变量的某些位用来指示上下文状态，包括硬中断、软中断、内核抢占使能标志等等，关于这个标志位将会另开一个专题讲解。  
+事实上，程序处在哪个上下文并不是由执行函数来划定的，而是由一个标志位来确定，这个标志位就是 current_thread_info()->preempt_count，利用该变量的某些位用来指示上下文状态，包括硬中断、软中断、内核抢占使能标志等等，关于这个标志位可以参考[linux preempt count](https://zhuanlan.zhihu.com/p/363191840)。  
 
 所以，在判断 in_interrupt() 之前调用了 preempt_count_sub(HARDIRQ_OFFSET)，该函数设置 preempt_count，表示当前退出中断上下文，所以 !in_inerrupt() 函数通常为真。   
 
@@ -194,13 +207,15 @@ static inline void invoke_softirq(void)
 ```
 在 invoke_softirq 中，首先判断负责处理 softirq 的内核线程是否正在运行，如果是，就返回，让内核线程继续处理。  
 
-然后，判断 force_irqthreads 变量，从变量名可以看出，这个变量表示是否强制使用内核线程来处理 softirq，如果不是，就调用 __do_softirq ，如果是，就唤醒内核线程，让线程来处理，从上文的分析可知，内核线程最终调用 __do_softirq 函数。   
+然后，判断 force_irqthreads 变量，从变量名可以看出，这个变量表示是否强制使用内核线程来处理 softirq，如果不是，就调用 、\_\_do_softirq ，如果是，就唤醒内核线程，让线程来处理，从上文的分析可知，内核线程最终调用 \_\_do_softirq 函数。   
 
-同样的，我们着急分析 __do_softirq 函数，继续看 softirq 的下一个调用点。   
+同样的，我们不着急分析 __do_softirq 函数，继续看 softirq 的下一个调用点。   
+
+
 
 
 #### local_bh_enable
-该函数通常表示重新使能下半部的时候，和其他同步机制屏蔽使能作用域是一样的，它只作用于 local cpu，它的源码如下：
+该函数通常表示重新使能下半部的时候，和其他同步机制屏蔽使能作用域是一样的，它只作用于 local cpu，源码如下：
 
 ```c++
 void __local_bh_enable_ip(unsigned long ip, unsigned int cnt)
@@ -225,6 +240,8 @@ asmlinkage __visible void do_softirq(void)
 
 ```
 do_softirq() 同样判断内核线程是否在运行，然后调用 do_softirq_own_stack()，这个函数表示使用 softirq 自己的栈，默认情况下，无论是硬中断还是软中断，是没有自己的栈的，而是借用了被抢占进程的栈，irq 栈和内核栈是否分离这取决于硬件的设计和软件实现，总之，do_softirq_own_stack() 函数最终会调用到 __do_softirq() 函数。  
+
+
 
 
 ### __do_softirq 函数执行
@@ -271,6 +288,9 @@ restart：
 其实从函数命名就可以看出这个函数是用来处理软中断的，它的执行流程就是：通过扫描 irq_stat[this_cpu].__softirq_pending 变量的每一位来确定有哪些软中断需要被执行，如果对应标志位被置位，就调用 softirq_vec 向量数组中对应的 action 函数以执行 softirq，不知道你还记不记得，这个向量数组是在 open_softirq 时设置的。   
 
 在执行完所有应该执行的 softirq 之后，再次判断是否有 __softirq_pending 标志位被置位，也就是说在此次 softirq 执行的过程中是否又产生了 softirq 工作，如果有，将会判断三个条件：
+
+
+
 * softirq 的处理时间比较短，小于 MAX_SOFTIRQ_TIME，这个时间间隔的值设置为宏 MAX_SOFTIRQ_TIME，在 4.9 中默认为 msecs_to_jiffies(2)，也就是 2ms，不过需要将这 2ms 转换为 jiffies，实际上，这取决于系统内的 HZ 值，如果 HZ 不大于 500，最终的延时值就是一个 jiffies，虽然看起来设置为 2ms，实际上通常不是。
 * 没有高优先级的任务需要抢占运行
 * 重新调用 softirq 的次数小于 10
@@ -281,7 +301,15 @@ restart：
 
 
 
+### 参考
 
+4.14 内核代码
+
+[蜗窝科技：softirq](http://www.wowotech.net/irq_subsystem/soft-irq.html)
+
+
+
+[专栏首页(博客索引)](https://zhuanlan.zhihu.com/p/362640343)
 
 
 

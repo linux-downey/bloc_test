@@ -1,4 +1,4 @@
-# linux 内核中的上下文判断
+# linux中断子系统 - linux 内核中的上下文判断
 涉及到中断系统的讨论难免要涉及到上下文的概念，上下文也就是代表着程序执行的环境，在特定的环境下只能做特定的事，或者不允许做某些事。一个最常见的例子是：在中断上下文中不允许睡眠。  
 
 那么，上下文的设置到底是如何进行的？是由硬件控制的还是由软件来实现管理的？一切还是要从源代码中寻找答案。  
@@ -30,20 +30,21 @@ register unsigned long current_stack_pointer asm ("sp");
 ### preempt_count
 作为控制上下文的变量, preempt_count 是 int 型，一共 32 位。通过设置该变量不同的位来设置内核中的上下文标志，包括硬中断上下文、软中断上下文、进程上下文等，通过判断该变量的值就可以判断当前程序所属的上下文状态。  
 
-preempt_count 中 32 位的分配是这样的：TODO
+整个 preempt_count 被分为几个部分：
 
-如图所示，整个 preempt_count 被分为几个部分：
+
+
 * bit0~7：这八位用于抢占计数，linux 内核支持进程的抢占调度，但是在很多情况下我们需要禁止抢占，每禁止一次，这个数值就加 1，在使能抢占的时候将减 1，系统支持的最大嵌套次数为 256 次。  
 * bit8~15：描述软中断的标志位，因为软中断在单个 cpu 上是不会嵌套执行的，所以只需要用第 8 位就可以用来判断当前是否处于软中断的上下文中，而其它的 9~15 位用于记录关闭软中断的次数。  
 * bit16~19：描述硬中断嵌套次数的，在老版本的 linux 上支持中断的嵌套，但是自从 2.6 版本之后内核就不再支持中断嵌套，所以其实只用到了一位，如果这部分为正数表示在硬件中断上下文，为 0 则表示不在。  
-* bit20 ：用于指示 NMI 中断，只有两个状态：发生 NMI 中断置 1，退出中断清除。  
-* bit31 ：用于判断当前进程是否需要重新调度，但是该标志位目前没有使用，改用了另一个标志位 TIF_NEED_RESCHED 来指示。  
+* bit20 ：用于指示 NMI 中断，只有两个状态：发生并处理 NMI 中断置 1，退出中断清除。  
+* 其它 bit ：没有使用到，保留
 
 
 
 ## 上下文的操作接口
 
-内核提供了一系列的对上下文的设置和查询操作，这些接口都是通过操作 preempt_count 来实现，需要注意的是，所有的这些对于上下文的操作都是基于 local cpu 的。  
+内核提供了一系列的对上下文的设置和查询操作，这些接口都是通过操作 preempt_count 来实现。  
 
 ### preempt_count 基础操作
 对 preempt_count 的操作有以下几个函数：
@@ -55,7 +56,10 @@ preempt_count_inc()        //将 preempt_count 加上 1
 preempt_count_dec()        //将 preempt_count 减去 1    
 ```
 
+
+
 ### 内核抢占操作
+
 内核抢占的关闭和开启分别通过下面两个函数：
 
 ```
@@ -63,7 +67,10 @@ preempt_disable()
 preempt_enable()
 ```
 
+
+
 ####  preempt_disable
+
 preempt_disable 的实现是这样的：
 
 ```
@@ -109,6 +116,8 @@ preempt_enable 将 preempt_count 减一并且判断 preempt_count 是否为 0，
 
 经过解析，发现 softirq_count() 的返回值并非我们想象中的禁用下半部的次数，如果需要获取该次数，需要将结果右移 8 位，只不过通常情况下，我们并不需要这么干，通过内核提供的接口就可以做大部分的操作。    
 
+
+
 #### 判断是否处于 softirq 上下文
 in_softirq 函数用于判断目前程序是否运行在 softirq 上下文中，该函数的定义为：
 
@@ -127,6 +136,8 @@ in_softirq 函数用于判断目前程序是否运行在 softirq 上下文中，
 ```
 
 正如上文中我们对 preempt_count 的介绍，bit8 表示当前是否有软中断在执行，而 bit9 ~ bit15 表示软中断被禁止的次数，所以如果需要判断是否有软中断正在执行，需要将 softirq_count() & 1<< 8;
+
+
 
 
 #### softirq 的 enable
@@ -149,6 +160,8 @@ static void __local_bh_enable(unsigned int cnt)
 
 preempt_count_sub(SOFTIRQ_DISABLE_OFFSET) 函数将 preempt_count 减去 1 << 9,也就是将 bit9 ~ bit15 组成的数字减一。
 
+
+
 #### softirq 的 disable
 
 不难猜到 local_bh_disable 与  local_bh_enable 是相对立的：
@@ -165,6 +178,8 @@ static __always_inline void __local_bh_disable_ip(unsigned long ip, unsigned int
 }
 ```
 源码也证实了这一点，local_bh_disable 执行的操作就是 preempt_count_add(SOFTIRQ_DISABLE_OFFSET)，即 preempt_count + 1 << 9;
+
+
 
 #### 进入软中断的处理
 
@@ -203,6 +218,8 @@ __local_bh_disable_ip(_RET_IP_, SOFTIRQ_OFFSET);
 
 其中 HARDIRQ_OFFSET 宏展开为 1 << 16,也就是 bit16，既然不涉及到中断嵌套，而且 irq_enter 和 irq_exit 是成对出现的，所以所有的操作都是针对于 bit16 的置位和清除。  
 
+
+
 #### 硬中断上下文判断
 用户可以使用 in_irq() 来判断是否处于中断上下文：
 
@@ -213,8 +230,12 @@ __local_bh_disable_ip(_RET_IP_, SOFTIRQ_OFFSET);
 其中，HARDIRQ_MASK 是硬中断的位掩码，它的值是 0xf00，in_irq 就是判断 preempt_count & 0xf0000。  
 
 
+
+
 ### NMI 接口
 NMI 对应 bit20，NMI 的全名为不可屏蔽中断，顾名思义，这一类型的中断是不能屏蔽的，只要产生了就必须得到处理，它一般会在系统发生了无法恢复的硬件错误的时候，通过 NMI pin 或者内部总线产生，比如芯片错误、内存校验错误，总线数据损坏等，这一类错误都会严重影响到系统运行。  
+
+
 
 #### NMI 上下文判断
 NMI 的上下文判断使用 in_nmi 接口，这个接口主要就是判断 preempt_count 的 bit20
@@ -226,10 +247,25 @@ NMI 的上下文判断使用 in_nmi 接口，这个接口主要就是判断 pree
 其中，NMI_BITS 为 1，NMI_SHIFT 为 20。
 
 
-### PREEMPT_NEED_RESCHED 标志
-PREEMPT_NEED_RESCHED 对应 bit31，它负责管理当前进程是否需要被调度，当当前进程时间片用完了或者陷入睡眠，就会将当前进程的这个标志位置位，在中断返回、内核返回到用户空间、使能内核抢占等抢占调度点将会检查这个标志位以确定是否需要重新调度进程。  
 
-这个标志位目前没有被使用，而是使用 TIF_NEED_RESCHED 来决定是否发生内核的抢占调度，这个标志位位于 thread_info->flags 的 bit1 。  
+## atomic 上下文
+
+在内核中，还存在一个上下文概念叫 atomic 上下文，这里的 atomic 针对的是进程，也就是不能发生进程睡眠或调度的上下文被称为 atomic 上下文，可以使用 in_atomic() 来判断当前 CPU 是否处于 atomic 上下文：
+
+```c++
+/*
+ * Are we running in atomic context?  WARNING: this macro cannot
+ * always detect atomic context; in particular, it cannot know about
+ * held spinlocks in non-preemptible kernels.  Thus it should not be
+ * used in the general case to determine whether sleeping is possible.
+ * Do not use in_atomic() in driver code.
+ */
+#define in_atomic()	(preempt_count() != 0)
+```
+
+也就是非 preempt_count 非 0 时，都属于 atomic 上下文，其中包括中断、软中断等中断上下文，还包括进程或者内核线程运行时关中断或者关抢占。
+
+但是这个接口需要谨慎使用，这在该接口定义上方的内核注释中有提到，这个接口在某些情况下并不能精确地判断当前是否处于原子上下文，比如在非抢占内核的 spinlock 中，实际上也处于原子上下文，但是不会修改 preempt_count 的值，因此建议不要在驱动中使用这个接口。 
 
 
 
@@ -246,6 +282,8 @@ in_interrupt 用于判断是否在中断上下文，包括软、硬中断：
 
 不难看出，它的返回值就是 preempt_count | 0xf0000(HARDIRQ_MASK) | 0xff00(SOFTIRQ_MASK) | 0x100000。  
 
+
+
 #### in_task
 判断当前执行环境是否处于进程上下文环境，简单来说就是判断当前是否处于中断环境，然后将结果取反即可。  
 
@@ -256,4 +294,14 @@ in_interrupt 用于判断是否在中断上下文，包括软、硬中断：
 
 
 
+
+### 参考
+
+4.14 内核代码
+
+[知乎博客：Linux中的preempt_count](https://zhuanlan.zhihu.com/p/88883239)
+
+
+
+[专栏首页(博客索引)](https://zhuanlan.zhihu.com/p/362640343)
 
