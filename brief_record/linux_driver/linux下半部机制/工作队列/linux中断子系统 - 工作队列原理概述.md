@@ -1,4 +1,4 @@
-# linux 工作队列的实现
+# linux中断子系统 - 工作队列原理概述
 
 在驱动工程师的印象中，工作队列就是将中断中不方便执行的任务延迟执行，将工作挂到内核某个队列上，在将来的某个阶段内核执行该工作。  
 
@@ -8,8 +8,9 @@
 
 同时，采用优先级机制，将用户的工作区分优先级，同样的也创建不同的优先级队列，这样就可以照顾到一些实时性较高的工作。   
 
-
 上述这种实现就是传统的 workqueue 实现方式，出现在 2.6 之前，这种实现在通常情况下是可以接受的，但是也有一些缺陷所在：
+
+
 
 * 每个 workqueue 上连接的 work 都是串行化执行的，如果某一个 work 需要长时间执行甚至睡眠，后续的 work 将被迫等待前面的 work 执行完成，由此还可能造成死锁问题。 
 * 无法限制用户创建 workqueue 的数量，从而无法控制内核线程的数量，内核线程过多将导致内核执行效率降低。  
@@ -30,6 +31,8 @@
 
 每一个子模块都会涉及到一个或几个结构体来描述整个模块，包括数据、操作，workqueue 自然也不例外，我们来看看 workqueue 中几个主要的结构体：
 
+
+
 * struct workqueue_struct：主要用于描述一个工作队列，在创建工作队列时返回该结构。
 * struct work_stuct : 描述需要执行的工作
 * struct worker_pool：工作队列池
@@ -38,16 +41,17 @@
 
 当我第一次打开 workqueue 的源代码，看到上述几个结构体以及他们相互交织以实现 workqueue 的功能，也是非常头疼，但是既然源代码都在眼前，唯一要做的就是不断地深入分析，经过一段时间的死磕，对于 workqueue 这几个核心结构体，博主有了一些自己的总结，他们之间的对应关系是这样的：
 
+
+
 * work_pool 存在多个，通常是对应 CPU 而存在的，系统默认会为每个 CPU 创建两个 worker_pool，一个普通的一个高优先级的 pool，这些 pool 是和对应 CPU 严格绑定的，同时还会创建两个 ubound 类型的 pool，也就是不与 CPU 绑定的 pool。  
-
 * worker 用于描述内核线程，由 worker pool 产生，一个 worker pool 可以产生多个 worker。
-
 * workqueue_struct：属于上层对外的接口，一个 workqueue_struct 描述一个工作队列。如果把整个工作队列看成是一个黑盒子。  
-
 * pool_workqueue:属于 worker_pool 和 workqueue_struct 之间的中介，负责将 workqueue_struct 和 worker_pool 联系起来，一个 workqueue_struct 对应多个 pool_workqueue。  
-
 * work：由用户添加，可以是多个，一个 workqueue 对应多个 work
 
+![](https://gitee.com/linux-downey/bloc_test/raw/master/zhihu_picture/IRQ-related/bottom_half/workqueue%E6%A0%B8%E5%BF%83%E7%BB%93%E6%9E%84%E4%BD%93%E4%B9%8B%E9%97%B4%E7%9A%84%E5%85%B3%E7%B3%BB.jpg)
+
+上图只是围绕一个 workqueue 的结构体联系，实际上内核中可以创建多个 workqueue 工作队列，每个工作队列都遵循这个结构。  
 
 上述的描述还是很抽象，我知道你还是没有搞清楚他们之间的关系，为了更方便地理解它们之间的关系，我们以一个简单的例子来讲解它们之间的联系：
 
@@ -63,10 +67,6 @@ workqueue_struct 相当于公司的销售人员，对外揽活儿，揽进来的
 
 CMWQ 模式是：一个销售人员(workqueue_struct)并不固定对应哪个技术部门(worker_pool)，也不对应哪个技术员(worker)，有事做的时候才请求技术部门(worker_pool)分配技术人员(worker)，没事做的时候就不需要，活儿多的时候就可以申请更多地技术人员(worker)，这种动态申请的方式无疑是提高了资源的利用率。  
 
-看了这个例子，不知道你对这几个核心结构体有没有更深的了解，如果没有，接着看下面的图片，因为了解核心结构体是了解整个 workqueue 实现原理的关键所在：
-
-
-
 
 
 
@@ -81,7 +81,7 @@ struct workqueue_struct {
 	struct list_head	pwqs;		//链表头，该链表中挂着所有与当前 workqueue_struct 相关的 pool_workqueue
 	struct list_head	list;		//链表节点，通过该链表节点将该 workqueue_struct 链接到全局链表(workqueues)中，内核通过该全局链表统一管理 workqueue_struct。
 
-	struct mutex		mutex;		//内核互斥锁
+	struct mutex		mutex;		//内核互斥锁,保护全局数据的操作
 	...
 
 	struct list_head	maydays;	//需要 rescue 执行的工作链表
@@ -128,9 +128,10 @@ struct pool_workqueue {
 ```
 
 
+
 ### worker_pool
 
-```
+```c++
 struct worker_pool {
 	spinlock_t		lock;		//该 worker_pool 的自旋锁
 	int			cpu;		    //该 worker_pool 对应的 cpu
@@ -161,6 +162,7 @@ struct worker_pool {
 	int			refcnt;		//引用计数
 } ____cacheline_aligned_in_smp;
 ```
+
 
 
 ### worker
@@ -200,11 +202,17 @@ struct worker {
 
 
 
+### 参考
 
+4.14 内核代码
 
+[蜗窝科技：workqueue](http://www.wowotech.net/irq_subsystem/cmwq-intro.html)
 
+[魅族内核团队：workqueue](http://kernel.meizu.com/linux-workqueue.html)
 
-参考:http://www.wowotech.net/irq_subsystem/cmwq-intro.html
+---
+
+[专栏首页(博客索引)](https://zhuanlan.zhihu.com/p/362640343)
 
 
 

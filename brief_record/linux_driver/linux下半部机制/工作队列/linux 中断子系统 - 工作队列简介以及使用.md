@@ -1,4 +1,4 @@
-# linux工作队列 0 -工作队列简介以及使用
+# linux 中断子系统 - 工作队列简介以及使用
 
 ## 工作队列简介
 工作队列(workqueue)是在 2.6 版本引用的下半部机制，相对于 tasklet 和软中断而言，工作队列有一个本质上的区别:它可以运行在进程上下文中。而tasklet 和软中断只能在中断上下文中运行，不支持睡眠和调度，这对某些阻塞式和需要同步执行的任务是不友好的，比如磁盘的访问。  
@@ -42,6 +42,9 @@ struct work_struct {
 ```
 
 结构成员非常简单：
+
+
+
 * atomic_long_t data：看到回调函数和 data 的组合就很容易想到 data 是用户传入的私有数据，但是这里并不是这样实现的，由于工作队列运行在进程上下文，所以可以通过其它方式进行传参，这里的 data 是一组标志位的集合，通常不需要驱动开发者关心。  
 * struct list_head entry：工作队列将会以链表的形式管理所有加入的工作，该工作通过这个节点将工作链接到工作队列中。  
 * work_func_t func：回调函数，也就是该工作需要执行的工作，函数原型是：typedef void (*work_func_t)(struct work_struct *work);
@@ -61,6 +64,9 @@ struct delayed_work {
 ```
 
 延迟工作的结构成员要复杂一些：
+
+
+
 * struct work_struct work：普通工作结构体
 * struct timer_list timer：内核定时器，用于计时，延时指定的时间就是由内核定时器实现的。  
 * struct workqueue_struct *wq：当前工作相关的工作队列。
@@ -201,6 +207,9 @@ void delayed_work_timer_fn(unsigned long __data)
 
 ## 工作队列
 在上文的工作添加操作中，直接使用系统的接口都会将该工作提交到默认的工作队列 system_wq 中，至于工作队列，内核中系统提供的工作队列分为以下几种：
+
+
+
 * 独立于 cpu 的工作队列
 * per cpu 的普通工作队列。
 * per cpu 的高优先级工作队列
@@ -301,6 +310,22 @@ module_exit(workqueue_exit);
 ```
 
 可以看到，delayed workqueue 的执行时间在 workqueue 之后的 3s，因为设置的 delay 时间就是 3s。  
+
+
+
+### 参考
+
+4.14 内核代码
+
+[蜗窝科技：workqueue](http://www.wowotech.net/irq_subsystem/cmwq-intro.html)
+
+[魅族内核团队：workqueue](http://kernel.meizu.com/linux-workqueue.html)
+
+---
+
+[专栏首页(博客索引)](https://zhuanlan.zhihu.com/p/362640343)
+
+
 
 
 

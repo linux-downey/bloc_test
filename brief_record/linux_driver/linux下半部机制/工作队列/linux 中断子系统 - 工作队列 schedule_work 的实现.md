@@ -1,9 +1,14 @@
-# linux 工作队列 - schedule_work 的实现
+# linux 中断子系统 - 工作队列 schedule_work 的实现
 了解了 workqueue 的初始化以及实现原理，再来看 schedule_work 的实现原理，事情就会变得轻松很多，经过前面章节的铺垫，不难猜到：不管是 schedule_work 还是 schedule_delayed_work，都是将 work 添加到 worker_pool->worklist 中，然后由 worker 对应的内核线程执行，但是还有两个问题需要给出答案：
+
+
+
 * 如何判断将当前的 work 添加到哪个 worker_pool 中？ 
 * 这个添加的过程中，pwq 和 workqueue_struct、worker_pool 是如何进行交互的？
 
 带着这两个疑问，我们来看看它的源码实现。  
+
+
 
 ## schedule_work 
 在 workqueue 的使用篇就讲到，schedule_work 会将 work 添加到默认的工作队列也就是 system_wq 中，如果需要添加到指定的工作队列，可以调用 queue_work(wq,work) 接口，第一个参数就是指定的 workqueue_struct 结构。   
@@ -95,9 +100,14 @@ static void __queue_work(int cpu, struct workqueue_struct *wq,
 }
 ```
 __queue_work 主要由几个部分组成：
+
+
+
 * 获取 cpu 参数
 * 检查冲突
 * 添加 work 到队列。
+
+
 
 ### 获取 cpu 参数
 回顾开篇所提出的第一个问题：如何判断将当前的 work 添加到哪个 worker_pool 中？  
@@ -108,10 +118,14 @@ __queue_work 主要由几个部分组成：
 
 在特殊情况下，当前的 cpu 上没有初始化 worker_pool 和 pwq，就会找到下一个可用的 cpu。 
 
+
+
 ### 检查冲突
 检查当前的 work 是不是在这之前被添加到其他 worker_pool 中，如果是，就让它继续在原本的 worker_pool 上运行，这时候找到的 pwq 指向另一个 cpu 的 pwq 结构。   
 
 内核这样设计的初衷应该是出于 cpu 高速缓存的考虑，某个 cpu 曾经执行过该 work，所以将该 work 放到之前的 cpu 上执行可能因为缓存命中而提高执行效率，但是这也只是可能。除非两次 work 执行间隔非常小，高速缓存才有可能会保留。   
+
+
 
 ### 添加 work 到队列
 将 work 添加到队列的函数是 insert_work(pwq, work, worklist, work_flags)，传入的参数中有 work 和 worklist，如果超过 pwq 支持的最大的 work 数量，将work添加到 pwq->delayed_works 中，否则就添加到 pwq->pool->worklist 中。   
@@ -151,6 +165,18 @@ static void insert_work(struct pool_workqueue *pwq, struct work_struct *work,
 
 
 
+
+### 参考
+
+4.14 内核代码
+
+[蜗窝科技：workqueue](http://www.wowotech.net/irq_subsystem/cmwq-intro.html)
+
+[魅族内核团队：workqueue](http://kernel.meizu.com/linux-workqueue.html)
+
+---
+
+[专栏首页(博客索引)](https://zhuanlan.zhihu.com/p/362640343)
 
 
 

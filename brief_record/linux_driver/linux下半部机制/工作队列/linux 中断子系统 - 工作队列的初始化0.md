@@ -1,6 +1,9 @@
-# linux 工作队列 - 子系统的初始化
+# linux 中断子系统 - 工作队列的初始化0
 
 workqueue 初始化的开始有两个函数：
+
+
+
 * workqueue_init_early
 * workqueue_init
 
@@ -14,7 +17,7 @@ start_kernel
 				workqueue_init
 ```
 
-从函数名可以看出，workqueue_init_early 负责前期的初始化工作，我们就看看这个接口：
+从函数名可以看出，workqueue_init_early 负责前期的初始化工作：
 
 ```c
 int __init workqueue_init_early(void)
@@ -83,14 +86,19 @@ int __init workqueue_init_early(void)
 ```
 
 第一阶段的初始化分为以下几个主要部分：
+
+
+
 * 创建 pool_workqueue 的高速缓存池
 * 初始化 percpu 类型的 worker pool
 * 创建各种类型的工作队列
 
-## 创建高速缓存池
-在内核中，通常使用 kmalloc 进行内存的分配，这种分配方式小巧灵活：需要用到的时候就向系统申请，不需要使用了就调用对应的 free 函数，系统将其回收。  
 
-但是，对于频繁申请的同一类型数据，系统大可不必每次都将其回收，鉴于频繁使用的特性，系统其 free 的时候，可以将它暂存起来，下次再申请的时候，系统就直接返回上次使用的那片内存，这样可以明显地提高效率，毕竟频繁的内存分配工作是非常耗时的。  
+
+## 创建高速缓存池
+在内核中，通常使用 kmalloc 进行内存的分配，这种分配方式小巧灵活：需要用到的时候就向系统申请，不需要使用了就调用对应的 free 函数，系统将其回收，内核针对物理页面的管理使用 buddy 子系统，而针对小内存的管理使用 slub 分配器，slub 分配器采用创建缓存块的方式对页面进行管理，内核初始化阶段就创建了不同大小的缓存块以适应不同 size 的内存分配需求，而调用 kmalloc 时 slub 返回的就是满足要求的最接近分配大小的缓存块，不难看出，如果 kmalloc 需要申请的 size 没有刚好适配内核最初创建的缓存块大小，就会造成内存的浪费。  
+
+因此，对于频繁申请的同一类型数据，为了不造成这种浪费，需要为其创建刚好适配的 slub 缓存对象。  
 
 这种缓存的做法在内核中以 kmem_cache 的方式提供，主要提供以下接口：
 
@@ -98,7 +106,7 @@ int __init workqueue_init_early(void)
 struct kmem_cache *kmem_cache_create(const char *name, size_t size, size_t offset,
 	                                unsigned long flags, void (*ctor)(void *))
 ```
-kmem_cache_create 用于创建一个指定 size 的缓存，这个 size 通过对应需要使用的数据结构的大小，这个缓存是一片保留内存，通常并不直接使用，而是在当前缓存的基础上调用 kmem_cache_alloc，返回内存指针，再对该指针进行读写操作。  
+kmem_cache_create 用于创建一个指定 size 的缓存对象，这个 size 通过对应需要使用的数据结构的大小，这个缓存是一片保留内存，通常并不直接使用，而是在当前缓存的基础上调用 kmem_cache_alloc，返回内存指针，再对该指针进行读写操作。  
 
 ```
 void *kmem_cache_alloc(struct kmem_cache *, gfp_t flags)
@@ -112,7 +120,10 @@ void *kmem_cache_alloc(struct kmem_cache *, gfp_t flags)
 		(__flags), NULL)
 ```
 
+
+
 ## 初始化 percpu 类型的 worker pool
+
 在当前文件的头部，静态地创建了 percpu 类型的 worker pool 结构：
 
 ```
@@ -121,7 +132,7 @@ static DEFINE_PER_CPU_SHARED_ALIGNED(struct worker_pool [NR_STD_WORKER_POOLS], c
 
 其中，NR_STD_WORKER_POOLS 的值默认为 2，也就是系统初始化时每个 cpu 定义两个静态的 worker pool，上文中贴出的初始化的代码简化出来就是：
 
-```
+```c++
 
 for_each_possible_cpu{                 //遍历 cpu 操作
     for_each_cpu_worker_pool{          //遍历 worker pool 操作
@@ -167,6 +178,9 @@ static int init_worker_pool(struct worker_pool *pool)
 ```
 
 按照阅读内核代码的经验来说，init 操作通常就是对结构体中的成员进行初始化，init_worker_pool 也不例外，其中值得注意的有几个成员：
+
+
+
 * pool->node: NUMA node，这涉及到 numa 架构的概念，numa 存在于 SMP 系统中，通俗地说就是：
 
     在 SMP 系统中，多个 cpu 核同时访问系统中共用的内存会出现总线争用和高速缓存效率的问题，所以将整片内存分开连接到不同的 cpu，每个 cpu 核尽可能使用 local ram，不同的 local ram 之间也可以交换数据，这种方式成为了一种解决方案，应用这种方案的系统就称为 numa 系统，这里的 cpu 核与内存组成了一个 numa node。当然，SMP 结构中也可以不使用 noma 架构。  
@@ -176,8 +190,9 @@ static int init_worker_pool(struct worker_pool *pool)
     * cpumask：cpu 掩码
     * no_numa:标记是否处于 numa 架构。  
 
-
 初始化完成之后，就是对pool->cpu、pool->node 、cpumask 等成员进行赋值，同时 调用 worker_pool_assign_id 分配 worker_pool 的 id，该 id 由 idr 数据结构进行管理。  
+
+
 
 
 ## 创建各种类型的工作队列
@@ -195,6 +210,9 @@ system_freezable_power_efficient_wq = alloc_workqueue("events_freezable_power_ef
 
 不同的 flag 代表工作队列不同的属性，比如 ：
 0 表示普通的工作队列，system_wq 就是普通类型，不知道你还记不记得，开发者调用 schedule_work(work) 时，默认将 work 加入到当前工作队列中。  
+
+
+
 * WQ_HIGHPRI           表示高优先级的工作队列
 * WQ_UNBOUND           表示不和 cpu 绑定的工作队列
 * WQ_FREEZABLE         表示可在挂起的时候，该工作队列也会被冻结
@@ -204,6 +222,8 @@ system_freezable_power_efficient_wq = alloc_workqueue("events_freezable_power_ef
 * WQ_SYSFS             表示将当前工作队列导出到 sysfs 中
 
 如果你的 work 有特殊的需求，除了调用 schedule_work()，同样可以调用 queue_work() 以指定将 work 加入到上述的某个工作队列中。  
+
+
 
 ###　alloc_workqueue　实现
 紧接着，我们来看看　alloc_workqueue　的源码实现
@@ -275,6 +295,9 @@ struct workqueue_struct *__alloc_workqueue_key(const char *fmt,unsigned int flag
 ```
 
 从以上源码中可以看到，alloc_workqueue 主要包括几个部分：
+
+
+
 * unbound 类型的 wq 需要做的一些额外设置，因为是 unbound 的类型，所以不能使用特定 cpu 的参数。
 * wq 主要成员的初始化
 * 申请 pwq 并将其和 wq 绑定。
@@ -283,8 +306,13 @@ struct workqueue_struct *__alloc_workqueue_key(const char *fmt,unsigned int flag
 * 将 wq 链接到全局链表中。  
 
 其中需要讲解的有两部分：
+
+
+
 * rescue 线程
 * 申请 pwq 并绑定。  
+
+
 
 ## rescue 线程
 在上一章结构体的介绍中，经常可以看到 mayday 和 rescue 的身影，从字面意思来看，这是用来"救命"的东西，至于救谁的命呢？  
@@ -294,7 +322,9 @@ struct workqueue_struct *__alloc_workqueue_key(const char *fmt,unsigned int flag
 但是实际上内核中大部分驱动程序的实现都使用了这个标志位。  
 
 
-## 申请 pwm 并绑定
+
+
+## 申请 pwq 并绑定
 这一部分由函数 ： alloc_and_link_pwqs 完成，
 
 
@@ -336,6 +366,9 @@ static int alloc_and_link_pwqs(struct workqueue_struct *wq)
 ```
 
 该函数主要包括两个部分：
+
+
+
 * 针对非 unbound 类型的 wq，对每个 CPU 申请一个 pwq 结构，如果设置了 WQ_HIGHPRI(高优先级) 标志位，则将其与 percpu 的高优先级 worker_pool 进行绑定，否则与普通的 worker_pool 进行绑定，worker_pool 的创建在上文中有相应介绍。  
 
 	初始化和绑定的过程也比较简单，主要是以下几个部分：
@@ -350,6 +383,9 @@ static int alloc_and_link_pwqs(struct workqueue_struct *wq)
 ## 小结
 
 第一阶段的初始化主要的工作是：
+
+
+
 * 为每个 CPU 创建两个工作队列，同时创建两个 unbound 类型的工作队列。  
 * 内核启动时默认创建多个对应不同属性的工作队列，在创建工作队列的过程中，同时会创建 percpu 类型的 pool_workqueue,主要工作就是将工作队列与 percpu 的 worker_pool 进行连接。  
 
@@ -359,4 +395,15 @@ static int alloc_and_link_pwqs(struct workqueue_struct *wq)
 
 
 
+### 参考
+
+4.14 内核代码
+
+[蜗窝科技：workqueue](http://www.wowotech.net/irq_subsystem/cmwq-intro.html)
+
+[魅族内核团队：workqueue](http://kernel.meizu.com/linux-workqueue.html)
+
+---
+
+[专栏首页(博客索引)](https://zhuanlan.zhihu.com/p/362640343)
 
