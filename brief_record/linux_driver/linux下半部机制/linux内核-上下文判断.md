@@ -4,6 +4,8 @@
 那么，上下文的设置到底是如何进行的？是由硬件控制的还是由软件来实现管理的？一切还是要从源代码中寻找答案。  
 
 
+
+
 ## 进程的 preempt_count 变量
 
 ### thread_info
@@ -20,6 +22,10 @@ register unsigned long current_stack_pointer asm ("sp");
 
 ```
 其中 THREAD_SIZE 通常的大小为 4K 或者 8K，取出当前内核栈的 sp 指针，通过简单地屏蔽掉 sp 的低 13 位，就可以获取到 thread_info 的基地址。  
+
+在 arm 中，preempt_count 是 per task  的变量，而在 x86 中，preempt_count 是 percpu 类型的变量。
+
+
 
 ### preempt_count
 作为控制上下文的变量, preempt_count 是 int 型，一共 32 位。通过设置该变量不同的位来设置内核中的上下文标志，包括硬中断上下文、软中断上下文、进程上下文等，通过判断该变量的值就可以判断当前程序所属的上下文状态。  

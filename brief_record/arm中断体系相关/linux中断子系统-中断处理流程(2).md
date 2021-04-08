@@ -1,8 +1,8 @@
-# linux 中断处理流程（2）
+# linux中断子系统 - linux 中断处理流程
 
 中断发生的时候,硬件上直接执行跳转,跳转到中断向量表处执行中断代码,进入到 irq mode,紧接着又跳转到 svc 模式,在该模式下进行真正的中断处理行为,这些模式跳转以及上下文现场的处理都是晦涩难懂的汇编代码,做好相关的准备工作之后,执行 handle_arch_irq 函数,进入到 C 语言的世界. 
 
-(注:本章节基于支持 GICv2 标准的中断控制器的 arm 平台进行讨论,后续不再强调)
+(注:本章节基于支持 [GICv2 标准的中断控制器](https://zhuanlan.zhihu.com/p/363129733)的 arm 平台进行讨论,后续不再强调)
 
 ## handle_arch_irq
 
@@ -55,7 +55,7 @@ static void __exception_irq_entry gic_handle_irq(struct pt_regs *regs)
 
 
 
-在 GIC 相关的文章中(TODO)了解到,GIC 支持三种中断:SGI,PPI,SPI.
+在 [arm GIC介绍](https://zhuanlan.zhihu.com/p/363129733)中了解到,GIC 支持三种中断:SGI,PPI,SPI.
 
  SGI 是软件触发的中断,通常用作 CPU 之间的通信,软件触发 SGI 时需要指定目标 CPU. 
 
@@ -71,13 +71,13 @@ PPI 是硬件触发的,不过是 CPU 独立的,最典型的例子就是每个 CP
 
 注意到,发生中断时中断号的读取以及处理是在一个死循环中执行的，这种处理方式可以确保假设中断处理过程中产生额外的中断，可以直接处理，而不用重新跳转到中断向量表，当从 GIC_CPU_INTACK 读取到的中断号大于等于 1020 的时候，才会退出中断，GICv2 中通常使用 1023 表示无效的中断号。
 
-为了讲解方便，将其它一些无关的处理省略了，包括 EOI 模式的处理，关于 EOI 模式可以参考 GIC 章节(TODO)。
+为了讲解方便，将其它一些无关的处理省略了，包括 EOI 模式的处理，关于 EOI 模式可以参考[arm GIC介绍](https://zhuanlan.zhihu.com/p/363129733)。
 
 ## 外设中断的处理
 
 PPI 和 SPI 都属于外设中断，对应的处理函数为 handle_domain_irq，传入的参数为当前 GIC 所属的 domain，hwirq 以及 pt_regs(保存的断点信息地址)。 
 
-从 GIC 章节(TODO)可以了解到，内核中对系统中支持的每个中断都有一个编号 irq，通常这个 irq 并不对应 GIC 的 interrupt ID，而是存在一个映射关系，这个映射关于由 domain 保存，因此，需要通过 GIC domain 获取到 hwirq 对应内核中使用的逻辑 irq。 
+从 [arm GIC介绍](https://zhuanlan.zhihu.com/p/363129733) 可以了解到，内核中对系统中支持的每个中断都有一个编号 irq，通常这个 irq 并不对应 GIC 的 interrupt ID，而是存在一个映射关系，这个映射关于由 domain 保存，因此，需要通过 GIC domain 获取到 hwirq 对应内核中使用的逻辑 irq。 
 
 handle_domain_irq 会间接调用到 __handle_domain_irq 函数，源码如下：
 
@@ -172,7 +172,7 @@ if (!in_interrupt() && local_softirq_pending())
 
 中断状态位复位，对于用户而言，此时已经不处于硬件中断环境下了，而是进入了软中断的执行环境中，其实，什么是中断环境这个概念是相对模糊的，严格来说，CPU 从向量跳转开始就已经进入了中断环境中，而从中断点返回才算是退出中断环境。 
 
-但是实际的软件实现并不是这样，中断环境被分为真正的中断处理和 softirq 处理两个部分，对于真正的中断处理，实际上处理完用户注册的回调函数之后就退出了，然后进入到 softirq 处理的阶段，对于硬件中断处理，全程都是关中断的，因此也就不可能发生嵌套，而对于 softirq，在执行的时候实际上是开中断的，因此，另一个中断可以抢占当前的 softirq 执行。
+但是实际的软件实现并不是这样，中断环境被分为真正的中断处理和 softirq 处理(中断下文)两个部分，对于真正的中断处理，实际上处理完用户注册的回调函数之后就退出了，然后进入到 softirq 处理的阶段，对于硬件中断处理，全程都是关中断的，因此也就不可能发生嵌套，而对于 softirq，在执行的时候实际上是开中断的，因此，另一个中断可以抢占当前的 softirq 执行。
 
 中断导致模式跳转到 irq mode，实际上只在 irq mode 作了短暂的停留，就跳转到 svc 模式下执行 high level 的中断处理，同时，softirq 是纯软件实现的机制，因此，softirq 被抢占的行为其实和普通的内核进程状态下被抢占的行为差不多，因此，当 softirq 被中断抢占时，该中断并不会再次调用 softirq，而是回到 softirq 被抢占的点，继续执行软中断，在 softirq 执行完成之后，才会完完全全地退出中断，回到中断之前的点。严格来说，这个时候才算是真正地退出了中断。
 
@@ -192,7 +192,7 @@ if (!in_interrupt() && local_softirq_pending())
 
 接着调用 generic_handle_irq_desc 执行中断，实际上很简单，就是调用了 desc->handle_irq() 回调函数。 
 
-这是个 high level 的回调函数，在中断系统初始化的时候被设置的，对应的函数为(参考文章TODO)：
+这是个 high level 的回调函数，在中断系统初始化的时候被设置的，对应的函数为(参考[中断的注册](https://zhuanlan.zhihu.com/p/363135469))：
 
 * handle_fasteoi_irq：针对 SPI 中断的 high level 中断处理函数
 * handle_percpu_devid_irq：针对 PPI 中断的 high level 中断处理函数
@@ -283,11 +283,13 @@ irqreturn_t __handle_irq_event_percpu(struct irq_desc *desc, unsigned int *flags
 
 注2：执行完中断处理程序之后有一个返回值，这个返回值通常是两种：IRQ_WAKE_THREAD 和 IRQ_HANDLED，IRQ_HANDLED 表示中断的正常处理，而 IRQ_WAKE_THREAD 表示该中断使用了中断线程化，需要唤醒中断线程执行该中断回调函数。对应的唤醒接口为 __irq_wake_thread。  
 
+
+
 ### 级联 GIC 的处理-gic_handle_cascade_irq
 
-对于级联的 GIC，在 GIC 章节(TODO)就已经提到了，其实并不难猜到它的执行流程，在 root GIC 的中断处理中，通过 hwirq 获取对应的逻辑 irq，然后获取对应的 irq desc，再执行 irq desc 中的high level 中断处理函数，再执行注册的 irq handle。 
+对于级联的 GIC，在 [arm GIC介绍](https://zhuanlan.zhihu.com/p/363129733) 就已经提到了，其实并不难猜到它的执行流程，在 root GIC 的中断处理中，通过 hwirq 获取对应的逻辑 irq，然后获取对应的 irq desc，再执行 irq desc 中的high level 中断处理函数，再执行注册的 irq handle。 
 
-级联的 GIC 的中断线连在 root GIC 的某个中断引脚上，CPU 最先获得 root GIC 对应的 hwirq，同错 irq_find_mapping 获取对应的逻辑 irq，然后获取对应的 irq desc，前面是一样的，不一样的是 irq desc 的 high level 中断处理函数中是递归地处理 secondary GIC，也就是会读取 secondary GIC 中触发中断的 hwirq，再找到对应的逻辑 irq 和 irq desc，此时的 irq desc 中调用对应该中断的真正处理函数，其实就是深入一层，到 secondary GIC 中处理，对于多级串联的 GIC 一样的道理。  
+级联的 GIC 的中断线连在 root GIC 的某个中断引脚上，CPU 最先获得 root GIC 对应的 hwirq，同时 irq_find_mapping 获取对应的逻辑 irq，然后获取对应的 irq desc，前面是一样的，不一样的是 irq desc 的 high level 中断处理函数中是递归地处理 secondary GIC，也就是会读取 secondary GIC 中触发中断的 hwirq，再找到对应的逻辑 irq 和 irq desc，此时的 irq desc 中调用对应该中断的真正处理函数，其实就是深入一层，到 secondary GIC 中处理，对于多级串联的 GIC 一样的道理。  
 
 
 
@@ -312,7 +314,7 @@ enum ipi_msg_type {
 
 这个枚举列表就是 arm 平台中使用的 SGI 中断，第一项对应 0 号 SGI 中断，以此类推,因此,内核中使用了 0~7 号 IPI 中断,而 8~15 号并没有使用。
 
-和 SPI 和 PPI 不一样的是, SGI 中断没有诸如电平触发还是边沿触发这样硬件上的考虑，也不需要考虑级联的 CPU，因为 secondary GIC 通常不使用 SGI，也没有必要,因此 SPI 的处理相对简单。   
+和 SPI 和 PPI 不一样的是, SGI 中断没有诸如电平触发还是边沿触发这样硬件上的考虑，也不需要考虑级联的 CPU，因为 secondary GIC 通常不使用 SGI，也没有必要,因此 SGI 的处理相对简单。   
 
 从汇编层面到 C 函数调用的 gic_handle_irq 中,CPU 读取到 hwirq 小于 16 时,就直接进入了 IPI 中断的处理,对应的接口是 handle_IPI(irqnr, regs),这个函数接口非常直接明了,就是通过传入的 hwirq 分别对这几类 IPI 中断进行相应的处理:
 
@@ -385,6 +387,8 @@ void handle_IPI(int ipinr, struct pt_regs *regs)
 * 编号为 6 的 SGI 中断为 IPI_COMPLETION,completion 在内核中是一种比较常见的同步方式,通常是针对进程,而这里的 completion 则是针对某些特定于 CPU 的工作,这个中断通常用于通知目标 CPU 某项工作的完成.
 * 编号为 7 的 SGI 中断为  IPI_CPU_BACKTRACE,该中断打印相关的 trace 信息,暂不讨论. 
 
+
+
 ### SGI 中断的触发
 
 IPI 中断的响应已经了解了,相对应的, CPU 是如何发送一个 IPI 中断的呢? 
@@ -411,12 +415,23 @@ void __init set_smp_cross_call(void (*fn)(const struct cpumask *, unsigned int))
 
 这个 set_smp_cross_call 函数就是将 gic_raise_softirq 设置为发送 SGI 中断的函数,接受两个参数,一个是 cpumask,一个是 SGI 的 irqnum. 
 
-比如向目标 CPU 发送一个 WAKE_UP IPI 中断时,调用路径为 arch_send_wakeup_ipi_mask->smp_cross_call->__smp_cross_call,也就调用到 gic_raise_softirq 回调函数,不得不说 gic_raise_softirq 这个函数名称乍一看还以为是和 softirq 相关的,实际上它 SGI 相关.关于这个函数的分析在 GIC 相关章节(TODO)中有介绍,这里就不再赘述了. 
+比如向目标 CPU 发送一个 WAKE_UP IPI 中断时,调用路径为 arch_send_wakeup_ipi_mask->smp_cross_call->__smp_cross_call,也就调用到 gic_raise_softirq 回调函数,不得不说 gic_raise_softirq 这个函数名称乍一看还以为是和 softirq 相关的,实际上它 SGI 相关.关于这个函数的分析在 [arm gic 源码分析](https://zhuanlan.zhihu.com/p/363134084)中有介绍,这里就不再赘述了. 
 
 
 
+### 参考
+
+[蜗窝科技：中断处理流程](http://www.wowotech.net/irq_subsystem/irq_handler.html)
+
+[中断相关的官方文档](https://www.kernel.org/doc/html/v4.12/core-api/genericirq.html)
+
+4.14 内核源码
 
 
 
+[专栏首页(博客索引)](https://zhuanlan.zhihu.com/p/362640343)
 
-参考官方文档:https://www.kernel.org/doc/html/v4.12/core-api/genericirq.html
+原创博客，转载请注明出处。
+
+
+
