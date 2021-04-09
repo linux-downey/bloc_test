@@ -94,7 +94,7 @@ cpus {
 		...
 	};
 }
-``` 
+```
 
 至于 NUMA 部分的设备树描述暂不讨论,arm 目前并没有 NUMA 的实现.  
 
@@ -223,4 +223,8 @@ CPU 在内核中的工作就是服从调度器的调配来执行工作,在支持
 
 
 
-http://www.wowotech.net/pm_subsystem/cpu_hotplug.html
+
+
+[cpu 拓扑结构官方文档](https://github.com/torvalds/linux/blob/master/Documentation/devicetree/bindings/cpu/cpu-topology.txt)
+
+[蜗窝科技：cpu热插拔](http://www.wowotech.net/pm_subsystem/cpu_hotplug.html)
