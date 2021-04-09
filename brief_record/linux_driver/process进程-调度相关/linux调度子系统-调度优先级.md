@@ -1,4 +1,4 @@
-# 调度优先级
+# linux调度子系统-调度优先级
 如何决定一个进程是否得到调度器的更多照顾，获得更多的执行时间或者得到先运行的资格，自然是通过进程的优先级来决定的，在操作系统中，优先级只是个相对宽泛的概念，其具体的实现方式又是多种多样。  
 
 linux 中进程支持多种调度策略，有针对实时进程和非实时进程的，不同的调度策略对应不同的优先级，对于非实时进程而言，其优先级在用户空间的表示方式为 nice 值，nice 值的范围为 -20~19，这是 linux 设计之初就使用的优先级，数值越大，而表示的优先级越小。  
@@ -11,6 +11,8 @@ nice 这个词用得很有意思，在英语中，一般使用 nice 来描述 "�
 prio：进程的动态优先级，动态优先级会随着进程的运行而调整，从而决定了进程当前状态下获取 CPU 的能力，需要注意的是，**动态优先级对 cfs 调度器的影响很小，它主要作用于其它调度器**  
 static_prio:进程预设的优先级，也就是进程创建之初就给定的一个优先级，这个优先级直接决定了进程在将来的调度行为中获取 CPU 的能力。
 normal_prio：对于非实时进程，prio 值越大，其优先级越小，而对于实时进程，prio值越大，其优先级越大，在某些情况下，需要对这两种进程进行统一的优先级操作时，并不方便，因此需要使用一个统一的优先级表示方式，而 normal_prio 就是统一了实时和非实时进程的优先级表示，对于非实时进程而言，normal_prio = static_prio，而对于实时进程而言，需要进行相应的转换，内核中的转换函数为 normal_prio：其实现为：对于 dl 调度进程，normal_prio 为 -1，对于 rt 调度进程，normal_prio = 99 - p->rt_priority，即实时进程的最大值减去 p->rt_priority。
+
+
 
 
 ## 调度实体的权重 load weight
@@ -36,10 +38,12 @@ weight 直接关系到调度行为，在前面的文章中有提到，进程的�
 实际上的计算并不是像上面的计算方法一样带有除法，出于兼容性以及运算速率的考虑，内核中是不支持浮点运算的，因此需要将除法转换成乘法进行计算，而 struct load_weight 的另一个成员 inv_weight 就是保存的乘法转换的系数，这个系数同样是静态定义在数组 sched_prio_to_wmult 中，其中 40 个系数值，对应非实时进程的 100~139 优先级。  
 
 
+
+
 ## 调度优先级的初始化
 在调用 fork 创建进程的时候，会对进程的优先级进行初始化，进程的静态优先级是继承了父进程的静态优先级，而动态优先级 p->prio 继承了父进程的 normal 优先级，这是为了防止在某些情况下父进程的优先级反转传递给子进程，而子进程的 normal_prio 则是根据不同调度器进行计算得来，可以参考上文中的描述。  
 
-进程的初始化同时伴随着调度实体的初始化，比较调度器只认调度实体而不认进程，对于 se->load 的初始化接口为：set_load_weight。 
+进程的初始化同时伴随着调度实体的初始化，毕竟调度器只认调度实体而不认进程，对于 se->load 的初始化接口为：set_load_weight。 
 
 
 _do_fork->copy_process->sched_fork->set_load_weight
@@ -92,6 +96,8 @@ static void set_load_weight(struct task_struct *p)
 等比数列有指数增长的特性，因此，相差 10 个 nice 值，两个进程之间运行时间相差 9 倍，而相差 20 个 nice 值这个倍数迅速扩大到将近 90 倍，因此，别小看一个 nice 值造成的进程之间的差别。 
 
 
+
+
 ## load_weight 的应用
 调度实体的优先级使用权重 weight 表示，而这个 weight 和系数都是系统预定义的，那么，它们是如何作用于调度算法的？  
 
@@ -113,7 +119,7 @@ static inline u64 calc_delta_fair(u64 delta, struct sched_entity *se)
 }
 ```
 
-calc_delta_fair 函数传入的第一个参数是进程档次运行的真实时间，返回的是根据 load(优先级)计算出来的 vruntime 值，附加到 curr->vruntime 上，也就完成了 vruntime 的更新。  
+calc_delta_fair 函数传入的第一个参数是进程当次运行的真实时间，返回的是根据 load(优先级)计算出来的 vruntime 值，附加到 curr->vruntime 上，也就完成了 vruntime 的更新。  
 
 核心的计算工作由 __calc_delta 完成，这个函数带有三个参数，分别为 delta、weight(参考值)、load_weight（目标 load weight），其运算公式就是：
 
@@ -121,7 +127,9 @@ calc_delta_fair 函数传入的第一个参数是进程档次运行的真实时�
 return (delta_exec * weight / load_weight.weight)
 ```
 
-比如计算 vruntime 时，参考的 weight 为 nice0 对应的 load-1024，因为 nice0 进程的 vruntime 直接对应真实时间，假设一个 nice 为 1 的进程，返回的 vruntime 为 1.25*delta，如果 nice 为 n，则是 delta *(1.25^n)。而 __calc_delta 的实现并不简单，因为实际是不能使用除法的，因此需要引入 inv_weight 进行计算，实现就变得相对复杂。  
+比如计算 vruntime 时，参考的 weight 为 nice0 对应的 load-1024，因为 nice0 进程的 vruntime 直接对应真实时间，假设一个 nice 为 1 的进程，返回的 vruntime 为 1.25*delta，如果 nice 为 n，则是 delta *(1.25^n)，因此 nice 为 1 的 进程 vruntime 比 nice 为 10 的进程要慢很多。
+
+而 __calc_delta 的实现并不简单，因为实际是不能使用除法的，因此需要引入 inv_weight 进行计算，实现就变得相对复杂。  
 
 
 
