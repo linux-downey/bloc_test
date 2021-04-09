@@ -1,19 +1,24 @@
-# linux 加载器 0 - execve 系统调用  
+# linux 进程加载  - execve 系统调用  
 
 在前面的文章我们一直在讨论 elf 文件和链接相关的知识点，所有的这些知识都是服务于程序的运行，而这一章我们要讨论的就是程序运行之前的最后一步：程序的加载。  
 
 程序编译和链接负责生成可执行的程序代码，怎么将这些程序代码放到对应的位置并执行就是加载器的工作，我们所讨论的加载是基于 elf 文件格式的可执行文件，对于机器而言，它只认识并执行二进制的代码，而 elf 格式可执行文件并不像 bin 文件那样是纯粹的二进制数据，直接整个文件 copy 到内存中是运行不了的，它有着相应的格式，因此，程序如果要运行，就需要一段代码对 elf 文件进行解析，把其中的代码和数据部分放到链接时指定的内存位置，然后从指定的开始地址执行代码，这就是整个加载过程。  
 
-了解程序的加载过程需要对 elf 文件格式以及链接过程有一点的了解，可以参考这些博客：TODO。  
+了解程序的加载过程需要对 elf 文件格式以及链接过程有一点的了解，可以参考[elf文件格式](https://zhuanlan.zhihu.com/p/363487856)。  
 
-本章所涉及的程序加载是基于 linux 平台的 elf 文件，鉴于动态链接的复杂性，博主不会深入地讨论共享库的加载，同时，execve 调用将涉及到很多用户权限、安全相关的部分，比如 process credential 进程信任状，主要负责用户权限检查与生成，在内核中由 struct cred 描述，这一部分不作过多讨论。  
+本章所涉及的程序加载是基于 linux 平台的 elf 文件，鉴于动态链接的复杂性，博主不会深入地讨论共享库的加载的源码实现，关于共享库加载的概念可以参考[linux共享库](https://zhuanlan.zhihu.com/p/363489654)，同时，execve 调用将涉及到很多用户权限、安全相关的部分，比如 process credential 进程信任状，主要负责用户权限检查与生成，在内核中由 struct cred 描述，这一部分不作过多讨论。  
+
+
 
 ## 进程的产生与程序的加载
 在 linux 中，进程的产生通常是通过 fork 函数，由父进程衍生出一个子进程，这种进程产生的方式并不伴随着程序的加载，因为子进程独立运行所需要的所有资源都是从父进程拷贝的，包括代码段、数据段、页表等一系列东西，只是在后续的运行中与父进程脱离，数据部分不再共享。  
 
-在实际的执行环境中，大部分的进程并不是直接在父进程的基础上运行，产生一个新进程的目的在于重新运行一个完全不同的程序，这时候就需要用到 exec 函数族，exec 函数族提供了一个在进程中启动另一个程序执行的方法。它可以根据指定的文件名或目录名找到可执行文件，并用它来取代原调用进程的数据段、代码段和堆栈段，在执行完之后，原调用进程的内容除了进程号外，其他全部被新的进程替换了。  
+在实际的执行环境中，大部分的进程并不是直接在父进程的基础上运行，产生一个新进程的目的在于重新运行一个完全不同的程序，这时候就需要用到 exec 函数族，exec 函数族提供了一个在进程中启动另一个程序执行的方法。它可以根据指定的文件名或目录名找到可执行文件，并用它来取代原调用进程的数据段、代码段和堆栈段，在执行完之后，原调用进程的内容除了进程号以及一些系统配置外，其他全部被新的进程替换了。  
 
-exec 函数族有多个变种的形式：execl、execle、execv 等 6 种，这 6 种 exec 函数只是在调用的形式上有所区别，实际上都是调用了 glibc 中的 __execve 函数，而 glibc 中的 __execve 函数向内核发起 execve 系统调用，传递的参数为：
+exec 函数族有多个变种的形式：execl、execle、execv 等 6 种，这 6 种 exec 函数只是在调用的形式上有所区别，实际上都是调用了 glibc 中的 \_\_execve 函数，而 glibc 中的 \_\_execve 函数向内核发起 execve 系统调用，传递的参数为：
+
+
+
 * filename：指向可执行文件名的用户空间指针。 
 * argv：参数列表，指向用户空间的参数列表起始地址
 * envp：环境变量表，环境变量是一系列键值对，字符串类型
@@ -39,6 +44,8 @@ int do_execve(struct filename *filename,
 getname() 函数主要工作就是将用户空间的文件名指针拷贝到内核中，返回一个 struct filename 的结构，该结构中保存了内核中文件名地址、用户空间文件名地址，而且该结构对于同一个文件还可以进行复用以节省操作时间以及内存空间，总之内核空间与用户空间的数据需要进行严格的划分。  
 
 execve 系统调用紧接着就是调用了 do_execve 函数,这两个函数都是做一些针对参数的处理。紧接着调用  do_execveat_common 函数， do_execveat_common 函数中开始了真正的文件处理。不过在介绍源码细节之前，我们需要先来了解一下重要的数据结构，在分析内核代码的过程中，主要数据结构之间的联系基本上反映了主体框架的逻辑。    
+
+
 
 ## struct linux_binprm
 struct linux_binprm 这个数据结构是整个 execve 系统调用的核心所在，囊括了在 execve 系统调用过程中需要的几乎所有资源，结构成员如下：
@@ -72,7 +79,10 @@ struct linux_binprm {
 } __randomize_layout;
 ```
 
+
+
 ## struct linux_binfmt
+
 可执行文件的格式有很多种，比如 a.out、coff 或者是我们要分析的 elf 文件，每一种可执行文件都有不同的加载方式以及附带的参数，struct linux_binfmt 用于描述一种可执行文件的加载数据：
 
 ```C
@@ -86,7 +96,10 @@ struct linux_binfmt {
 } __randomize_layout;
 ```
 
+
+
 ## 注册可执行文件加载程序
+
 在 linux 的初始化阶段，对应每一种可执行文件格式，都会注册相应的 struct linux_binfmt 结构到内核中，当程序真正加载可执行文件时，调用对应的 load_binary 回调函数即可实现可执行文件的加载，对于 elf 格式的可加载文件而言，对应的注册程序在 fs/binfmt_elf.c 中：
 
 ```C
@@ -105,6 +118,8 @@ static int __init init_elf_binfmt(void)
 }
 ```
 elf 可执行文件的加载对应 load_elf_binary 函数，对应的动态库加载函数为 load_elf_library，在后续的加载过程中将会调用到这两个函数实现程序的加载。  
+
+
 
 
 ## do_execveat_common
@@ -177,6 +192,9 @@ static int do_execveat_common(int fd, struct filename *filename,struct user_arg_
 ```
 
 整个 do_execveat_common 的实现流程在上面的源代码中展现得比较清楚,总共分为三部分:
+
+
+
 * 文件的打开,读写以及参数的处理,构建一个 bprm 结构
 * 以构建的 bprm 为参数执行程序加载的主要函数:exec_binprm
 * 加载的收尾工作,释放资源等. 
@@ -233,7 +251,7 @@ int search_binary_handler(struct linux_binprm *bprm)
 ```
 search_binary_handler 函数的工作就是遍历系统中已注册的加载器,尝试对当前可执行文件进行解析并加载.  
 
-formats 为全局链表,在上文 注册可执行文件加载程序 小节中提到,每一种可执行文件格式都会在系统启动时向内核注册对应的加载程序,而这些加载程序由 struct linux_binfmt 结构描述,以回调函数的形式提供,所有类型的 linux_binfmt 都会链接到一个全局链表中,这个链表头就是 formats.  
+formats 为全局链表,在上文注册可执行文件加载程序小节中提到,每一种可执行文件格式都会在系统启动时向内核注册对应的加载程序,而这些加载程序由 struct linux_binfmt 结构描述,以回调函数的形式提供,所有类型的 linux_binfmt 都会链接到一个全局链表中,这个链表头就是 formats.  
 
 fmt 是全局链表 formats 中链表节点,struct linux_binfmt 类型,每一个 fmt 对应一种加载器.  
 
@@ -251,11 +269,16 @@ static struct linux_binfmt elf_format = {
 
 因此,执行 elf 格式可执行文件的真正加载操作的就是 load_elf_binary 函数.这个函数被定义在 fs/binfmt_elf.c 中.  
 
+
+
 ## load_elf_binary 函数解析
 
 load_elf_binary 函数直接操作 elf 文件，对文件中的段进行加载，分析 load_elf_binary 函数之前，需要对 elf 可执行文件格式有一定的了解，对于 elf 文件的加载格式，这里做一个简要的介绍：
 
 首先，编译过程中产生的目标文件是以段(section)的形式组织的，所有的段大致可以分为三种类型：
+
+
+
 * 数据段，程序数据，典型的比如 .data、.bss
 * 代码段，指令数据，典型的比如 .text、.init
 * 针对链接阶段的辅助信息，典型的比如重定位表、符号表等。  
@@ -271,25 +294,6 @@ load_elf_binary 函数直接操作 elf 文件，对文件中的段进行加载�
 segment header table 对应的数据结构为：
 
 ```
-typedef struct elf32_hdr{
-  unsigned char	e_ident[EI_NIDENT];   // ELF 魔数以及其他用于识别的字段
-  Elf32_Half	e_type;               // ELF 类型
-  Elf32_Half	e_machine;            // 机器类型
-  Elf32_Word	e_version;            // 版本
-  Elf32_Addr	e_entry;              // 入口地址
-  Elf32_Off	e_phoff;                  // program header table 偏移地址
-  Elf32_Off	e_shoff;                  // section header table 偏移地址
-  Elf32_Word	e_flags;              // 标志位
-  Elf32_Half	e_ehsize;             // elf 头部 size
-  Elf32_Half	e_phentsize;          // program header table 的 size
-  Elf32_Half	e_phnum;              // program header table 的数量
-  Elf32_Half	e_shentsize;          // section header table 的 size
-  Elf32_Half	e_shnum;              // section header table 的数量
-  Elf32_Half	e_shstrndx;           // section header table 中 string table 的位置，该段用于保存字符串
-} Elf32_Ehdr;
-```
-
-```
 typedef struct elf32_phdr{
   Elf32_Word	p_type;            //program header 类型，比如可加载的 segment、动态加载器信息 segment、加载辅助信息 segment 等
   Elf32_Off	p_offset;              // segment 在文件中的偏移
@@ -302,7 +306,7 @@ typedef struct elf32_phdr{
 } Elf32_Phdr;
 ```
 
-先熟悉 elf 文件相关概念有利于接下来的文件加载分析，也算是磨刀不误砍柴工。更详细的 elf 格式信息可以参考这一些博客：TODO。   
+先熟悉 elf 文件相关概念有利于接下来的文件加载分析，也算是磨刀不误砍柴工。更详细的 elf 格式信息可以参考[elf文件格式](https://zhuanlan.zhihu.com/p/363487856)。   
 
 接下来我们进入正文：分析 load_elf_binary 函数，与往常一样，省去一些错误检查和一些与主逻辑关联不大的分支代码，专注于加载过程的剖析。  
 
@@ -597,7 +601,7 @@ static int load_elf_binary(struct linux_binprm *bprm)
 
 首先,我们需要了解系统调用的基本知识:用户空间发起 execve 系统调用陷入内核,内核所做的第一件事就是保存用户空间的断点信息到内核栈上,这些断点信息为 18 个寄存器值,然后内核在做完一系列检查和设置后,就会根据用户空间传入的系统调用号执行对应的系统调用,系统调用完成之后,再根据原来保存在内核栈上的断点信息恢复用户空间程序的执行.
 
-关于系统调用的详细流程可以参考另一篇博客:TODO.  
+关于系统调用的详细流程可以参考[arm linux系统调用流程](https://zhuanlan.zhihu.com/p/363290974).  
 
 而 execve 系统调用是一个例外,execve系统调用的作用就是替换掉用户空间程序并执行新的程序,自然不再需要回到原来的程序中执行,理解了这个概念之后再来看 start_thread 的实现就比较简单了,这个函数就是修改保存在内核栈上的断点信息,当系统调用完成之后就会执行我们指定的用户程序中,从而完成程序的完整替换并重新执行.    
 
@@ -631,9 +635,48 @@ static int load_elf_binary(struct linux_binprm *bprm)
 })
 ```
 
-对于整个 execve 的实现分析到这里就告一段落了.  
+
+
+当加载过程完成之后，程序将返回到用户空间，实际上这时候并不会立马执行应用程序，而是执行链接器的代码执行动态链接工作，至于链接器的时候博主就没有继续深究了，有兴趣的朋友可以去看看。
 
 
 
+## 小结
 
+对于整个加载的过程，可以总结为这几个关键的阶段：
+
+* 用户空间发起 exec* 系统调用，传入需要执行的应用程序以及参数，触发内核 execve 系统调用。
+* 内核中系统调用的常规检查，执行内存拷贝，比如文件名、命令行参数、环境参数等，内核不直接访问用户空间的内存。
+* 读取可执行文件的前 128 字节数据，根据文件的前 128 字节可以判断可执行文件属于哪种文件类型，对于 elf 而言，文件头为 52 字节。
+* 确定了可执行文件类型之后，就调用对应加载器的 load_binary 回调函数，对于 elf 加载器而言，该回调函数为 load_elf_binary。
+
+
+
+load_elf_binary 是核心的加载函数，其执行流程为：
+
+* 读取 52 字节的 elf 头部，elf header 中包含整个 elf 的关键信息，包括 program header table 位置、数量等。
+* 读取类型为 PT_INTERP 的 segment，实际上就是 .interp section 中包含的内容，该section 中指定当前可执行文件需要使用的链接器，在加载当前可执行文件之前，需要先加载链接器，链接器是必须的
+* 释放原进程的资源，包括打开的文件、信号等。
+* 扫描所有的 program headers，也就是逐个获取 segment，segment 有不同的属性，有些属于指令数据(PT_LOAD类型)需要直接 copy 到内存中，而有一些属于加载时辅助信息，比如重定位信息，这部分不需要拷贝到内存中。
+  加载器为指令和数据部分创建一个新的 vm_struct_area 结构，建立映射，但是并不分配实际的物理内存，只有在访问时才会触发缺页异常分配对应的物理页面。
+* 在整个加载期间创建并初始化一个新的 mm_struct 结构。
+* 修改系统调用的返回地址，加载完成之后已经不需要返回到原来的程序断点，而是返回到动态链接器程序执行地址，执行链接程序。
+
+
+
+因为这篇博客的完成时间比较久远，直接将代码和代码逻辑分析放到一起，看起来比较乱，阅读体验不好，后续有时间的话再回过头来整理吧。
+
+
+
+### 参考
+
+内核 4.14 源码
+
+man exec 指令
+
+---
+
+[专栏首页(博客索引)](https://zhuanlan.zhihu.com/p/362640343)
+
+原创博客，转载请注明出处。
 

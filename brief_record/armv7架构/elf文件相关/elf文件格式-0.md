@@ -2,6 +2,8 @@
 
 在系统中，通常使用  ./a.out 或者  /usr/bin/xxx 之类的命令来运行各种各样的程序，我们只知道，键入命令就会有相应的应用程序被执行，输出想要的结果，不知道你曾经是否有这样的疑问：
 
+
+
 * 这些文件为什么可以运行？
 * 它又是怎么被运行的？
 
@@ -11,7 +13,7 @@
 
 
 
-## 授人以鱼不如授人以渔
+## 分析工具
 
 对于底层的分析而言，最好的方式是动手调试，看书往往只能建立一个整体的概念，尤其是在 linux 环境下工作，开源给我们带来了非常大的便利。   
 
@@ -19,9 +21,9 @@
 
 答案无非是它们可以读取并解析 elf 文件，那么我们只需要拿到这些命令的源代码，找到文件的解析部分，elf 文件的所有细节可谓是尽收眼底。   
 
-readelf 和 objdump 的源码位于 binutils 源码包中，[下载地址点这里](https://ftp.gnu.org/gnu/binutils/)，对于 elf 文件格式的读取以及解析参考 readelf.c , objdump.c 的实现即可。  
+readelf 和 objdump 的源码位于 binutils 源码包中，[下载地址点这里](https://ftp.gnu.org/gnu/binutils/)，对于 elf 文件格式的读取以及解析参考 readelf.c ， objdump.c 的实现即可。  
 
-同时，除了看源码，还可以参考[官方文档](https://static.docs.arm.com/ihi0044/g/aaelf32.pdf)，参考官方文档的好处在于可以先建立一个完整的概念，但是需要注意的一点是注意文档的版本和当前使用的软件版本匹配。  
+同时，除了看源码，还可以参考[官方文档](https://static.docs.arm.com/ihi0044/g/aaelf32.pdf)，参考官方文档的好处在于可以先建立一个完整的概念，但是需要注意的一点是文档的版本和当前使用的软件版本匹配。  
 
 在分析 elf 文件时，最常用的两个命令行工具是 readelf 和 hexdump，从名称来看 readelf 就是针对 elf 文件的分析工具，而 hexdump 用来显示纯二进制数据，这在分析某个 section 或者 elf 的某个部分时，需要用到。
 
@@ -29,18 +31,18 @@ readelf 和 objdump 的源码位于 binutils 源码包中，[下载地址点这�
 
 
 
-
-
 ## elf 文件格式
 
 在分析 elf 文件之前，我们需要了解 elf 文件的类型，elf 文件通常有三种类型：
+
+
 
 * 可重定位二进制目标文件
 * 可执行文件
 * 动态库文件
 * core dump 文件，这类文件是程序出错时产生的调试文件
 
-可重定位二进制目标文件实际上就是在编译过程中生成的 .o 文件，或者是静态库文件，而可执行文件就是可以直接执行的文件，动态库文件实际上也是可执行文件的一种，但是相对于可执行文件而言又存在一些特殊性，这种特殊性将在后续的文章中细细道来。  
+可重定位二进制目标文件实际上就是在编译过程中生成的 .o 文件，或者是静态库文件，而可执行文件就是可以直接执行的文件，动态库文件实际上也是可执行文件的一种，但是相对于可执行文件而言又存在一些特殊性，这种特殊性将在后续的文章中讨论。  
 
 core dump 文件暂时不讨论。 
 
@@ -48,7 +50,7 @@ core dump 文件暂时不讨论。
 
 而可执行文件不一样，它是可以直接在系统中运行的，不过它并不是 bin 文件，放到内存中运行需要经过一个加载过程，因此可执行文件是被加载器使用的，所有的文件特性也是为加载过程服务。
 
-
+接下来的文章将会依次讨论可重定位目标文件、可执行文件和动态库文件。
 
 
 
@@ -73,9 +75,10 @@ core dump 文件暂时不讨论。
 
 
 ## 实例解析
-一个简单的示例可以建立更高，因为我们研究的是 elf 文件的整体框架，所以一个简单的示例就足够了，复杂的代码仅仅是增加了代码段的 size：
+因为我们研究的是 elf 文件的整体框架，所以一个简单的示例就足够了，复杂的代码仅仅是增加了代码段的 size：
 
-foo.c :
+**foo.c :**
+
 ```C
 int param1;
 int param2 = 0;
@@ -94,17 +97,21 @@ int main()
 gcc -c foo.c
 ```
 
-生成可执行文件 foo.o ,使用 linux 下的 file 指令查看其文件类型：
+生成可执行文件 foo.o ，使用 linux 下的 file 指令查看其文件类型：
 
 ```
 root@hd:~# file foo.o
 
-foo.o: ELF 32-bit LSB  relocatable, ARM, EABI5 version 1 (SYSV), not stripped
+foo.o: ELF 32-bit LSB  relocatable， ARM， EABI5 version 1 (SYSV)， not stripped
 
 ```
 
+从 file 指令输出目标文件的简要信息中，包括文件类型(ELF 32-bit relocatable)、文件大小端、架构、ABI 类型以及是否 stripped，对于目标文件而言，自然是不会被 strip 的，毕竟符号信息在链接阶段是必须的。 
+
+
 
 ## elf 文件头
+
 对于不同的架构或者平台而言，elf 的格式上会有一些小的区别，比如对于 arm32 而言，elf 头是 52 字节，而 arm64 的 elf 头是 64 字节，在本章中我们主要针对 32 位平台进行分析。  
 
 通过 readelf 命令读取可视化的文件头:
@@ -115,7 +122,7 @@ root@hd:~# readelf -h foo.o
 ELF Header:
   Magic:   7f 45 4c 46 01 01 01 00 00 00 00 00 00 00 00 00
   Class:                             ELF32
-  Data:                              2's complement, little endian
+  Data:                              2's complement， little endian
   Version:                           1 (current)
   OS/ABI:                            UNIX - System V
   ABI Version:                       0
@@ -125,7 +132,7 @@ ELF Header:
   Entry point address:               0x0
   Start of program headers:          0 (bytes into file)
   Start of section headers:          264 (bytes into file)
-  Flags:                             0x5000000, Version5 EABI
+  Flags:                             0x5000000， Version5 EABI
   Size of this header:               52 (bytes)
   Size of program headers:           0 (bytes)
   Number of program headers:         0
@@ -134,7 +141,9 @@ ELF Header:
   Section header string table index: 7
 ```
 
-由 readelf -h 读取的头部信息已经很清晰明了,下面是头部对应的C语言中结构体:
+
+
+由 readelf -h 读取的头部信息已经很清晰明了，下面是头部对应的C语言中结构体，这个结构体可以在 readelf 的源代码中找到:
 
 ```
 typedef struct {
@@ -155,79 +164,118 @@ typedef struct {
 } Elf32_External_Ehdr;
 ```
 
-elf 头部的数据结构更能够反映出头部的相关信息,各字段,排列顺序等,可以计算得出该结构体总共占用 52 字节,对于 elf64 而言, e_entry,e_phoff,e_shoff 这三个成员为 8 字节,因此多出 12 字节,总共 64 字节.  
+elf 头部的数据结构更能够反映出头部的相关信息，各字段，排列顺序等，可以计算得出该结构体总共占用 52 字节，对于 elf64 而言， e_entry，e_phoff，e_shoff 这三个成员为 8 字节，因此多出 12 字节，总共 64 字节.  
 
 下面我们结合 readelf -h 命令给出的信息来详细介绍每个字段.    
 
+
+
 ### e_ident
-e_ident 是一个包含 16 字节的数组成员,对应 readelf -h 给出的 magic 部分.
 
-magic 部分就是我们所说的魔数,魔数通常就是自定义的识别码,对于 32 位的 elf 文件而言,magic 部分有 16 个字节.  
+e_ident 是一个包含 16 字节的数组成员，对应 readelf -h 给出的 magic 部分.
 
-大部分的文件组织形式都是这样的,头部是一串特殊的识别码,标识该文件的一些概要信息,主要用于外部程序快速地对这个文件进行识别,快速地判断文件类型.  
+magic 部分就是我们所说的魔数，魔数通常就是自定义的识别码，对于 32 位的 elf 文件而言，magic 部分有 16 个字节.  
 
-但是 readelf 命令仅仅是显示了对应的二进制码,并没有进一步显示整个魔数字段的详细信息,关于这一部分就需要参考 readelf 源码来进行分析了,分析结果如下:
-* 前四个字节:7f 45 4c 46,识别码, 0x45,0x4c,0x46 三个字节的 ascii 码对应 ELF 字母,通过这四个字节就可以判断文件是不是 elf 文件.  
-* 第五个字节:其中 01 表示 32 位 elf 文件,02 表示 64 位.
-* 第六个字节:其中 01 表示 小端模式,02 表示 大端模式.
-* 第七个字节:表示 EI_version,1 表示 EV_CURRENT,只有 1 才是合理的(代码中是 EI_versoin,但是博主没有进一步具体研究).
+大部分的文件组织形式都是这样的，头部是一串特殊的识别码，标识该文件的一些概要信息，主要用于外部程序快速地对这个文件进行识别，快速地判断文件类型.  
+
+但是 readelf 命令仅仅是显示了对应的二进制码，并没有进一步显示整个魔数字段的详细信息，关于这一部分就需要参考 readelf 源码来进行分析了，分析结果如下:
+
+
+
+* 前四个字节:7f 45 4c 46，识别码， 0x45，0x4c，0x46 三个字节的 ascii 码对应 ELF 字母，通过这四个字节就可以判断文件是不是 elf 文件.  
+* 第五个字节:其中 01 表示 32 位 elf 文件，02 表示 64 位.
+* 第六个字节:其中 01 表示 小端模式，02 表示 大端模式.
+* 第七个字节:表示 EI_version，1 表示 EV_CURRENT，只有 1 才是合理的(代码中是 EI_versoin，但是博主没有进一步具体研究).
 * 第八个字节: 00 表示 OS_ABI
 * 第九个字节: 00 表示 ABI version 
-* 其它字段,源码中没有找到对应的解析,暂定为reserver.  
+* 其它字段，源码中没有找到对应的解析，暂定为reserver.  
+
+
 
 
 ### e_type
-type 表示 elf 文件的细分类型,总共有四种:
+type 表示 elf 文件的细分类型，总共有四种:
+
+
+
 * 可重定位的目标文件
 * 可执行文件
 * 动态链接文件
-* coredump 文件,这是系统生成的调试文件.  
+* coredump 文件，这是系统生成的调试文件.  
 
-这四种类型的文件各有各的特点,比如可重定位的目标文件针对的是链接器.  
+这四种类型的文件各有各的特点，比如可重定位的目标文件针对的是链接器.  
 
-而可执行文件针对加载器,需要被静态加载到内存中执行,而动态链接文件则是运行过程中的加载.  
+而可执行文件针对加载器，需要被静态加载到内存中执行，而动态链接文件则是运行过程中的加载.  
 
-coredump 文件主要保存的是系统出错时的运行断点信息,方便人为地或者借助 gdb 分析 bug.  
+coredump 文件主要保存的是系统出错时的运行断点信息，方便人为地或者借助 gdb 分析 bug.  
+
+
 
 ### e_machine
-标识指定的机器,比如 40 代表 ARM.  
+标识指定的机器，比如 40 代表 ARM.  
 
-其它的比如 x86,mips 等都对应不同的编码.  
+其它的比如 x86，mips 等都对应不同的编码.  
+
+
 
 ### e_version
 四个字节的 version code
 
+
+
 ### e_entry
-程序的入口虚拟地址,对于可重定位的目标文件默认是0,而对于可执行文件而言是真实的程序入口.  
+程序的入口虚拟地址，对于可重定位的目标文件默认是0，而对于可执行文件而言是真实的程序入口.
+
+程序入口是被加载器使用的，在程序加载过程中会读取该程序入口，作为应用程序的开始执行地址，在实际的加载过程中，内核加载完当前 elf 可执行文件之后其实并不是跳到该入口地址，而是先执行动态链接器代码，在动态链接完成之后才会跳到该入口地址。  
+
+
 
 ### e_phoff
-四个字节的 program headers 的起始偏移地址,关于 Program headers 将在后续的章节中详谈.   
+四个字节的 program headers 的起始偏移地址，关于 Program headers 将在后续的章节中详谈.   
+
+
 
 ### e_shoff
-四个字节的 section headers 的起始偏移地址,
+四个字节的 section headers 的起始偏移地址，
+
+
 
 ### e_flags
-和处理器相关的标志位集合,不同的处理器有不同的参数,根据 e_machine 进行解析.  
+和处理器相关的标志位集合，不同的处理器有不同的参数，根据 e_machine 进行解析.  
+
+
 
 ### e_ehsize
-指示 elf header 的 size,对于 arm 而言,52 或者 64.
+指示 elf header 的 size，对于 arm 而言，52 或者 64.
+
+
 
 ### e_phentsize
-每一个 program header 的 size,在可重定位目标文件中为 0.
+每一个 program header 的 size，在可重定位目标文件中为 0.
+
+
 
 ### e_phnum
-该文件中一共有多少个 program header,在可重定位目标文件中为0.
+该文件中一共有多少个 program header，在可重定位目标文件中为0.
+
+
 
 ### e_shentsize
-文件中每一个section header 的大小,通常是 40.
+文件中每一个section header 的大小，通常是 40.
+
+
 
 ### e_shnum
-该文件中一共有多少个 section header,上述的示例文件中为 10 个.
+该文件中一共有多少个 section header，上述的示例文件中为 10 个.
+
+
 
 ### e_shstrndx
-在 elf 格式的文件中,符号,section,文件的命名通常是字符串,这些字符串并不会保存在其对应的 section 中,而是统一地使用一个字符串表来保存,该字段指示节标题字符串所在的 section,在上面的示例中,section 标题(.text,.data,...)对应的 e_shstrndx 即段序号为 7,即保存在 .shstrtab 段中.这些 section 标题在链接的过程中需要使用到,在程序执行时是无用的,所以分开有利于精简 section 内容的大小,从而程序加载运行时需要更小的空间.    
+在 elf 格式的文件中，符号，section，文件的命名通常是字符串，这些字符串并不会保存在其对应的 section 中，而是统一地使用一个字符串表来保存，该字段指示节标题字符串所在的 section，在上面的示例中，section 标题(.text，.data，...)对应的 e_shstrndx 即段序号为 7，即保存在 .shstrtab 段中.这些 section 标题在链接的过程中需要使用到，在程序执行时是无用的，所以分开有利于精简 section 内容的大小，从而程序加载运行时需要更小的空间.    
 
-除了 section 标题,还有符号命,文件名等字符串,这些默认会被保存在 .strtab section 中.  
+除了 section 标题，还有符号名，文件名等字符串，这些默认会被保存在 .strtab section 中.
+
+  
 
 ## section信息
 根据上文中的 elf 文件框架，在 elf 头部之后就是各 sections，section headers 按照一定的格式存放每个 section，包含具体的数据，比如 text 段中包含代码部分，数据、bss 段中包含数据。每种数据都有对应的段解析方式，这一部分我们将在后续的文章中详细解析。  
@@ -241,7 +289,7 @@ coredump 文件主要保存的是系统出错时的运行断点信息,方便人�
 ```
 readelf -S foo.o
 
-There are 10 section headers, starting at offset 0x108:
+There are 10 section headers， starting at offset 0x108:
 
 Section Headers:
   [Nr] Name              Type            Addr     Off    Size   ES Flg Lk Inf Al
@@ -256,9 +304,9 @@ Section Headers:
   [ 8] .symtab           SYMTAB          00000000 000298 0000f0 10      9  11  4
   [ 9] .strtab           STRTAB          00000000 000388 000027 00      0   0  1
 Key to Flags:
-  W (write), A (alloc), X (execute), M (merge), S (strings)
-  I (info), L (link order), G (group), T (TLS), E (exclude), x (unknown)
-  O (extra OS processing required) o (OS specific), p (processor specific)
+  W (write)， A (alloc)， X (execute)， M (merge)， S (strings)
+  I (info)， L (link order)， G (group)， T (TLS)， E (exclude)， x (unknown)
+  O (extra OS processing required) o (OS specific)， p (processor specific)
 ```
 
 终端所显示的信息非常详细，该文件一共十个段，其中第一个为 NULL，尽管它在 section 部分不占据任何空间，但是同样对应一个 section header 描述，占用 40 字节，内容为全0。  
@@ -269,7 +317,11 @@ section header0 ~ section header7：对应的段内容被保存在 elf 和 secti
 section header8 和 section header9 比较特殊，它们是 elf 文件的符号表和字符串表，被存放在 section headers 之后，对于可重定位的目标文件而言，这两个表将会在链接阶段被使用。  
 
 
+
 在文章开头博主就贴出了整个 elf 文件的布局图，通过 readelf 给出的信息验证一下到底是不是这样：
+
+
+
 * 文件头 52 个字节，描述整个文件的属性，包括：类型、段表位置、段表数量及长度等等。  
 * 接下来就是段信息，从上图中段表信息可以看到，最开始的 .text 段起始地址为 0x34(52)，所有段依次紧密相连，直到 .shstrtab 段，它的起始地址为 0xb0，长度为 0x55，所以段信息结束位置可以算得： 0xb0 + 0x55 = 0x105，十进制为 261。因此，中间的段信息部分占用地址为 0x34~0x108(对齐到4字节)。
 * 从 elf 头部可以看到，section headers 的起始地址为 264(十六进制为0x108)，紧随着第二部分的段信息，而整个 section headers 的长度在 elf 中也有给出，为 10(段) * 40(per size) = 400，所以整个 section headers 占用的地址为 264~664，对应的 16 进制为 0x108 ~ 0x298。
@@ -280,4 +332,14 @@ section header8 和 section header9 比较特殊，它们是 elf 文件的符号
 
 
 
+### 参考
 
+[binutils源码](https://ftp.gnu.org/gnu/binutils/)
+
+[arm elf 文档](https://static.docs.arm.com/ihi0044/g/aaelf32.pdf)
+
+---
+
+[专栏首页(博客索引)](https://zhuanlan.zhihu.com/p/362640343)
+
+原创博客，转载请注明出处。
