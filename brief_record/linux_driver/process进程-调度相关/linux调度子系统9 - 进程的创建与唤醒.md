@@ -1,4 +1,4 @@
-# linux调度子系统 - 进程的创建与唤醒
+# linux调度子系统9 - 进程的创建与唤醒
 除了核心的周期性调度和主调度器之外，进程创建和进程唤醒时调度相关策略的实现也值得关注，进程的新建是一切的开端，而进程的睡眠唤醒也是非常重要的，毕竟系统中几乎所有进程都是不断地处于 睡眠-唤醒 的循环过程中。  
 
 
@@ -129,12 +129,15 @@ static void task_fork_fair(struct task_struct *p)
 }
 ```
 按照惯例，在操作 rq 时需要对本地 CPU 的 rq 加锁，防止并发问题，对于 task_fork_fair，其主要的思想还是复制父进程相关的 cfs 调度参数，不过多了一些细节:
+
+
+
 * 先更新父进程的时间，保证当前对父子进程的操作是基于最新的 timeline 的. 
 * 将子进程的 vruntime 设置为父进程的 vruntime.
 * 如果系统调度设置了 START_DEBIT 调度特性，即调度器会让新产生的子进程延后执行，以免那些某些恶意进程通过不断地创建子进程试图占据更多的执行权. 
 * 判断系统静态定义的 sysctl_sched_child_runs_first 的值，从该名称可以看出，这个变量决定了子进程是不是要先于父进程运行，默认情况下这个变量的值为 0，表示正常情况下父进程先运行，如果为 1 呢，同时还需要满足的条件是子进程的 vruntime 要小于父进程的 vruntime(该函数执行发生调度的情况)，如果条件满足，具体操作是将父进程和子进程的 vruntime 交换，然后设置重新调度标志位，注意这和 vfork 是不一样的，sysctl_sched_child_runs_first 是针对系统的配置，而 vfork 是针对单个进程的设置，而且 vfork 的实现方式是让父进程等待子进程执行完 exec 而不是交换 vruntime 的值.  
 	sysctl_sched_child_runs_first 的值可以通过 cat /proc/sys/kernel/sched_child_runs_first 来查看.  
-* 将子进程的 vruntime 减去其对应 cfs 的 min_vruntime，因为当前进程实际上还没有添加到就绪队列，只需要保存一个 vruntime 的绝对值，要了解这步操作可以参考 cfs 的enqueue 和 dequeue 篇博客(TODO).  
+* 将子进程的 vruntime 减去其对应 cfs 的 min_vruntime，因为当前进程实际上还没有添加到就绪队列，只需要保存一个 vruntime 的绝对值，要了解这步操作可以参考 [cfs 的enqueue 和 dequeue](https://zhuanlan.zhihu.com/p/363791956) ).  
 
 注5:在多核架构中， task 的 on_cpu 标志标识了当前进程是否正在 CPU 上执行，需要初始化为 0，然后设置 task 的 preempt_count 为 FORK_PREEMPT_COUNT，这个值等于 2，相当于执行了两次 disable_preempt，当前，在该进程真正投入运行的时候，会被设置为正常值，就像 p->state 一样.  
 
@@ -165,15 +168,15 @@ void wake_up_new_task(struct task_struct *p)
 	task_rq_unlock(rq， p， &rf);
 }
 ```
-注1 : 在 wake_up_new_task 中，先将子进程的状态设置为 TASK_RUNNING，这是进程投入运行的第一步，同时，在多核架构中，需要为子进程选择一个合适的 CPU 运行，对于不同的调度器类而言，选择合适进程的方式并不一样，尽管这里看起来执行的是通用的 select_task_rq 函数，实际上这个函数根据进程所属的调度器类调用对应的 select_task_rq 回调函数，对于 cfs 调度器而言，调用的是 select_task_rq_fair ，为进程选取合适 CPU runqueue 的过程有些复杂，我们将在后续的进程负载均衡相关的博客中详细讨论.(TODO) 
+注1 : 在 wake_up_new_task 中，先将子进程的状态设置为 TASK_RUNNING，这是进程投入运行的第一步，同时，在多核架构中，需要为子进程选择一个合适的 CPU 运行，对于不同的调度器类而言，选择合适进程的方式并不一样，尽管这里看起来执行的是通用的 select_task_rq 函数，实际上这个函数根据进程所属的调度器类调用对应的 select_task_rq 回调函数，对于 cfs 调度器而言，调用的是 select_task_rq_fair ，为进程选取合适 CPU runqueue 的过程有些复杂，我们将在后续的进程[负载均衡](https://zhuanlan.zhihu.com/p/363799928) 中继续讨论.
 
-注2:唤醒新的进程就需要执行入队操作，activate_task 直接调用了 enqueue_task 函数，该函数解析可以参考另一篇博客(TODO)，将子进程添加到 cfs 就绪队列中，同时设置 on_rq 标志为 1，而另一个 on_rq(p->se->on_rq) 在 activate_task 的子函数中被设置.  
+注2:唤醒新的进程就需要执行入队操作，activate_task 直接调用了 enqueue_task 函数，该函数解析可以参考[cfs se 的 enqueue 和 dequeue](https://zhuanlan.zhihu.com/p/363791956)，将子进程添加到 cfs 就绪队列中，同时设置 on_rq 标志为 1，而另一个 on_rq(p->se->on_rq) 在 activate_task 的子函数中被设置.  
 
 注3：check_preempt_curr 函数是用于检查当前正在运行的进程是否需要被指定的进程抢占执行，该函数直接调用对应调度器类的 check_preempt_curr 回调函数，对应 cfs 调度器类的 check_preempt_wakeup，从这个函数名来看，该函数主要用于检查唤醒进程对当前进程的抢占，这里通过传入 WF_FORK 来指示这是对新进程的处理。  
 
 在该函数中，会检查当前进程是否设置了抢占标志，在上文中有提到，如果设置 sysctl_sched_child_runs_first 为 1 且满足一些额外条件，将会对父进程设置抢占标志，而且整个过程中没有出现抢占点，那么这里就会检测到抢占标志而返回。  
 
-该函数接下来判断子进程是否应该抢占当前父进程，同样是使用 wakeup_preempt_entity 函数，这个函数在 schedule() 章节(TODO)分析过，通常传入两个 se，通过两者的优先级判断第二个 se 参数是否应该抢占第一个 se 而获得优先执行权。如果需要执行抢占，就需要对进程设置 TIF_NEED_RESCHED 标志位，在下一个内核抢占点(中断返回或者开抢占的时候)该进程就会被更应该执行的进程抢占。 
+该函数接下来判断子进程是否应该抢占当前父进程，同样是使用 wakeup_preempt_entity 函数，这个函数在 [schedule函数](https://zhuanlan.zhihu.com/p/363791563) 分析过，通常传入两个 se，通过两者的优先级判断第二个 se 参数是否应该抢占第一个 se 而获得优先执行权。如果需要执行抢占，就需要对进程设置 TIF_NEED_RESCHED 标志位，在下一个内核抢占点(中断返回或者开抢占的时候)该进程就会被更应该执行的进程抢占。 
 
 到这里，子进程的唤醒就已经完成了，通常子进程将会在父进程不久之后运行，但也并不能保证父进程一定先于子进程运行。  
 
@@ -281,10 +284,26 @@ static void ttwu_queue(struct task_struct *p， int cpu， int wake_flags)
 将唤醒进程添加到就绪队列是由 ttwu_do_activate->activate_task 完成，这个函数将会调用 enqueue_task 将进程添加到就绪队列中，然后设置 p->on_rq 标志位为 1.  
 
 这里有两点需要注意:
-* 在调用 ttwu_do_activate 时传入的 flag 参数中会带有 ENQUEUE_WAKEUP 标志，因此在 enqueue_task 中将会调用到 place_entity 函数，该函数会对睡眠的进程实施奖励，实际的操作就是将其 vruntime 值减小，这个值默认是一个调度延迟，即 sysctl_sched_latency，如果启用了 GENTLE_FAIR_SLEEPERS 调度特性，这个奖励值减半.这种做法意味着新唤醒的进程更容易抢占当前执行进程，但是如果睡眠时间并不长，这个奖励也会缩水.这部分可以参考 TODO.   
+
+
+
+* 在调用 ttwu_do_activate 时传入的 flag 参数中会带有 ENQUEUE_WAKEUP 标志，因此在 enqueue_task 中将会调用到 place_entity 函数，该函数会对睡眠的进程实施奖励，实际的操作就是将其 vruntime 值减小，这个值默认是一个调度延迟，即 sysctl_sched_latency，如果启用了 GENTLE_FAIR_SLEEPERS 调度特性，这个奖励值减半.这种做法意味着新唤醒的进程更容易抢占当前执行进程，但是如果睡眠时间并不长，这个奖励也会缩水.这部分可以[进程的创建与唤醒](https://zhuanlan.zhihu.com/p/363792117)  . 
 * 就是如果唤醒的进程是 workqueue 的 worker 内核线程，需要通知 workqueue，好让 workqueue 更合理地安排工作队列的执行.  
 
 将进程添加到就绪队列之后，将调用 ttwu_do_wakeup 函数，对于 cfs 调度器类而言，就仅仅是调用 check_preempt_curr，然后将进程的 state 设置为 TASK_RUNNING，check_preempt_curr 这个函数在前面讲过多次，在这里该函数会判断唤醒进程是否应该抢占当前进程执行，有了 cfs 的奖励加成，高优先级的唤醒进程能够轻而易举地抢占当前进程.  
 
 
 
+### 参考
+
+4.9.88 内核源码
+
+http://www.wowotech.net/process_management/scheudle-sync.html
+
+
+
+---
+
+[专栏首页(博客索引)](https://zhuanlan.zhihu.com/p/362640343)
+
+原创博客，转载请注明出处。

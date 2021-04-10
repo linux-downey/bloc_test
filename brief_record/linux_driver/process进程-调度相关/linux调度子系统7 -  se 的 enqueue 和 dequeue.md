@@ -1,10 +1,13 @@
-# linux调度子系统 -  se 的 enqueue 和 dequeue
+# linux调度子系统7 -  se 的 enqueue 和 dequeue
 要理解 cfs 调度器，最重要的就是理解其中的三个部分:
+
+
+
 * tick 中断的处理，理解在中断中如何对进程的 vruntime 进行更新，以及检查是否需要调度的实现细节
 * 进程实体的 enqueue 和 dequeue，了解一个进程在什么情况下会被加入到就绪队列和移出就绪队列，理解 enqueue 和 dequeue 的实现细节，了解这些过程中各个数据结构之间的交互
 * pick_next_task，选择下一个将要执行的进程，如何选择下一个进程直接体现了 cfs 的调度策略，同时联系前两个部分，梳理 vruntime 的来龙去脉.  
 
-第一部分的讨论可以参考前面的章节(TODO)，本章我们主要来讨论第二部分:cfs 中 enqueue 和 dequeue 的实现与使用.讨论实现主要是基于函数的源码分析，同时还需要在内核中找到它们的调用时机.  
+第一部分的讨论可以[周期性调度](https://zhuanlan.zhihu.com/p/363787529)，本章我们主要来讨论第二部分:cfs 中 enqueue 和 dequeue 的实现与使用.讨论实现主要是基于函数的源码分析，同时还需要在内核中找到它们的调用时机.  
 
 ## enqueue_task
 需要注意的是，尽管 cfs_rq 使用红黑树对所有 se 进行管理，但这并不是 cfs_rq 的全部，还包括相应数据结构以及标志位的更新.  
@@ -124,6 +127,9 @@ static void enqueue_entity(struct cfs_rq *cfs_rq， struct sched_entity *se， i
 
 ```
 注1. 在讨论 enqueue 之前，需要先大概了解一个进程在什么情况下会被 enqueue，这体现在 enqueue_entity 的参数 flags 中，对于 enqueue ，flags 有这么几个参数:
+
+
+
 * ENQUEUE_WAKEUP :该进程是从睡眠状态下唤醒的，对应的 dequeue 标志为 DEQUEUE_SLEEP
 * ENQUEUE_RESTORE:该标志位表示恢复，通常应用在当用户设置进程的 nice 值或者对进程设置新的调度参数时，为了公平起见，调度器会先把进程 dequeue 然后再 enqueue，改变调度参数的同时应该重新参与调度.对应的 DEQUEUE 标志为 DEQUEUE_SAVE，DEQUEUE_MOVE
 * ENQUEUE_MIGRATED:多核架构中，进程迁移时会设置该标志位，表示当前进程是从其它的 rq 上移过来的，需要重新设置 vruntime.
@@ -157,11 +163,17 @@ static void enqueue_entity(struct cfs_rq *cfs_rq， struct sched_entity *se， i
 同样的，进程被移出队列对应的接口为 dequeue_task，在 dequeue_task 中，也是根据进程的 sched_class 调用对应的 dequeue_task 回调函数，cfs 中则对应 dequeue_task_fair.  
 
 dequeue_task_fair 中几乎完全是 enqueue_task 的相反操作，包括:
+
+
+
 * 递归地调用 dequeue_entity，如果当前 se 存在 parent 且该 parent 下不存在其它子 se 在就绪队列上，对 parent 同时调用 dequeue_entity，这是个递归过程，同时递减 h_nr_running. 
 * 如果 se-> parent 下还存在其它 se 在就绪队列上，就不需要对 parent 调用 dequeue_entity，而只是更新负载信息，递减 h_nr_running.
 * 其它的比如带宽控制，高精度定时器的更新等等，暂不讨论. 
 
 而真正执行移除操作的还是 dequeue_entity 这个函数，同样的，这个函数和 enqueue_entity 是一个相反的操作，包括:
+
+
+
 * 先调用 update_curr 更新时间，将 se->vruntime  减去 cfs_rq->min_vruntime，获取一个 vruntime 绝对值保存在 se 中，这一步的目的可以参考上面 enqueue 的解析. 
 * 设置 se->on_rq 为0
 * 递减 nr_running
@@ -173,9 +185,11 @@ dequeue_task_fair 中几乎完全是 enqueue_task 的相反操作，包括:
 ## 进程入队与出队的时机
 enqueue_task 和 dequeue_task 是加入和移出就绪队列的操作实现，一个更重要的问题是，它们会在什么时候被调用，只有了解这个才能从更高的角度看到 cfs 的整体框架.  
 
-在前面章节 <进程状态以及切换> TODO 中，可以了解到，当一个进程要投入运行，那么它一定是先切换到就绪态，再由调度器来决定什么时候投入运行，切换到就绪态的过程就是 enqueue_task 的过程.  
+在前面章节 [进程状态以及切换](https://zhuanlan.zhihu.com/p/363783778) 中，可以了解到，当一个进程要投入运行，那么它一定是先切换到就绪态，再由调度器来决定什么时候投入运行，切换到就绪态的过程就是 enqueue_task 的过程.  
 
 而一个进程由运行态切换到其它状态时，分两种情况:
+
+
 
 * 一种情况是它会被切换回就绪态，这时候并不会发生入队和出队，只是会将进程重新添加到红黑树中，注意，添加到红黑树并不等于 enqueue，这只是红黑树的操作，对应 __enqueue_entity()，而不会影响到其状态信息，比如 on_rq 标志.。在调度讨论中所指的队是 cfs 或者 rq 队列，而红黑树只是 cfs 队列用来管理调度实体的数据结构，这是两个概念。
 
@@ -189,4 +203,8 @@ enqueue_task 和 dequeue_task 是加入和移出就绪队列的操作实现，�
 
 
 
+---
 
+[专栏首页(博客索引)](https://zhuanlan.zhihu.com/p/362640343)
+
+原创博客，转载请注明出处。

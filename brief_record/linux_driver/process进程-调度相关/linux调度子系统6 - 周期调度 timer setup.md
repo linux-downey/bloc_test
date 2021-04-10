@@ -1,4 +1,4 @@
-# linux调度子系统 - 周期调度 timer setup
+# linux调度子系统6 - 周期调度 timer setup
 linux 中的周期性调度器负责周期性地更新运行进程以及队列的时间信息，并检查是否需要重新调度.那么，周期性调度是如何产生的呢?
 
 要回答这个问题其实并不会很简单，它涉及到 linux 时间子系统的实现，而且这部分的实现与具体平台有较强的相关性，本文尝试以 arm 平台为例来追溯 tick 中断的产生，对于时间子系统中调度无关的部分以及一些高级特性暂时不表.  
@@ -301,7 +301,7 @@ update_wall_time 表示更新墙上时间，也就是我们通常使用 date 命
 
 
 ## sched_clock 实现
-在周期性调度器那一章(TODO)，我们频繁地提到一个接口：sched_clock()，这个接口被用于获取当前 CPU 上的时间戳，那它是如何实现的呢？  
+在[周期性调度器章节](https://zhuanlan.zhihu.com/p/363786865)，我们频繁地提到一个接口：sched_clock()，这个接口被用于获取当前 CPU 上的时间戳，那它是如何实现的呢？  
 
 让我们回到 local timer 驱动中的 arch_timer_of_init 函数，上面我们一直在讨论 arch_timer_register，以找到 tick 产生的证据。  
 
@@ -374,3 +374,14 @@ unsigned long long notrace sched_clock(void)
 
 
 
+### 参考
+
+http://www.wowotech.net/timer_subsystem/time-subsyste-architecture.html
+
+http://www.wowotech.net/timer_subsystem/clock-event.html
+
+---
+
+[专栏首页(博客索引)](https://zhuanlan.zhihu.com/p/362640343)
+
+原创博客，转载请注明出处。

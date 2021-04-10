@@ -1,4 +1,4 @@
-# linux 调度子系统 - 周期性调度器
+# linux调度子系统5 - 周期性调度器
 对于目前市面上的大多数操作系统，都存在时间片轮转的调度方式，而使用时间片的初衷在于，系统通过时间片可以很方便地度量一个进程应该运行多久和一个进程已经运行了多久，以此作为唯一的或者辅助的依据来执行任务的调度.   
 
 通常来说，时间片是由 tick 定时器实现的，选取一个固定的时间间隔，产生定时中断，一次中断的产生代表一个时间片的逝去，系统统一在中断处理过程中来对运行进程的时间片进行递减，该进程的可执行时间慢慢地减少直到最后让出执行权.在这里， tick 定时器看起来扮演了一个 timeline(时间刻度) 的角色，所有的进程都参照这个 timeline 进行调度.tick 产生的时间间隔由 HZ 配置.  
@@ -6,6 +6,9 @@
 但是，对于调度而言，如果系统仅仅是需要一个 timeline 的话，tick 定时器也不是必须的，硬件上并不缺能够作为 timeline 的 counter，而且时间精度远高于 tick 定时器中断，从上电开始累加，同样地可以作为参照，一个运行中的进程完全可以通过检查 timeline 的方式来确定自己是否需要让出 CPU，而不需要通过系统实现一个 tick 定时器的方式.当然，我们都知道这样不合理，一方面是实现的复杂性，另一方面而言，在调度行为上，不应该依赖于进程的自觉性，而是让系统统一管理.   
 
 因此，一个 tick 定时器的作用在于:
+
+
+
 * 提供一个进程视角的 timeline
 * 系统通过该 tick 回调函数，对进程以及调度行为进行统一管理
 
@@ -17,7 +20,10 @@ tick 中断最大的一个作用在于，周期性地更新系统中的进程时
 
 周期性调度的核心源代码位于 kernel/sched/core.c 中的 scheduler_tick 中，这个函数在系统中会被周期性地调用，而这个调用的间隔时间则取决于系统中 HZ 的定义，HZ 值代表了该函数被调用的频率，当 HZ 被设置为 250 时，该函数就会以 4ms 的间隔周期调用，每执行一次周期性调度，系统中的全局变量 jiffies 加 1.  
 
-scheduler_tick 为什么会周期性地被调用，它又是被谁调用的? 这是个重要的问题，可以参考这篇博客TODO，这里我们只需要以下几点:
+scheduler_tick 为什么会周期性地被调用，它又是被谁调用的? 这是个重要的问题，可以参考[周期性调度器timer](https://zhuanlan.zhihu.com/p/363787529)，这里我们只需要以下几点:
+
+
+
 * 在系统的初始化阶段，会初始化并注册系统的调度 timer，这个 timer 具有 counter 的功能，同时也可以通过配置作为定时器使用，就目前大部分平台而言，这个定时器的精度为 ns 级别.在多核架构中，这个 timer 通常是 percpu 的，也就是每个 CPU 核独立的.  
 * 在多核架构中，各 CPU 核的调度行为是相互独立的，因此 scheduler_tick 函数中大多数的内容都只和当前 CPU 的当前 runqueue 相关. 
 * 尽管周期性调度本身是以 HZ 为刻度，但是内核进程的时间计数并不是以对应的 jiffies 为单位，通常都是直接使用硬件时间戳，精确到 ns 级别，而不是精度非常低的 jiffies
@@ -26,6 +32,9 @@ scheduler_tick 为什么会周期性地被调用，它又是被谁调用的? 这
 
 ## 周期性调度器做哪些事
 周期性调度做哪些事?这个问题也并不难回答，主要是两个方面:
+
+
+
 * 更新时间，包括就绪队列的 clock，以及进程的虚拟时间 vruntime.
 * 检查是否需要重新调度，如果需要，设置调度标志.为什么不是直接调度呢?这是因为 scheduler_tick 是在定时器中断中执行的，不能直接执行调度函数，在中断返回的时候会检查调度标志，执行调度，因此这个延迟时间并不会太高.  
 
@@ -56,6 +65,9 @@ void scheduler_tick(void)
 ```
 
 对于 scheduler_tick 的函数实现，除了主要的调度逻辑，还包含了和调度相关的一些其它事物处理，包括:
+
+
+
 * CPU 负载更新
 * 系统跟踪，调试相关代码处理
 * 在多核架构下，需要检查 CPU 核之间的负载均衡，以确定是否需要进行负载均衡
@@ -100,7 +112,7 @@ void update_rq_clock(struct rq *rq)
     update_rq_clock_task(rq， delta);
 }
 ```
-在 CPU 就绪队列章节(TODO)就已经提到了，struct rq 中有两个成员用来记录当前 CPU runqueue 的时间，一个是 clock，一个是 clock_task，clock 是一个递增的时间，表示 CPU runqueue 从初始化到现在的总时间，而 clock_task 则记录的是纯粹的所有进程运行的总时间，一个 CPU 上并不只是进程在运行，同时还有中断以及部分中断下半部.这部分的统计取决于内核配置，当内核配置了 CONFIG_IRQ_TIME_ACCOUNTING 时，rq->prev_irq_time 用来统计中断时间，而 clock_task 就是纯粹的 task 时间，在没有配置的情况下，clock 和 clock_task 不会区分中断用时. 
+在 [CPU 就绪队列章节](https://zhuanlan.zhihu.com/p/363785182)就已经提到了，struct rq 中有两个成员用来记录当前 CPU runqueue 的时间，一个是 clock，一个是 clock_task，clock 是一个递增的时间，表示 CPU runqueue 从初始化到现在的总时间，而 clock_task 则记录的是纯粹的所有进程运行的总时间，一个 CPU 上并不只是进程在运行，同时还有中断以及部分中断下半部.这部分的统计取决于内核配置，当内核配置了 CONFIG_IRQ_TIME_ACCOUNTING 时，rq->prev_irq_time 用来统计中断时间，而 clock_task 就是纯粹的 task 时间，在没有配置的情况下，clock 和 clock_task 不会区分中断用时. 
 
 sched_clock_cpu 同样是调用了底层函数 sched_clock 获取 timer 的时间戳，rq->clock 保存的是上次时间统计的值，两者之间的 delta 再添加再与原来的 clock 相加，对于 clock_task 的更新也是一样的.  
 
@@ -130,7 +142,7 @@ static void task_tick_fair(struct rq *rq， struct task_struct *curr， int queu
 }
 ```
 
-从名称可以看出，for_each_sched_entity 是一个循环条件，表示遍历每个调度实体 se，这里的"每一个"其实和组调度相关，在前面的文章中(TODO)有对组调度的介绍:一个调度实体并不一定是 task，而可能是一个 task_group，而一个 task_group 又维护一个独立的 cfs_rq，因此，可能出现嵌套.  
+从名称可以看出，for_each_sched_entity 是一个循环条件，表示遍历每个调度实体 se，这里的"每一个"其实和组调度相关，一个调度实体并不一定是 task，而可能是一个 task_group，而一个 task_group 又维护一个独立的 cfs_rq，因此，可能出现嵌套.  
 
 当执行进程选择时，若一个调度组 se 被选中，暂且叫他为 A，它需要继续递归地遍历 cfs_rq 上的所有调度实体，直到找到一个对应具体 task 的调度实体 B，这种情况下，从 root cfs_rq 的视角上看来， A 就是正在运行的实体，根据这个设置一些标志位，比如将 A 的 on_rq 设置为 1，而实际正在运行的进程为 B.而 A 可能是 B 的父亲或者祖父.  
 
@@ -177,7 +189,7 @@ entity_tick(struct cfs_rq *cfs_rq， struct sched_entity *curr， int queued)
 
 #### 更新 vruntime
 
-正如之前的文章(TODO)中介绍的 cfs 调度算法， cfs 调度器是基于调度实体的虚拟时间 vruntime 进行调度，因此，  update_curr 主要是对当前实体的 vruntime 进行更新:
+正如[cfs调度器简介](https://zhuanlan.zhihu.com/p/363784539)中介绍的 cfs 调度算法， cfs 调度器是基于调度实体的虚拟时间 vruntime 进行调度，因此，  update_curr 主要是对当前实体的 vruntime 进行更新:
 
 scheduler_tick->task_tick_fair->entity_tick->update_curr
 ```c++
@@ -216,14 +228,17 @@ static void update_curr(struct cfs_rq *cfs_rq)
 ```
 
 update_curr 用于更新当前实体的时间状态信息，不仅仅是 entity_tick ，它在很多情况下会被调用，主要执行的逻辑为:
+
+
+
 * 获取当前 rq 的时间 clock_task，计算出当前实体本次的运行时间，并以此来更新一些标志位信息
 * 更新 vruntime 和 cfs_rq->min_vruntime，鉴于这两项的重要性，有必要单独拿出来聊一聊. 
 
 
 
-已知 delta_exec 是当前实体本次运行的实际时间，根据在前面章节中(TODO)对 vruntime 和 min_vruntime 的描述，可以知道，一个进程的优先级越高，其对应的调度实体的 vruntime 增长速度越慢，nice 值为 0 的进程对应的增长速度和实际时间是一致的.将 delta_exec 作为参数传入到 calc_delta_fair 函数中，将返回当前实体应该增长的 vruntime 的值，附加到 curr->vruntime 上.   
+已知 delta_exec 是当前实体本次运行的实际时间，根据在[cfs调度器简介](https://zhuanlan.zhihu.com/p/363784539)对 vruntime 和 min_vruntime 的描述，可以知道，一个进程的优先级越高，其对应的调度实体的 vruntime 增长速度越慢，nice 值为 0 的进程对应的增长速度和实际时间是一致的.将 delta_exec 作为参数传入到 calc_delta_fair 函数中，将返回当前实体应该增长的 vruntime 的值，附加到 curr->vruntime 上.   
 
-具体的计算过程在 calc_delta_fair 中，可以参考我的另一篇博客(TODO).
+具体的计算过程在 calc_delta_fair 中，这个函数在后续的文章中将会详细讨论.
 
 另一个比较重要的部分就是 cfs_rq min_vruntime 的更新了，这个变量相当于 cfs_rq 中的一个基准线，通常它比整个 cfs_rq 上所有调度实体的 vruntime 都要小(但并不绝对)，所有新加入的进程的 vruntime 都是基于 min_vruntime 的值进行更新. update_min_vruntime 函数的逻辑为:
 
@@ -287,6 +302,9 @@ check_preempt_tick(struct cfs_rq *cfs_rq， struct sched_entity *curr)
 sched_slice 函数计算一个进程实体在一个调度延迟中应该执行的时间，其实就是通过其权重与总体权重的对比计算得到的结果，返回值保存在 idle_time 变量中.  
 
 好了，了解了 idle_time 的由来，再来重新审视上面的代码，一共分为三个部分:
+
+
+
 * 当进程运行时间超过 idle_time 时，执行重新调度，但是我们需要考虑的是:检查是否需要重新调度除了在 schedule_tick 中会被调用之外，还会在少数的几个地方调用到，比如新进程创建，进程唤醒，迁移等，算不上频繁，比如在一个 HZ 为 100 的系统中，tick 的触发周期为 10ms，当系统不是非常繁忙时，没有出现其它的检查是否需要重新调度的点，可能一个进程实体计算得到的 idle_time 为 2ms，但是它会持续执行完一个 tick 周期 10ms，因为没有谁会打断它，这时候其它进程执行时间也会成比例地拉长，调度延迟在这种情况下并不起作用，或者说在大多数情况下它都不是绝对准确的，因此，在我看来，这个调度延迟或者说调度周期只是在繁忙的系统中的一个参考值，不能作为调度依据.  
 * 如果一个进程执行不到最小进程执行时间，不执行重新调度，这是 check_preempt_tick 中的第二个判断，我们能不能理解为在 cfs 调度器中，一个进程如果不主动睡眠，会至少运行 sysctl_sched_min_granularity 设定的最小时间呢? 这并不一定.从上述的源代码来看，sysctl_sched_latency = sysctl_sched_min_granularity * sched_nr_latency，当系统中刚好 sched_nr_latency 个进程时，平均每个进程分到的时间为 sysctl_sched_min_granularity，这时候再考虑上优先级，那么优先级低的进程分到的时间会不到 sysctl_sched_min_granularity，再参考上一个部分(超过idle_time 被切出)可以得出，一个进程实体，是可能出现运行不足 sysctl_sched_min_granularity 就执行切换的.  
 * 计算当前 cfs_rq 上 vruntime 最小的进程与当前进程 vruntime 的差值，如果差值大于 ideal_runtime，则执行调度. 在刚看到 if (delta > ideal_runtime) 这个判断的时候，就觉得非常奇怪，因为按照理论上来说，这里应该是  if (delta > 0)，也就是当 curr->vruntime 大于红黑树上的 leftmost->vruntime 时，就执行调度，这才符合 cfs 的策略：始终让 vruntime 最小的进程执行。但实际上明显不是这样，而是让当前运行进程至少比 leftmost 高出一个 idle_time 才会让出 CPU，这种做法倒是体现出了不同优先级之间的区别，因为不同优先级的 idle_time 是不同的，低优先级的进程更容易让出 CPU。当然，它的坏处在于让调度时间变得更不可预测，但是经过我们上面的两部分分析，可以知道，调度行为在一定程度上本来就是不可预测的，这种做法到底是不是更好呢？至于实际效果如何，只有经过大量的测试才知道，至少目前来看(依旧存在在内核中)，它的效果应该是不错的。由于 cfs 调度器实现的是全局的公平性，因此不那么理想化的 delta > ideal_runtime 可能会更好，因为判断 delta > 0 可能会带来进程切换太过频繁的问题(这一段属个人猜测)。 
@@ -295,4 +313,17 @@ sched_slice 函数计算一个进程实体在一个调度延迟中应该执行�
 
 实际上，cfs 的设计优雅之处并不在于实现局部的公平，而是在于全局的公平性，正如上面所分析的，cfs 调度器管理的进程可以不严格遵循调度延迟的规则，也可以不遵循最小进程执行时间的限制，甚至当前在运行的进程很可能不是 vruntime 最小的进程，但是，它的虚拟时间设计总是可以让所有进程之间的执行达到动态的平衡，而且其实现还非常简单，不得不感慨算法之美。  
 
+
+
+### 参考
+
+https://www.cnblogs.com/linhaostudy/p/9867364.html
+
+https://zhuanlan.zhihu.com/p/163728119
+
+---
+
+[专栏首页(博客索引)](https://zhuanlan.zhihu.com/p/362640343)
+
+原创博客，转载请注明出处。
 
