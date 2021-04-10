@@ -1,4 +1,4 @@
-# qemu + gdb 调试 arm linux 内核
+# linux内存子系统 - qemu调试linux 内核启动
 
 很早就有研究 linux 启动代码的想法，最近正好借着研究 linux 内存管理子系统，一起看看内核部分的启动代码，毕竟内核的初始启动部分和内存是紧密相关的。 
 
@@ -38,7 +38,7 @@ qemu 支持多个平台的模拟，我们需要模拟的是 arm 平台，因此�
 
 **至于 qemu 是什么，可以参考 [qemu 的 wiki](https://zh.wikipedia.org/wiki/QEMU)，wiki 中对 qemu 有一个基本的介绍，当然，除了对 qemu 有一个概念性的了解，还需要简单地了解它是怎么用的，这就涉及到 qemu 的[官方文档](https://qemu.readthedocs.io/en/latest/specs/index.html)**
 
-**其中比较主要的是 [quick start](https://qemu.readthedocs.io/en/latest/system/quickstart.html) 和  [Invocation(主要是参数列表)](https://qemu.readthedocs.io/en/latest/system/invocation.html)**
+**其中比较主要的是 [quick start](https://qemu.readthedocs.io/en/latest/system/quickstart.html) 和  [Invocation(主要是参数列表)](https://qemu.readthedocs.io/en/latest/system/invocation.html)**。
 
 **gdb 的使用在本篇博客中也不做过多介绍，相关的资料网上有很多**
 
@@ -78,6 +78,8 @@ qemu-system-arm -S -s -m 1.5G -M sabrelite -kernel arch/arm/boot/zImage -dtb arc
 ```
 
 对应的参数含义如下(详情可查询[官方文档的Invocation section](https://qemu.readthedocs.io/en/latest/system/invocation.html))：
+
+
 
 * -S : 在 qemu 环境准备好之后，系统并不向下执行，而是停在第一条指令处，等待用户操作
 * -s：这个参数是 "-gdb tcp::1234" 的简写，针对 gdb 的远程调试功能，指定端口为 1234，其它的 gdb 客户端可以通过该端口进行连接，输入操作指令进行调试。
@@ -127,7 +129,7 @@ Remote debugging using localhost:1234
 
 后面的内容 "?? ()" 明显不像是正常的输出，理论上这里输出的应该是 0x10000000 地址上对应的内核符号，也就是内核 zImage 第一条指令对应的符号，这里明显是 qemu 没有找到对应的符号，这时候问题就来了，在编译内核的时候我们不是将符号添加到内核中了么，为什么还是找不到？
 
-这个问题是否影响调试还不得而知，既然要调试内核，就继续往下走，通过阅读内核代码，找到内核入口为 _stext，于是在 _stext 处添加一个断点，然后执行单步调试：
+这个问题是否影响调试还不得而知，既然要调试内核，就继续往下走，通过阅读内核代码，找到内核入口为 \_stext，于是在 \_stext 处添加一个断点，然后执行单步调试：
 
 ```
 (gdb) target remote localhost:1234
@@ -157,7 +159,7 @@ Cannot find bounds of current function
 
 ## 内核的加载地址和虚拟地址
 
-要搞清楚内核调试时无法执行的问题，需要对两个概念有所了解，即内核的加载地址和虚拟地址，这是程序链接过程中的概念。
+要搞清楚内核调试时无法执行的问题，需要对两个概念有所了解，即内核的加载地址和虚拟地址，这是程序链接过程中的概念，程序的静态链接可以参考[静态链接](https://zhuanlan.zhihu.com/p/363010286)、[链接脚本介绍](https://zhuanlan.zhihu.com/p/363308789)。
 
 通常情况下，程序的加载地址和虚拟地址是一样的，也就是直接把程序拷贝到它应该运行的地址上，但是内核的启动并不是如此，在编译阶段，内核为每个符号分配的是虚拟地址，也就是内核代码应该运行的位置，这是开启 MMU 之后的虚拟地址。
 
@@ -192,28 +194,30 @@ Program Headers:
 
 readelf -l 是读取 vmlinux 中的 segment 相关信息，如上文中显示：
 
+
+
 * Offset 表示该 segment 在文件中的偏移
 * VirtAddr 表示该 segment 应该被加载的虚拟地址
 * PhysAddr 表示 segment 对应的加载地址
 
-尽管真正运行的是 zImage 而不是 vmlinux，对于内核中各个 segment 的分布，在编译成 vmlinux 时就已经确定了，zImage 只是做了一些裁剪、压缩等处理，因此，直接对 vmlinux 进行分析是没有问题的。
+尽管真正运行的是 zImage 而不是 vmlinux，实际上在将内核代码编译成 vmlinux 时就已经确定了内核中各个 segment 的分布，zImage 只是做了一些裁剪、压缩等处理，因此，直接对 vmlinux 进行分析是没有问题的。
 
 从上文中可以看出，各个 segment 之间的 Offset 和 PhysAddr 项是不相等的，这就意味着，内核的加载并不意味着简单的拷贝，因为如果是简单地拷贝镜像到内存中，第二个 segment 应该是在 0x80000000+Offset = 0x80010000 上，实际上却是在 0x80100000 上，这就意味着，内核开始部分的代码会被内核代码进行重定位。 
 
 实际上也确实是这样的，无论是 zImage 还是 bzImage，前缀 z 代表内核是被压缩过的，内核镜像的起始代码就是解压缩代码，这部分代码不仅仅是解压内核，同时还要负责将后续的 segment 放在它合适的位置上，实现启动前的重定位操作。 
 
-这里会存在一个问题，内核所有的代码在编译时，都是根据虚拟地址进行编译的，这个可以通过查看符号表或者链接脚本来确定，但是呢，内核在重定位也就是开启 MMU 之前的那部分代码肯定是没有运行在正确的地址上的，因此，这部分代码都是 PIC 代码，也就是这部分代码不依赖于运行地址，放到哪儿都能运行，PIC 代码参考 TODO.
+这里会存在一个问题，内核所有的代码在编译时，都是根据虚拟地址进行编译的，这个可以通过查看符号表或者链接脚本来确定，但是呢，内核在重定位也就是开启 MMU 之前的那部分代码肯定是没有运行在正确的地址上的，因此，这部分代码都是 PIC 代码，也就是这部分代码不依赖于运行地址，放到哪儿都能运行.
 
 让我们再回到最初的问题：内核镜像被 qemu 加载到 0x10000000 地址处，为什么找不到对应的符号？
 
-这是因为在编译阶段所有的符号都是编译为虚拟地址的，比如内核入口 _stext：
+这是因为在编译阶段所有的符号都是编译为虚拟地址的，比如内核入口 _stext(通过 readelf 命令查看符号地址)：
 
 ```
 $ readelf -s vmlinux | grep "_stext"
 161580: c0100000     0 NOTYPE  GLOBAL DEFAULT    2 _stext
 ```
 
-实际上，内核入口代码运行时肯定还没有开启 MMU，也就是说还在镜像的加载地址上，因此，在 qemu 中，_stext 内核代码位置实际位置可能在 0x10100000 上，而 vmlinux 中 _stext 编译时产生的符号地址在 0xc0100000 处，gdb 通过该地址自然查不到对应的符号，内核代码中所有开启 MMU 之前的代码都存在这个问题。
+实际上，内核入口代码运行时肯定还没有开启 MMU，在 qemu 中，\_stext 内核代码位置实际位置在 0x10100000 上，而 vmlinux 中 \_stext 编译时产生的符号地址在 0xc0100000 处，gdb 通过该地址自然查不到对应的符号，内核代码中所有开启 MMU 之前的代码都存在这个问题。
 
 
 
@@ -234,7 +238,9 @@ $ readelf -S vmlinux
 ....
 ```
 
-通过查看源代码可以看出，vmlinux 中前两个 section 中包含了开启 MMU 之前的代码，而开启 MMU 之后，代码就运行在其正确的虚拟地址之上了，符号表是直接可用的，因此，我们需要对前面两个 section 进行符号表的修改。 
+通过查看源代码可以看出，vmlinux 中前两个 section 中包含了开启 MMU 之前的代码.
+
+而开启 MMU 之后，代码就运行在其正确的虚拟地址之上了，符号表是直接可用的，因此，我们需要对前面两个 section 进行符号表的修改。 
 
 通过上面 qemu 启动信息可以看出，镜像被加载到 0x10000000 地址上，因此 .head.text 的实际物理地址为 0x10008000，因此修改该 segtion 对应的符号表：
 
@@ -263,7 +269,7 @@ Breakpoint 1, __turn_mmu_on () at arch/arm/kernel/head.S:492
 (gdb) 
 ```
 
-设置完成之后，qemu 调试内核就不再局限于 start_kernel 函数之后了，而是可以从内核入口 _stext 开始调试。 
+设置完成之后，qemu 调试内核就不再局限于 start_kernel 函数之后了，而是可以从内核入口 \_stext 开始调试。 
 
 而 start_kernel 之后的代码原本就是可以正常调试的。 
 
@@ -322,9 +328,9 @@ _c_flags       = $(filter-out $(CFLAGS_REMOVE_$(basetarget).o), $(orig_c_flags))
 #define __always_inline	inline __attribute__((always_inline))
 ```
 
-同样的，还有对应的 __always_inline。
+同样的，还有对应的 \_\_always_inline。
 
-如果你内核中的函数显式声明了 inline，为了调试方便，可以尝试删除 inline 关键字，不过在某些函数上可以编译报错。
+如果你内核中的函数显式声明了 inline，为了调试方便，可以尝试删除 inline 关键字，不过在某些函数上可能编译报错，或者甚至造成一些逻辑上的错误，所以这个操作慎用。
 
 
 
@@ -355,12 +361,19 @@ cpu0 运行时，默认操作的是 0x10002000 处的 value，cpu1 同理。
 
 
 
-
-
-
-
-参考：
+### 参考
 
 [内核优化等级](http://zhaoyujiu.com/2020/06/17/change-linux-gcc-optimalize-level/)：http://zhaoyujiu.com/2020/06/17/change-linux-gcc-optimalize-level/
 
-qemu 官方文档：https://qemu.readthedocs.io/en/latest/specs/index.html
+[qemu 官方文档:](https://qemu.readthedocs.io/en/latest/specs/index.html)
+
+---
+
+[专栏首页(博客索引)](https://zhuanlan.zhihu.com/p/362640343)
+
+原创博客，转载请注明出处。
+
+
+
+
+
