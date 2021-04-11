@@ -35,7 +35,7 @@ stext 是内核代码的入口，实际上由于此时系统的其它硬件部�
 在执行内核代码时，需要了解的两个前提是：
 
 * MMU 还没有打开，也就是当前 CPU 直接面对物理内存，使用的是物理地址
-* 通常情况下，内核镜像并没有加载到编译时指定的地址，内核在编译时，并不知道它将来要被加载到哪个物理地址上，所有代码都是按照虚拟地址进行编译的，MMU 开启之后自然是没问题的，但是 MMU 开启之前的代码很可能没有运行在正确的地址上，因此这部分代码只能是 PIC 的，也就是地址无关代码。
+* 通常情况下，内核镜像并没有加载到编译时指定的地址，内核在编译时，并不知道它将来要被加载到哪个物理地址上，所有代码都是按照虚拟地址进行编译的，MMU 开启之后自然是没问题的，但是 MMU 开启之前的代码很可能没有运行在正确的地址上，因此这部分代码只能是 PIC 的，也就是地址无关代码。 
 
 ```assembly
 ENTRY(stext)
@@ -55,99 +55,103 @@ ENTRY(stext)
 	.long	PAGE_OFFSET                     ........................3
 ```
 
-1. stext 是内核执行的第一条指令，这是在链接脚本中s使用 ENTRY() 关键字定义的，safe_svcmode_maskall 是一个汇编宏，接受一个寄存器参数，这里传入的是 r9，这里的 r9 并没有起到特别的作用，只是在程序处理过程中需要一个中间寄存器，毕竟这时候不能随便选择一个寄存器，有些寄存器是有特殊作用的
-   safe_svcmode_maskall 所实现的功能很简单：
-   一是确保经过处理后 CPU 处于 svc 模式下，这里会涉及到 hyp 模式的处理，不讨论。
-   二是确保中断处于关闭状态，毕竟这时候中断向量表和中断控制器都还没有初始化，发生中断程序会跑丢
+注1：stext 是内核执行的第一条指令，这是在链接脚本中s使用 ENTRY() 关键字定义的，safe_svcmode_maskall 是一个汇编宏，接受一个寄存器参数，这里传入的是 r9，这里的 r9 并没有起到特别的作用，只是在程序处理过程中需要一个中间寄存器，毕竟这时候不能随便选择一个寄存器，有些寄存器是有特殊作用的
+safe_svcmode_maskall 所实现的功能很简单：
+一是确保经过处理后 CPU 处于 svc 模式下，这里会涉及到 hyp 模式的处理，不讨论。
+二是确保中断处于关闭状态，毕竟这时候中断向量表和中断控制器都还没有初始化，发生中断程序会跑丢
 
-2. mrc 是一条协处理器寄存器的操作指令，表示将协处理器中的寄存器 copy 到通用寄存器中，通过指令中给出的 "c0, c0" 两个参数，再对比手册可以找到对应的寄存器：
-   ![image-20210317042539417](MIDR寄存器对应操作参数.png)
 
-   寄存器对应的字段内容为：
 
-   ![image-20210317042943657](MIDR寄存器字段内容.png)
-   这个寄存器提供 CPU 的 ID 信息，包括指令集架构、版本，这些版本信息被加载到通用寄存器 r9 中。
+注2 ：mrc 是一条协处理器寄存器的操作指令，表示将协处理器中的寄存器 copy 到通用寄存器中，通过指令中给出的 "c0, c0" 两个参数，再对比手册可以找到对应的寄存器：
+![image-20210317042539417](https://gitee.com/linux-downey/bloc_test/raw/master/zhihu_picture/linux-memory-subsystem/MIDR%E5%AF%84%E5%AD%98%E5%99%A8%E5%AF%B9%E5%BA%94%E6%93%8D%E4%BD%9C%E5%8F%82%E6%95%B0.png)
 
-   因为 arm CPU 实现了 CPUID 机制，可以将 CPU 相关的 ID 识别信息直接写入到内部寄存器中，因此不再需要通过外部的参数传递。 
+寄存器对应的字段内容为：
 
-   接下来执行 __lookup_processor_type，从名称可以看出，这部分代码需要找到当前 cpu 所属的 arm 处理器类型(cortex-Ax)，通过处理器类型获取处理器相关联的 proc list 数据。
+![image-20210317042943657](https://gitee.com/linux-downey/bloc_test/raw/master/zhihu_picture/linux-memory-subsystem/MIDR%E5%AF%84%E5%AD%98%E5%99%A8%E5%AD%97%E6%AE%B5%E5%86%85%E5%AE%B9.png)
+这个寄存器提供 CPU 的 ID 信息，包括指令集架构、版本，这些版本信息被加载到通用寄存器 r9 中。
 
-   因为这部分代码涉及到一些比较有意思的地址转换处理，有必要贴出代码分析分析：
+因为 arm CPU 实现了 CPUID 机制，可以将 CPU 相关的 ID 识别信息直接写入到内部寄存器中，因此不再需要通过外部的参数传递。 
 
-   ```assembly
-   __lookup_processor_type:
-   	__lookup_processor_type:
-   	adr	r3, __lookup_processor_type_data  // r3 赋值为地址,adr 指令是根据当前 pc 的偏移值
-   	//r4=procinfo 的虚拟地址,r5=procinfo start,r6=procinfo end
-   	//获取 procinfo 实际地址与虚拟地址之间的偏移值,r3 表示实际的运行物理地址,r4 是编译的虚拟地址(.这个地址定位符是在链接过程中解析的,而 adr 是根据当前运行的 pc 的偏移值)
-   	ldmia	r3, {r4 - r6}     
-   	sub	r3, r3, r4			  
-   	add	r5, r5, r3			  //偏移值加上虚拟地址,才是真正的 procinfo 所在地址,保存到 r5
-   	... 
-   2:	ret	lr
-   ENDPROC(__lookup_processor_type)
-   ...
-   
-   __lookup_processor_type_data:
-   	.long	.
-   	.long	__proc_info_begin
-   	.long	__proc_info_end
-   	.size	__lookup_processor_type_data, . - __lookup_processor_type_data
-   ```
+接下来执行 __lookup_processor_type，从名称可以看出，这部分代码需要找到当前 cpu 所属的 arm 处理器类型(cortex-Ax)，通过处理器类型获取处理器相关联的 proc list 数据。
 
-   在这之前，r9 中已经保存了 MIDR 寄存器中的内容，这个寄存器可以帮我们识别当前 CPU 是哪个 arm 处理器平台。
+因为这部分代码涉及到一些比较有意思的地址转换处理，有必要贴出代码分析分析：
 
-   在上述的代码中，其它的一些不太重要的代码被我省略了，主要实现了获取内核镜像当前处理器相关的 procinfo 信息，问题在于：内核镜像在编译时尽管指定了 procinfo 的地址，但是那也是虚拟地址，而 procinfo 的实际地址取决于内核镜像被加载到哪个物理地址，那么怎么获得 procinfo 的内容呢？
+```assembly
+__lookup_processor_type:
+	__lookup_processor_type:
+	adr	r3, __lookup_processor_type_data  // r3 赋值为地址,adr 指令是根据当前 pc 的偏移值
+	//r4=procinfo 的虚拟地址,r5=procinfo start,r6=procinfo end
+	//获取 procinfo 实际地址与虚拟地址之间的偏移值,r3 表示实际的运行物理地址,r4 是编译的虚拟地址(.这个地址定位符是在链接过程中解析的，而 adr 是根据当前运行的 pc 的偏移值)
+	ldmia	r3, {r4 - r6}     
+	sub	r3, r3, r4			  
+	add	r5, r5, r3			  //偏移值加上虚拟地址，才是真正的 procinfo 所在地址，保存到 r5
+	... 
+2:	ret	lr
+ENDPROC(__lookup_processor_type)
+...
 
-   首先，通过查找内核代码可以发现，procinfo 是在 arch/arm/mm/proc-v7.S 中静态定义的，被放在 ".proc.info.init" 这个段中，同时，在链接脚本中使用两个变量 \_\_proc_info_begin 和 \_\_proc_info_end 分别指向该段的起始地址和结束地址，在链接阶段，分配的是从 0xc0000000 开始的某个虚拟地址上。
+__lookup_processor_type_data:
+	.long	.
+	.long	__proc_info_begin
+	.long	__proc_info_end
+	.size	__lookup_processor_type_data, . - __lookup_processor_type_data
+```
 
-   也就是说，\_\_proc_info_begin 的值是 0xc0000000 + offset，这个 offset 就是静态定义的 procinfo 相对于内核镜像初始地址的偏移，不用管它是多少。而内核镜像并不是被加载到 0xc0000000 地址上，可能是地址 x 上，而这个 offset 是不变的。
+在这之前，r9 中已经保存了 MIDR 寄存器中的内容，这个寄存器可以帮我们识别当前 CPU 是哪个 arm 处理器平台。
 
-   因此，procinfo 存放的实际地址应该是 \_\_proc_info_begin 减去一个真实物理地址的偏移值，那么，如何从代码上获取这个偏移值呢？
+在上述的代码中，其它的一些不太重要的代码被我省略了，主要实现了获取内核镜像当前处理器相关的 procinfo 信息，问题在于：内核镜像在编译时尽管指定了 procinfo 的地址，但是那也是虚拟地址，而 procinfo 的实际地址取决于内核镜像被加载到哪个物理地址，那么怎么获得 procinfo 的内容呢？
 
-   这就涉及到汇编指令：adr，这条汇编指令用于获取指定符号的实际地址，在编译时生成的是相对 pc 的偏移，也就是和当前运行的地址相关，再看下面的代码：
+首先，通过查找内核代码可以发现，procinfo 是在 arch/arm/mm/proc-v7.S 中静态定义的，被放在 ".proc.info.init" 这个段中，同时，在链接脚本中使用两个变量 \_\_proc_info_begin 和 \_\_proc_info_end 分别指向该段的起始地址和结束地址，在链接阶段，分配的是从 0xc0000000 开始的某个虚拟地址上。
 
-   ```assembly
-   adr	r3, __lookup_processor_type_data
-   ...
-   __lookup_processor_type_data:
-   	.long	.
-   	.long	__proc_info_begin
-   	.long	__proc_info_end
-   	.size	__lookup_processor_type_data, . - __lookup_processor_type_data
-   ```
+也就是说，\_\_proc_info_begin 的值是 0xc0000000 + offset，这个 offset 就是静态定义的 procinfo 相对于内核镜像初始地址的偏移，不用管它是多少。而内核镜像并不是被加载到 0xc0000000 地址上，可能是地址 x 上，而这个 offset 是不变的。
 
-   "adr r3, __lookup_processor_type_data" 这条伪汇编指令将会生成类似于 "adr r3,\<offset\>"的指令，offset 就是   \_\_lookup_processor_type_data 相对于当前指令的实际地址。
+首先，我们需要知道内核镜像虚拟地址和真实加载物理地址之间的差值，因为内核镜像是整体加载的，求这个差值可以通过内核中任意一个符号来做，首先在编译时我们可以知道该符号的虚拟地址，但是不知道物理地址，求这个符号的物理地址就涉及到汇编指令：adr。
 
-   然后通过 ldr 指令取出 __lookup_processor_type_data 地址上保存的三个 long 型参数，"."是链接脚本中使用的地址定位符，表示 \_\_lookup_processor_type_data 编译时的指定的虚拟地址，r3 是物理地址，因此它们之间的偏移就是物理地址与虚拟地址之间的偏移值。 
+这条汇编指令用于获取指定符号的实际地址，这条指令返回的地址不是硬编码，而是相对于 pc 指针的偏移，pc 指针自然指向的是当前执行物理地址，因此 adr 可以获取符号的物理地址，再看下面的代码：
 
-   得到偏移值之后，就可以通过 __proc_info_begin 和偏移值计算得到 procinfo 所在的物理地址，保存在 r5 寄存器中。
+```assembly
+adr	r3, __lookup_processor_type_data
+...
+__lookup_processor_type_data:
+	.long	.
+	.long	__proc_info_begin
+	.long	__proc_info_end
+	.size	__lookup_processor_type_data, . - __lookup_processor_type_data
+```
 
-   接着执行：
+"adr r3, __lookup_processor_type_data" 这条伪汇编执行结果类似于  "mov r3 , (pc+x) " 指令，offset 就是   \_\_lookup_processor_type_data 相对于当前指令的实际地址。
 
-   ```
-   movs r10, r5
-   beq	__error_p	
-   ```
+然后通过 ldr 指令取出 \_\_lookup_processor_type_data 地址上保存的三个 long 型参数，
 
-   将 procinfo 的地址保存在 r10 寄存器中，如果 r5 为 0，也就是说没有找到对应的 procinfo，跳转到 __error_p 处执行错误处理
+"."是链接脚本中使用的地址定位符，表示 \_\_lookup_processor_type_data 编译时的指定的虚拟地址，r3 是物理地址，因此它们之间的偏移就是物理地址与虚拟地址之间的偏移值。 
 
-   
+得到偏移值之后，就可以通过 \_\_proc_info_begin 和偏移值计算得到 procinfo 所在的物理地址，保存在 r5 寄存器中。
 
-3.  为了避免频繁翻页，这部分代码就再贴上一遍：
+接着执行：
 
-   ```
-   adr	r3, 2f               
-   	ldmia	r3, {r4, r8}    
-   	sub	r4, r3, r4		
-   	add	r8, r8, r4		                    
-   2:	.long	.
-   	.long	PAGE_OFFSET    
-   ```
+```
+movs r10, r5
+beq	__error_p	
+```
 
-   PAGE_OFFSET 宏是内核空间与用户空间地址的分界点，通常配置为 0xc0000000，这部分代码的作用在于，计算出内核对应的物理基地址，通常就是物理内存的起始地址。
+将 procinfo 的地址保存在 r10 寄存器中，如果 r5 为 0，也就是说没有找到对应的 procinfo，跳转到 __error_p 处执行错误处理
 
-   具体的计算方式和上文中提到的计算方式一样，也是使用  adr 指令得到标号物理地址，同时将其虚拟地址保存在对应的物理地址之上，其差值就是物理地址和虚拟地址的偏移值。最后将该值保存在 r8 寄存器中。 
+
+
+注3 ：为了避免频繁翻页，这部分代码就再贴上一遍：
+
+```
+adr	r3, 2f               
+	ldmia	r3, {r4, r8}    
+	sub	r4, r3, r4		
+	add	r8, r8, r4		                    
+2:	.long	.
+	.long	PAGE_OFFSET    
+```
+
+PAGE_OFFSET 宏是内核空间与用户空间地址的分界点，通常配置为 0xc0000000，这部分代码的作用在于，计算出内核对应的物理基地址，通常就是物理内存的起始地址。 
+
+具体的计算方式和上文中提到的计算方式一样，也是使用  adr 指令得到符号物理地址，同时将其虚拟地址保存在对应的物理地址之上，其差值就是物理地址和虚拟地址的偏移值。最后将该值保存在 r8 寄存器中。 
 
 
 
@@ -178,7 +182,7 @@ __vet_atags 用于检查传入的 dtb pointer 是否合法，编译生成的 dtb
 
 接下来的 __create_page_tables 就是内核启动汇编的核心部分：创建页表。
 
-在前面的章节中(TODO)，我们对 armv7 的页表操作进行了比较详细的介绍，有兴趣的可以先参考这个文章，在这里再做一个简单的概念澄清：
+在 [arm页表硬件的实现](https://zhuanlan.zhihu.com/p/363856783)中，我们对 armv7 的页表操作进行了比较详细的介绍，有兴趣的可以先参考这个文章，在这里再做一个简单的概念澄清：
 
 * MMU 一旦打开，CPU 所有的内存访问都要先经过 MMU，执行虚拟地址到物理地址的翻译，再执行物理地址的访问
 * 虚拟地址到物理地址的翻译基于页表，页表其实就是一张虚拟地址对应物理地址的映射表，页表需要软件上进行设定，按照硬件的要求保存(一个页表 block 需要保存在连续的物理地址上)，并将基地址设置到 CPU 内部寄存器中
@@ -218,6 +222,8 @@ dtb 所在的内存也需要建立页表，毕竟所有的内存信息都保存�
 
 逻辑讲完了，我们再来分析源码：
 
+
+
 #### 准备工作
 
 在建立页表之前，目前所处的相关寄存器环境为：r8 = phys_offset, r9 = cpuid, r10 = procinfo。
@@ -230,10 +236,10 @@ pgtbl	r4, r8
 	mov	r0, r4
 	mov	r3, #0
 	add	r6, r0, #PG_DIR_SIZE
-1:	str	r3, [r0], #4
-	str	r3, [r0], #4
-	str	r3, [r0], #4
-	str	r3, [r0], #4
+1:	str	r3, [r0]， #4
+	str	r3, [r0]， #4
+	str	r3, [r0]， #4
+	str	r3, [r0]， #4
 	teq	r0, r6
 	bne	1b
 ```
@@ -241,6 +247,8 @@ pgtbl	r4, r8
 pgtbl 是一段宏定义代码，主要的实现为：获取页表的基地址，这个基地址的计算方式为：物理基地址 + TEXT_OFFSET(32K) - PG_DIR_SIZE(16K)，也就是物理基地址的 16K 处，假设物理地址为：0x10000000，那么这个物理页表基地址为 0x10004000，最后计算得到的物理页表基地址存放在 r4 中。
 
 接下来标号 1 处的代码就是将所有物理页表项填充为 0。
+
+
 
 #### identity map映射
 
@@ -275,9 +283,9 @@ __turn_mmu_on_loc:
 
 1. 同样的手法，通过 adr 指令和虚拟地址标号的配合获取 \_\_turn_mmu_on 虚拟地址以及运行地址的偏移值，从而计算出 \_\_turn_mmu_on 对应的物理地址 
 2.  这部分就是建立页表项的映射，值得注意的是，当前建立的是 section map，而不是我们熟知的 4K page map，主要的原因是：如果使用二级页表，就需要为二级页表项的 block 申请内存，这时候还没有任何的内存管理手段，因此直接使用 section map 是最方便的。 
-   汇编代码就不逐一分析，在我的 qemu 模拟机器上，物理页表的基地址为 0x10004000，该段映射最后的结果是：在 页表基地址+0x404 =  0x10004404 地址处存放了0x10100c0e，这个值的高 12 bits 确定了物理 section 的基地址， \_\_turn_mmu_on~\_\_turn_mmu_on_end 部分代码的映射,实际上是映射了 1M 的空间。
+   汇编代码就不逐一分析，在我的 qemu 模拟机器上，物理页表的基地址为 0x10004000，该段映射最后的结果是：在 页表基地址+0x404 =  0x10004404 地址处存放了0x10100c0e，这个值的高 12 bits 确定了物理 section 的基地址， \_\_turn_mmu_on~\_\_turn_mmu_on_end 部分代码的映射，实际上是映射了 1M 的空间。
    不妨验证一下该页表项是不是正确的，在访问虚拟地址 0x10100010 时(该指令在 \_\_turn_mmu_on 和 _\_turn_mmu_on_end 之间)，MMU 没开启时，自然访问的就是物理地址，而这段代码就位于该物理地址上，自然没问题。
-   当 MMU 已经开启时，该虚拟地址的高 12 bits 用于找到地址对应的页表项地址，高 12 bits 0x101 对应 0x404(4字节为间隔)，该地址上对应的也表项值为 0x10100c0e ，虚拟地址低 20 bits 直接用于寻址，物理地址 = 页表项值[31:20] + vaddr[19:0] = 0x10100010，经过该页表项转换后的虚拟地址和物理地址确实是相等的(这部分有点绕，建议多看两遍 arm 页表这篇博客 TODO)。 
+   当 MMU 已经开启时，该虚拟地址的高 12 bits 用于找到地址对应的页表项地址，高 12 bits 0x101 对应 0x404(4字节为间隔)，该地址上对应的也表项值为 0x10100c0e ，虚拟地址低 20 bits 直接用于寻址，物理地址 = 页表项值[31:20] + vaddr[19:0] = 0x10100010，经过该页表项转换后的虚拟地址和物理地址确实是相等的(这部分有点绕，建议多看两遍[arm页表硬件的实现](https://zhuanlan.zhihu.com/p/363856783)这篇博客)。 
 
 identity 映射只是临时的映射，在开启 MMU 之后，这部分映射就没有存在的意义了，在后续的内存管理时会被清除，实际上内核只会为内核空间建立映射。 
 
@@ -290,7 +298,7 @@ __create_page_tables:
 	ldr	r6, =(_end - 1)                                      .............2
 	orr	r3, r8, r7
 	add	r6, r4, r6, lsr #(SECTION_SHIFT - PMD_ORDER)
-1:	str	r3, [r0], #1 << PMD_ORDER                            .............3
+1:	str	r3, [r0]， #1 << PMD_ORDER                            .............3
 	add	r3, r3, #1 << SECTION_SHIFT
 	cmp	r0, r6
 	bls	1b
@@ -338,3 +346,16 @@ ENDPROC(__turn_mmu_on)
    注意，在开启 MMU 之后，PC 指针还是以每条指令 +4 的规律运行着，开启 MMU 之后，pc 中依旧保存的是指令的物理地址，只是将会被当成虚拟地址翻译，因此需要对这部分代码建立 identity map。
 2. r13 中原本保存的是 __mmap_switched 符号的虚拟地址，指令将会返回到该符号地址处执行，内核代码正式进入到虚拟世界。 
 
+
+
+### 参考
+
+http://www.wowotech.net/memory_management/__create_page_tables_code_analysis.html
+
+4.9.88 内核源码
+
+---
+
+[专栏首页(博客索引)](https://zhuanlan.zhihu.com/p/362640343)
+
+原创博客，转载请注明出处。

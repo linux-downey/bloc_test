@@ -1,6 +1,6 @@
-# buddy子系统-分配与释放
+# linux内存子系统 - buddy 子系统3 - 分配与释放
 
-前面的章节中分析了 buddy 子系统是如何从 memblock 内存分配器过渡而来，同时分析了 buddy 子系统的相关数据结构与基本原理，在这一章中，继续分析 buddy 子系统靠近最靠近用户的一部分：页面的分配与释放。 
+前面的章节 [memblock 到 buddy](https://zhuanlan.zhihu.com/p/363925295) 分析了 buddy 子系统是如何从 memblock 内存分配器过渡而来，同时 [buddy实现原理及数据结构](https://zhuanlan.zhihu.com/p/363922807) 中分析了 buddy 子系统的相关数据结构与基本原理，在这一章中，继续分析 buddy 子系统靠近最靠近用户的一部分：页面的分配与释放。 
 
 尽管前面的文章让我们大概地了解了 buddy 子系统中物理页面的分配与释放是如何工作的，但是实际的实现要更复杂，除了常规情况下的内存申请与分配之外，需要更多地考虑另一个问题：执行内存分配时内存不够怎么办，这涉及到 buddy 跨 zone 甚至跨 node 的分配，以及 zone 中的 watermark 是如何控制页面的分配行为的。
 
@@ -34,7 +34,7 @@ struct zoneref {
 };
 ```
 
-每个 zonelist 中包含多个 zoneref，一个 zoneref 用于描述一个 zone，比如 ZONE_NORMAL、ZONE_HIGHMEM，因此，一个 zonelist 中包含了整个内存节点中的所有 zone。**同时需要注意的是，_zonerefs 数组中所保存的 zone 是反序的，比如 _zonerefs[0] 描述的是 ZONE_HIGHMEM、 _zonerefs[1] 描述的是 ZONE_NORMAL，这种顺序在跨 zone 分配时更方便遍历，这部分将在下文中详谈。**
+每个 zonelist 中包含多个 zoneref，一个 zoneref 用于描述一个 zone，比如 ZONE_NORMAL、ZONE_HIGHMEM，因此，一个 zonelist 中包含了整个内存节点中的所有 zone。**同时需要注意的是，\_zonerefs 数组中所保存的 zone 是反序的，比如 \_zonerefs[0] 描述的是 ZONE_HIGHMEM、 \_zonerefs[1] 描述的是 ZONE_NORMAL，这种顺序在跨 zone 分配时更方便遍历，这部分将在下文中详谈。**
 
 在非 NUMA 架构中，内存节点只有一个，因此 zonelist 中仅有一个成员。
 
@@ -70,43 +70,43 @@ __alloc_pages_nodemask(gfp_t gfp_mask, unsigned int order,
 }
 ```
 
-1. 构建一个内存分配的上下文结构，其实就是把内存分配需要的那些信息打个包，方便传来传去。high_zoneidx 成员表示本次页面分配需要扫描的最上层的 zoneidx，默认是从 ZONE_NORMAL，当指定 ZONE_HIGHMEM 时，也就返回该 zone 对应的 index，用来确定即将扫描的 zone 区域的界限。
+1 ： 构建一个内存分配的上下文结构，其实就是把内存分配需要的那些信息打个包，方便传来传去。high_zoneidx 成员表示本次页面分配需要扫描的最上层的 zoneidx，默认是从 ZONE_NORMAL，当指定 ZONE_HIGHMEM 时，也就返回该 zone 对应的 index，用来确定即将扫描的 zone 区域的界限。
 
-   nodemask 成员值为 0，只在 NUMA 架构中用到。
-   migratetype 表示页面的类型，包括 MOVABLE/UNMOVABLE/RECLAIMABLE 等，不同的迁移类型对应 free_area 中不同的数组项，同时不同的迁移类型还会导致不同的分配行为。 
+nodemask 成员值为 0，只在 NUMA 架构中用到。
+migratetype 表示页面的类型，包括 MOVABLE/UNMOVABLE/RECLAIMABLE 等，不同的迁移类型对应 free_area 中不同的数组项，同时不同的迁移类型还会导致不同的分配行为。 
 
-2. 如果用户指定的迁移类型中带有 MIGRATE_MOVABLE 标志，就可以使用系统中的 CMA 区域来分配内存，毕竟 CMA 区域必须只能被分配为移动页面使用。
-   如果 gfp_mask 中包含 \_\_GFP_WRITE，说明该页面会被修改，buddy 对 zone 中的脏页面有所限制，因此需要统计页面的读写需求。
-   实际上类似于 \_\_GFP_WRITE 这类标志位并不需要申请者直接指定，而是由内核提供一系列的标志位组合，比如常用的 GFP_KERNEL 就是 (\_\_GFP_RECLAIM | \_\_GFP_IO | \_\_GFP_FS) 这几者的组合 ，通常带双下划线的都不是被用户直接使用的申请标志。
+2 ： 如果用户指定的迁移类型中带有 MIGRATE_MOVABLE 标志，就可以使用系统中的 CMA 区域来分配内存，毕竟 CMA 区域必须只能被分配为移动页面使用。
+如果 gfp_mask 中包含 \_\_GFP_WRITE，说明该页面会被修改，buddy 对 zone 中的脏页面有所限制，因此需要统计页面的读写需求。
+实际上类似于 \_\_GFP_WRITE 这类标志位并不需要申请者直接指定，而是由内核提供一系列的标志位组合，比如常用的 GFP_KERNEL 就是 (\_\_GFP_RECLAIM | \_\_GFP_IO | \_\_GFP_FS) 这几者的组合 ，通常带双下划线的都不是被用户直接使用的申请标志。
 
-3. preferred_zoneref 表示第一个将要被遍历的 zone，通过执行 first_zones_zonelist 函数返回该 zoneref 对象，zone 的选取主要是根据传入 ac.high_zoneidx 对象，从 zonelist->_zonerefs 数组中，找到可用的最接近或等于 ac.high_zoneidx 的那个 zone，对应的源码为：
+3 ： preferred_zoneref 表示第一个将要被遍历的 zone，通过执行 first_zones_zonelist 函数返回该 zoneref 对象，zone 的选取主要是根据传入 ac.high_zoneidx 对象，从 zonelist->_zonerefs 数组中，找到可用的最接近或等于 ac.high_zoneidx 的那个 zone，对应的源码为：
 
-   ```c++
-   static inline struct zoneref *first_zones_zonelist(struct zonelist *zonelist,
-   					enum zone_type highest_zoneidx,
-   					nodemask_t *nodes)
-   {
-   	return next_zones_zonelist(zonelist->_zonerefs,
-   							highest_zoneidx, nodes);
-   }
-   static __always_inline struct zoneref *next_zones_zonelist(struct zoneref *z,
-   					enum zone_type highest_zoneidx,
-   					nodemask_t *nodes)
-   {
-   	if (likely(!nodes && zonelist_zone_idx(z) <= highest_zoneidx))
-   		return z;
-   	return __next_zones_zonelist(z, highest_zoneidx, nodes);
-   }
-   ```
+```c++
+static inline struct zoneref *first_zones_zonelist(struct zonelist *zonelist,
+					enum zone_type highest_zoneidx,
+					nodemask_t *nodes)
+{
+	return next_zones_zonelist(zonelist->_zonerefs,
+							highest_zoneidx, nodes);
+}
+static __always_inline struct zoneref *next_zones_zonelist(struct zoneref *z,
+					enum zone_type highest_zoneidx,
+					nodemask_t *nodes)
+{
+	if (likely(!nodes && zonelist_zone_idx(z) <= highest_zoneidx))
+		return z;
+	return __next_zones_zonelist(z, highest_zoneidx, nodes);
+}
+```
 
-   在看这部分代码时，百思不得其解，为何是在 zonelist->\_zonerefs 数组中从下(0)往上早，找到小于等于 highest_zoneidx 就返回，后面将 zonelist->\_zonerefs 打印出来才发现，数组中 zone 的排列是反序的，也就是 ZONE_HIGHMEM 为下标 0，依次再是 ZONE_NORMAL 等。
+在看这部分代码时，百思不得其解，为何是在 zonelist->\_zonerefs 数组中从下(0)往上早，找到小于等于 highest_zoneidx 就返回，后面将 zonelist->\_zonerefs 打印出来才发现，数组中 zone 的排列是反序的，也就是 ZONE_HIGHMEM 为下标 0，依次再是 ZONE_NORMAL 等。
 
-   因此，在物理页分配时，第一个扫描的是最高 level 的 zone，再依次往下，而不能反向往更高 level 延伸。
+因此，在物理页分配时，第一个扫描的是最高 level 的 zone，再依次往下，而不能反向往更高 level 延伸。
 
-   这也很好理解，假设 ZONE_HIGHMEM 部分的物理内存不够，可以从 ZONE_NORMAL 申请，ZONE_NORMAL 区的物理内存完全可以满足分配要求，反之则不成立，如果用户指定在 ZONE_NORMAL 申请物理页面，用户通常期望其物理地址是连续的、同时处于线性映射区，但是 ZONE_HIGHMEM 区的物理内存并不满足该要求，因此只能向更低 level 的 ZONE_DMA 延伸(假设存在 ZONE_DMA zone)。 
+这也很好理解，假设 ZONE_HIGHMEM 部分的物理内存不够，可以从 ZONE_NORMAL 申请，ZONE_NORMAL 区的物理内存完全可以满足分配要求，反之则不成立，如果用户指定在 ZONE_NORMAL 申请物理页面，用户通常期望其物理地址是连续的、同时处于线性映射区，但是 ZONE_HIGHMEM 区的物理内存并不满足该要求，因此只能向更低 level 的 ZONE_DMA 延伸(假设存在 ZONE_DMA zone)。 
 
-4. 物理页面申请的主要实现函数为 get_page_from_freelist，传入 4 个参数：alloc_mask、order、alloc_flags 和 ac，ac 就是当前函数中构建的内存分配上下文结构。该函数返回申请到的 page 页面，但是该函数并不保证内存分配的成功。
-   get_page_from_freelist 分配内存失败基本上也就意味着整个节点上的内存已经吃紧，或者是分配要求的物理内存太大确实无法满足要求，毕竟在 get_page_from_freelist 中也会尝试执行内存的交换和回收来满足分配需求，即使这样还是分配失败的情况下，会进入到分配内存的 slowpath，在 slowpath 中，会执行一系列的内存操作来整理内存碎片和回收页面，包括 memory compaction、物理页面的 direct reclaim、内存交换等，这一部分比在本章节中暂不讨论。
+4 ： 物理页面申请的主要实现函数为 get_page_from_freelist，传入 4 个参数：alloc_mask、order、alloc_flags 和 ac，ac 就是当前函数中构建的内存分配上下文结构。该函数返回申请到的 page 页面，但是该函数并不保证内存分配的成功。
+get_page_from_freelist 分配内存失败基本上也就意味着整个节点上的内存已经吃紧，或者是分配要求的物理内存太大确实无法满足要求，毕竟在 get_page_from_freelist 中也会尝试执行内存的交换和回收来满足分配需求，即使这样还是分配失败的情况下，会进入到分配内存的 slowpath，在 slowpath 中，会执行一系列的内存操作来整理内存碎片和回收页面，包括 memory compaction、物理页面的 direct reclaim、内存交换等，这一部分比在本章节中暂不讨论。
 
 
 
@@ -204,15 +204,15 @@ try_this_zone:
 }
 ```
 
-5. 执行物理页面分配时，将会按照 zoneref 数组和 zonelist 中的顺序对各个 zone 进行扫描，在一个 node 内，根据当次分配的 gfp mask 确定需要从哪个 zone 分配，然后以从高到低的顺序扫描各个zone，扫描完一个 node 之后，再处理 zonelist 中指定的备用 node。
-   比如顺序为 ZONE_HIGHMEM->ZONE_NORMAL->ZONE_DMA。
+5 ： 执行物理页面分配时，将会按照 zoneref 数组和 zonelist 中的顺序对各个 zone 进行扫描，在一个 node 内，根据当次分配的 gfp mask 确定需要从哪个 zone 分配，然后以从高到低的顺序扫描各个zone，扫描完一个 node 之后，再处理 zonelist 中指定的备用 node。
+比如顺序为 ZONE_HIGHMEM->ZONE_NORMAL->ZONE_DMA。
 
-6. 当申请页面的 gfp_mask 中包含 \_\_GFP_WRITE 时，表示申请的物理页面将会生成脏页，单个 node 中会对 dirty page 数量存在限制，超出限制时，buddy 就不会在当前 zone 中分配 \_\_GFP_WRITE 类型的物理页面了，转而向扫描下一个 zone 区域。
-   node_dirty_ok 用于判断 node 中脏页面是否超出限制，被标记为 NR_FILE_DIRTY、NR_UNSTABLE_NFS、NR_WRITEBACK 这几种类型的页面将会被视为 dirty page。
+6 ： 当申请页面的 gfp_mask 中包含 \_\_GFP_WRITE 时，表示申请的物理页面将会生成脏页，单个 node 中会对 dirty page 数量存在限制，超出限制时，buddy 就不会在当前 zone 中分配 \_\_GFP_WRITE 类型的物理页面了，转而向扫描下一个 zone 区域。
+node_dirty_ok 用于判断 node 中脏页面是否超出限制，被标记为 NR_FILE_DIRTY、NR_UNSTABLE_NFS、NR_WRITEBACK 这几种类型的页面将会被视为 dirty page。
 
-7. 执行内存水位的相关处理，在分配之前，先会获取本次内存分配水位线限制，该水位线由 alloc_flags 的最后两位决定，0~2 分别对应 MIN、LOW、HIGH，如果用户没有指定，会默认指定为 LOW。
-   zone_watermark_fast 用于判断内存水位值是否满足本次申请需求，另一个用于判断内存水位线的函数为 zone_watermark_ok，实际上 zone_watermark_fast 最终也是调用 zone_watermark_ok，从 fast 可以看出，这是内核在尝试走捷径，其实是针对单个页面分配的优化，因为内核中申请单个页面的情形非常普遍(slub/slab通常只申请单个页面)，单个页面时就可以快速判断页面余量并且返回，而多个页面的情况下需要通过相对复杂的计算才能确定。 
-   zone_watermark_ok 的实现实际上在上文中对 watermark 的介绍中讲得七七八八了，也是水位线控制的核心实现，这里做一个简要的分析：
+7 ： 执行内存水位的相关处理，在分配之前，先会获取本次内存分配水位线限制，该水位线由 alloc_flags 的最后两位决定，0~2 分别对应 MIN、LOW、HIGH，如果用户没有指定，会默认指定为 LOW。
+zone_watermark_fast 用于判断内存水位值是否满足本次申请需求，另一个用于判断内存水位线的函数为 zone_watermark_ok，实际上 zone_watermark_fast 最终也是调用 zone_watermark_ok，从 fast 可以看出，这是内核在尝试走捷径，其实是针对单个页面分配的优化，因为内核中申请单个页面的情形非常普遍(slub/slab通常只申请单个页面)，单个页面时就可以快速判断页面余量并且返回，而多个页面的情况下需要通过相对复杂的计算才能确定。 
+zone_watermark_ok 的实现实际上在上文中对 watermark 的介绍中讲得七七八八了，也是水位线控制的核心实现，这里做一个简要的分析：
 
 ```c++
 bool __zone_watermark_ok(struct zone *z, unsigned int order, unsigned long mark,
@@ -302,8 +302,8 @@ c.  即使 freepage 数量满足了要求，也并不一定意味着水位线的
 
 
 
-8. 在水位线检查没问题的情况下，就可以进入到真正的内存分配阶段了。对应的函数为 buffered_rmqueue，返回分配到的一个或多个页面对应的 struct page 结构，如果是多个页面，struct page 对应第一个页面。
-   正常的页面分配在前面的章节中有对应的描述，这里也就不贴代码了，直接一步步地进行分析吧：
+8 ： 在水位线检查没问题的情况下，就可以进入到真正的内存分配阶段了。对应的函数为 buffered_rmqueue，返回分配到的一个或多个页面对应的 struct page 结构，如果是多个页面，struct page 对应第一个页面。
+正常的页面分配在前面的章节中有对应的描述，这里也就不贴代码了，直接一步步地进行分析吧：
 
 * 如果需要分配的页面为单页，直接从 percpu 的 pcp page 链表中分配，鉴于内核中单页分配是非常频繁的，因此 buddy 子系统为每个 CPU 缓存了一部分单页，以提高分配效率。
   如果 pcp page 缓存已经被分配完，就从 free_area 中获取页面继续填充到 pcp page 缓存中以完成单页的分配，对应的接口为 rmqueue_bulk，同时单页的缓存被分为 hot page 和 cold page，hot page 是使用完不久被返回到 pcp page 缓存中的，缓存被重复利用的可能性很大，而 cold page 相关，hot 和 cold page 的处理方式为，hot page 被链接在链表的头部，而 cold page 被链接在链表尾部，当然，这个 hot 和 cold 是相对的，也就是释放时间越短的页默认在链表的越前面。返回给申请者的单页也是默认从 hot 到 cold，申请者可以指定 cold flag 来指定申请 cold page。
@@ -420,12 +420,19 @@ page_idx ^ (1 << order) = 0x12 ^ (1<<2) = 0x12 ^ 0x4 = 0x16
 
 
 
+### 参考
 
+4.9.88 源码
 
-参考：
+https://zhuanlan.zhihu.com/p/73539328
 
-watermark：https://zhuanlan.zhihu.com/p/73539328
+https://my.oschina.net/u/4410101/blog/4881290
 
-GFP_ATOMIC  ：https://my.oschina.net/u/4410101/blog/4881290
+https://zhuanlan.zhihu.com/p/81961211
 
-lowmem_reserved：https://zhuanlan.zhihu.com/p/81961211
+---
+
+[专栏首页(博客索引)](https://zhuanlan.zhihu.com/p/362640343)
+
+原创博客，转载请注明出处。
+

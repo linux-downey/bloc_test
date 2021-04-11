@@ -1,6 +1,6 @@
-# 内核内存初始化 - 从 memblock 到 buddy
+# linux内存子系统 - buddy 子系统2 - memblock 到 buddy
 
-在上一章中介绍到，paging_init -> bootmem_init 函数中已经构建好了 buddy 子系统的基本框架，但是实际的页面管理工作还是由 memblock 在管理，接下来的工作就是将 memblock 管理的物理页面移交给 buddy 子系统。 
+在 [buddy 框架的建立](https://zhuanlan.zhihu.com/p/363923438) 中介绍到，paging_init -> bootmem_init 函数中已经构建好了 buddy 子系统的基本框架，但是实际的页面管理工作还是由 memblock 在管理，接下来的工作就是将 memblock 管理的物理页面移交给 buddy 子系统。 
 
 
 
@@ -47,7 +47,7 @@ memblock 对于移交物理内存的策略是：对于已经分配出去的被�
 
 内核初始化到当前，物理内存的相关信息为：
 
-![image-20210327163644425](物理内存占用布局.png)
+![image-20210327163644425](https://gitee.com/linux-downey/bloc_test/raw/master/zhihu_picture/linux-memory-subsystem/%E7%89%A9%E7%90%86%E5%86%85%E5%AD%98%E5%8D%A0%E7%94%A8%E5%B8%83%E5%B1%80.png)
 
 为了让图片看起来更舒服，这里并没有按照真实的比例来画这个图，理论上上面所有分配出去的内存占比应该非常小，比如内核页表只占 16K，而内核镜像只占用不到 20M，总的内存通常是以 G 为单位。
 
@@ -65,11 +65,11 @@ memblock 对于移交物理内存的策略是：对于已经分配出去的被�
 
 再次复习一下 buddy 子系统对内存管理的相关概念：buddy 子系统针对内存的管理以 zone 为单位，对应 zone 区域将所有管理的物理页面大部分存放在 free_area 成员中，free_area 的结构为：
 
-![image-20210327164751786](free_area详细结构.png)
+![image-20210327164751786](https://gitee.com/linux-downey/bloc_test/raw/master/zhihu_picture/linux-memory-subsystem/free_area%E8%AF%A6%E7%BB%86%E7%BB%93%E6%9E%84.png)
 
 出于分配效率的考虑，内核还会为每个 zone 维护一个 percpu 类型的单页链表，对应的成员结构为 zone->pageset，其存储结构为：
 
-![image-20210327173342097](pcplist结构.png)
+![image-20210327173342097](https://gitee.com/linux-downey/bloc_test/raw/master/zhihu_picture/linux-memory-subsystem/pcplist%E7%BB%93%E6%9E%84.png)
 
 pcp 页面和普通内存页面不一样的是，pcp 页面只包含 UNMOVABLE、MOVABLE、RECLAIMABLE 类型页面的缓存，不支持 CMA 等页面类型。
 
@@ -88,3 +88,15 @@ pcp 页面和普通内存页面不一样的是，pcp 页面只包含 UNMOVABLE�
 ### 高端内存区域的释放
 
 相比于线性映射区页面的释放，高端内存区域的释放有一些不同，主要是因为线性映射区中对应的 struct page 结构已经在此前初始化完成，而高端内存区并没有，因此对于高端内存区域的页面是逐一释放的，因为需要对每个页面设置相应的属性，比如 reserved 标志、refcount 等，逐页释放到 buddy 之后，buddy 子系统会再对这些页面进行"组装"，连续的内存页合起来存放到更高的 order 链表中。
+
+
+
+### 参考
+
+4.9.88 源码
+
+---
+
+[专栏首页(博客索引)](https://zhuanlan.zhihu.com/p/362640343)
+
+原创博客，转载请注明出处。

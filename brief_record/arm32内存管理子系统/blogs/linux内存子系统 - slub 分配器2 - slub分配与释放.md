@@ -1,6 +1,6 @@
-# 内核内存初始化 - slub 内存分配与释放
+# linux内存子系统 - slub 分配器2 - slub分配与释放
 
-在上一章节中，分析了 slub 的初始化以及使用 kmem_cache_create 函数创建缓存对象，这一章就来看看 slub 是如何执行内存分配的。  
+在上一章 [slub 初始化](https://zhuanlan.zhihu.com/p/363964763)中，分析了 slub 的初始化以及使用 kmem_cache_create 函数创建缓存对象，这一章就来看看 slub 是如何执行内存分配的。  
 
 ## kmalloc
 
@@ -31,68 +31,70 @@ static __always_inline void *kmalloc(size_t size, gfp_t flags)
 
 kmalloc 分配的具体策略是这样的：
 
-* 申请者传入的 flags 表示内存申请的标志位或者标志位的集合，这些标志位为：
+1： 申请者传入的 flags 表示内存申请的标志位或者标志位的集合，这些标志位为：
 
-  * GFP_USER：由 user 发起的内存申请，可以睡眠
-  * GFP_KERNEL：由内核发起的内存申请，可以睡眠，也是最常用的 flag 之一
-  * GFP_ATOMIC：不能睡眠的内存申请请求，比如在中断处理函数中执行，可能使用到 emergency pools
-  * GFP_HIGHUSER：从高端内存区申请内存
-  * GFP_NOIO：尝试获取内存时不执行 IO 操作
-  * GFP_NOFS：尝试获取内存时不发起 fs 调用
-  * GFP_NOWAIT：不等待，也就是不能 sleep，申请不到就立即返回，不会睡眠等待内存的回收再分配
-  * GFP_DMA：分配给 DMA 的内存空间，也就意味着返回的空间物理内存必须连续。
-  * __GFP_COLD：从 buddy 的冷页发起内存申请
-  * __GFP_HIGH：这里的 high 不是高端内存区，而是只内存分配动作的 high priority，更高的优先级促使内存分配可以使用 emergency pools
-  * __GFP_NOFAIL：非常顽强的一个 flag，表示不接受内存分配失败，一直等待当前的分配成功返回，这个标志位需要慎用，内核给出的原句是：think twice before using。
-  * __GFP_NORETRY：如果第一次尝试分配失败，直接放弃。
-  * __GFP_NOWARN：失败不发出 warning
-  * __GFP_REPEAT：分配失败时进行多次尝试。
+* GFP_USER：由 user 发起的内存申请，可以睡眠
+* GFP_KERNEL：由内核发起的内存申请，可以睡眠，也是最常用的 flag 之一
+* GFP_ATOMIC：不能睡眠的内存申请请求，比如在中断处理函数中执行，可能使用到 emergency pools
+* GFP_HIGHUSER：从高端内存区申请内存
+* GFP_NOIO：尝试获取内存时不执行 IO 操作
+* GFP_NOFS：尝试获取内存时不发起 fs 调用
+* GFP_NOWAIT：不等待，也就是不能 sleep，申请不到就立即返回，不会睡眠等待内存的回收再分配
+* GFP_DMA：分配给 DMA 的内存空间，也就意味着返回的空间物理内存必须连续。
+* __GFP_COLD：从 buddy 的冷页发起内存申请
+* __GFP_HIGH：这里的 high 不是高端内存区，而是只内存分配动作的 high priority，更高的优先级促使内存分配可以使用 emergency pools
+* __GFP_NOFAIL：非常顽强的一个 flag，表示不接受内存分配失败，一直等待当前的分配成功返回，这个标志位需要慎用，内核给出的原句是：think twice before using。
+* __GFP_NORETRY：如果第一次尝试分配失败，直接放弃。
+* __GFP_NOWARN：失败不发出 warning
+* __GFP_REPEAT：分配失败时进行多次尝试。
 
-  总的来说，kmalloc 执行内存分配时，上述的所有 flag 并不保证分配成功，__GFP_NOFAIL 会一直等待直到成功，当然也不一定能分配成功，也可能是一直等，实际上上述并不是所有的标志位，只是其它的标志位在一般情况下并不会使用到，所有标志位的定义在 linux/gfp.h 中。
+总的来说，kmalloc 执行内存分配时，上述的所有 flag 并不保证分配成功，__GFP_NOFAIL 会一直等待直到成功，当然也不一定能分配成功，也可能是一直等，实际上上述并不是所有的标志位，只是其它的标志位在一般情况下并不会使用到，所有标志位的定义在 linux/gfp.h 中。
 
-* 使用 \_\_builtin_constant_p(size) 判断 size 是不是编译时常量，\_\_builtin_constant_p() 是 gcc 的內建函数，宏、常量、常量表达式以及 sizeof 关键字所计算得出的结果都是编译时常量，从上面的源码可以看出，用户传入运行时常量和非常量将会执行不同的分支。
-  实际上，在分析两个分支的代码之后，并没有发现两个分支在逻辑上有什么不同，为了弄清楚这里为什么需要区分常量和非常量，查看了相关的 git commit 和内核 document 都没有结果，最终还是在 stack overflow 上找到[答案](https://stackoverflow.com/questions/48946903/large-size-kmalloc-in-the-linux-kernel-kmalloc#:~:text=Operator%20__builtin_constant_p%20is%20gcc-specific%20extension%2C%20which%20checks%20whether,kmalloc%20%28100%2C%20GFP_KERNEL%29%3B%20then%20the%20operator%20returns%20true.)，实际上这和逻辑没有关系，而是一种优化策略。
-  如果用户调用 kmalloc 时传入的是常量，内核在编译时编译器可以直接对代码做分支优化，如果传入的 size 大于 KMALLOC_MAX_CACHE_SIZE，kmalloc 就会被优化为：
 
-  ```c++
-  static __always_inline void *kmalloc(size_t size, gfp_t flags)
-  {
-  	return kmalloc_large(size, flags);
-  }
-  ```
 
-  如果小于 KMALLOC_MAX_CACHE_SIZE，将被优化为：
+2 ： 使用 \_\_builtin_constant_p(size) 判断 size 是不是编译时常量，\_\_builtin_constant_p() 是 gcc 的內建函数，宏、常量、常量表达式以及 sizeof 关键字所计算得出的结果都是编译时常量，从上面的源码可以看出，用户传入运行时常量和非常量将会执行不同的分支。
+实际上，在分析两个分支的代码之后，并没有发现两个分支在逻辑上有什么不同，为了弄清楚这里为什么需要区分常量和非常量，查看了相关的 git commit 和内核 document 都没有结果，最终还是在 stack overflow 上找到[答案](https://stackoverflow.com/questions/48946903/large-size-kmalloc-in-the-linux-kernel-kmalloc#:~:text=Operator%20__builtin_constant_p%20is%20gcc-specific%20extension%2C%20which%20checks%20whether,kmalloc%20%28100%2C%20GFP_KERNEL%29%3B%20then%20the%20operator%20returns%20true.)，实际上这和逻辑没有关系，而是一种优化策略。
+如果用户调用 kmalloc 时传入的是常量，内核在编译时编译器可以直接对代码做分支优化，如果传入的 size 大于 KMALLOC_MAX_CACHE_SIZE，kmalloc 就会被优化为：
 
-  ```c++
-  static __always_inline void *kmalloc(size_t size, gfp_t flags)
-  {
-      if (!(flags & GFP_DMA)) {
-  			int index = kmalloc_index(size);
-  
-  			return kmem_cache_alloc_trace(kmalloc_caches[index],
-  					flags, size);
-  		}
-  }
-  ```
+```c++
+static __always_inline void *kmalloc(size_t size, gfp_t flags)
+{
+	return kmalloc_large(size, flags);
+}
+```
 
-  但是如果 kmalloc 调用这传入的是变量，就只能老老实实地编译成这样：
+如果小于 KMALLOC_MAX_CACHE_SIZE，将被优化为：
 
-  ```c++
-  static __always_inline void *kmalloc(size_t size, gfp_t flags)
-  {
-  	return __kmalloc(size, flags);
-  }
-  ```
+```c++
+static __always_inline void *kmalloc(size_t size, gfp_t flags)
+{
+    if (!(flags & GFP_DMA)) {
+			int index = kmalloc_index(size);
 
-  __kmalloc 的执行属于慢路径。
+			return kmem_cache_alloc_trace(kmalloc_caches[index],
+					flags, size);
+		}
+}
+```
 
-  同时需要注意的是，kmalloc 函数被声明成 \_\_always_inline 是完全有必要的，如果 kmalloc 是一个普通函数，那么传入的 size 始终是一个变量，也就没有分支优化这一说了。 
+但是如果 kmalloc 调用这传入的是变量，就只能老老实实地编译成这样：
 
-  这种优化可以减少代码分支，降低分支预测的风险，毕竟 kmalloc 在内核中的使用非常频繁，这种优化是完全有必要的。
+```c++
+static __always_inline void *kmalloc(size_t size, gfp_t flags)
+{
+	return __kmalloc(size, flags);
+}
+```
 
-* kmalloc 的第二步是判断 size 是否大于 KMALLOC_MAX_CACHE_SIZE，对于两个不同分支都是一样，这个宏限定了 kmalloc 使用 slub 还是 buddy 子系统的分界点，在大部分平台上，这个宏被设置为两个 page 的大小，也就是当需要申请的 size 大于两个 page 时，调用 kmalloc_large 函数，其底层实现是 alloc_page，即使用 buddy 子系统直接分配页面，否则使用 slub 管理器执行内存分配。
+__kmalloc 的执行属于慢路径。
 
-* 当使用 slub 执行内存分配时，首先需要根据 size 向 8 字节对齐并 round up(不足8的部分算作8) 获取对应 size 的 kmem_cache 结构，这些结构都是在初始化阶段所创建的 kmalloc 缓存对象，在基于该缓存对象调用 kmem_cache_alloc 函数，其底层实现为 slab_alloc。
+同时需要注意的是，kmalloc 函数被声明成 \_\_always_inline 是完全有必要的，如果 kmalloc 是一个普通函数，那么传入的 size 始终是一个变量，也就没有分支优化这一说了。 
+
+这种优化可以减少代码分支，降低分支预测的风险，毕竟 kmalloc 在内核中的使用非常频繁，这种优化是完全有必要的。
+
+3 ： kmalloc 的第二步是判断 size 是否大于 KMALLOC_MAX_CACHE_SIZE，对于两个不同分支都是一样，这个宏限定了 kmalloc 使用 slub 还是 buddy 子系统的分界点，在大部分平台上，这个宏被设置为两个 page 的大小，也就是当需要申请的 size 大于两个 page 时，调用 kmalloc_large 函数，其底层实现是 alloc_page，即使用 buddy 子系统直接分配页面，否则使用 slub 管理器执行内存分配。
+
+4 ： 当使用 slub 执行内存分配时，首先需要根据 size 向 8 字节对齐并 round up(不足8的部分算作8) 获取对应 size 的 kmem_cache 结构，这些结构都是在初始化阶段所创建的 kmalloc 缓存对象，在基于该缓存对象调用 kmem_cache_alloc 函数，其底层实现为 slab_alloc。
 
 
 
@@ -146,9 +148,11 @@ slab_alloc_node 是 slub 内存分配的核心实现，涉及到比较多的实�
     创建了新的 slab 之后，拿出 freelist 指向的第一个 object 返回给申请者即可。
     需要注意的是，尽管这种情况下申请的页面会交由 percpu 的 slab_cpu 管理，但是并不是从 percpu 的内存区进行申请，而是从普通内存区申请。只是 slab_cpu 这个结构需要从 percpu 内存中申请，而不是 slab 对应的页面。 
 
+
+
 下面是 slub 申请操作流程图：
 
-![image-20210401014133879](slub申请流程.png)
+![image-20210401014133879](https://gitee.com/linux-downey/bloc_test/raw/master/zhihu_picture/linux-memory-subsystem/slub%E7%94%B3%E8%AF%B7%E6%B5%81%E7%A8%8B.png)
 
 
 
@@ -227,7 +231,9 @@ static __always_inline void do_slab_free(struct kmem_cache *s,
 
   下面是 slub 释放操作流程图
 
-  ![image-20210401013935629](slub释放流程.png)
+  ![image-20210401013935629](https://gitee.com/linux-downey/bloc_test/raw/master/zhihu_picture/linux-memory-subsystem/slub%E9%87%8A%E6%94%BE%E6%B5%81%E7%A8%8B.png)
+
+
 
 ### tid 成员的操作
 
@@ -250,3 +256,19 @@ percpu 的 slab_cpu->tid 是一个特定于 cpu 的变量，该代码片段执�
 因此，通过先获取 tid，然后在操作完成之后再次获取 tid 的方式来防止出现这个问题，如果出现了 tid 不一致，说明进程切换到了不同的 CPU，需要重新加载 tid 和 slab_cpu 的值。
 
 实际上，针对 percpu 的进程切换到不同 CPU 问题，另一种方案是关抢占，只要当前 CPU 的内核抢占被关闭，当前进程就不会被切出，但是关中断是一种比较粗暴的做法，这会影响到内核的实时性，内核并不推荐使用关抢占的做法。毕竟在操作 percpu 变量的期间，是允许进程切换的，只是不允许当前进程切换到另一个 CPU，尽管重新 load tid 和 slab_cpu 效率不高，但是这种情况非常少见，对性能的影响不大。
+
+
+
+
+
+### 参考
+
+4.9.88 源码
+
+[wowo科技：图解 slub](http://www.wowotech.net/memory_management/426.html)
+
+---
+
+[专栏首页(博客索引)](https://zhuanlan.zhihu.com/p/362640343)
+
+原创博客，转载请注明出处。

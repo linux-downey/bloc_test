@@ -1,8 +1,8 @@
-# buddy 子系统--数据结构与基本原理
+# linux内存子系统 - buddy 子系统0 - 数据结构与基本原理
 
 ## buddy 子系统基本原理
 
-内核中，buddy 子系统的代码把所有平台抽象为 numa 架构的系统，非 numa 架构的系统被视为一个 numa node 的节点，从顶层来看，物理页面的管理首先划分为不同的 node，在 node 中再划分为不同的 zone(参考TODO)，实际的内存管理行为是以 zone 为单位进行的。
+内核中，buddy 子系统的代码把所有平台抽象为 numa 架构的系统，非 numa 架构的系统被视为一个 numa node 的节点，从顶层来看，物理页面的管理首先划分为不同的 node，在 node 中再划分为不同的 zone，参考[buddy框架的建立](https://zhuanlan.zhihu.com/p/363923438)，实际的内存管理行为是以 zone 为单位进行的。
 
 在 buddy 中有一个很重要的概念为 阶，用以表示物理页面的数量，n 阶表示 2 的 n 次方个页面，阶对应的是代码中的 order 概念，宏定义 MAX_ORDER 定义了内核中支持最大的阶数，也定义了 free_area 数组成员的数量，默认情况下，被设置为 11，也就是设置 free_area 中所管理的最大内存块为 2^11 = 2048 个物理页面，同时也可以通过内核配置修改该值，对应的配置项为 CONFIG_FORCE_MAX_ZONEORDER。
 
@@ -10,7 +10,7 @@
 
 free_area 管理的页面链表如下：
 
-![image-20210324213704923](free_area的结构.png)
+![image-20210324213704923](https://gitee.com/linux-downey/bloc_test/raw/master/zhihu_picture/linux-memory-subsystem/free_area%E7%9A%84%E7%BB%93%E6%9E%84.png)
 
 如图所示，zone->free_area[2] 中保存的是 2^2 = 4 个页面大小的内存块，每个物理内存块的第一个页面作为链接节点被链接在 zone->free_area[2] 链表头所维护的链表上。
 
@@ -26,7 +26,7 @@ buddy 子系统管理物理内存的最小单位为页，当用户调用页面�
 
 为什么说是缓解而不是解决呢？可以参考下图：
 
-![image-20210323214905283](内存碎片示例.png)
+![image-20210323214905283](https://gitee.com/linux-downey/bloc_test/raw/master/zhihu_picture/linux-memory-subsystem/%E5%86%85%E5%AD%98%E7%A2%8E%E7%89%87%E7%A4%BA%E4%BE%8B.png)
 
 图中阴影部分是已分配的内存，在一个 60 个页面的区域内，分配出去 34 个页面，剩下 16 个页面，理想状态下是右图中的情况，但实际情况通常是左图，尽管还有 16 个页面的空闲，但是在这个区域内尝试分配两个连续的内存页都将失败，这种情况就需要使用另外的内存碎片防治技术了，比如内存回收、内存迁移，以达到或者接近右边的理想状态，至于其它的内存碎片防治技术，这里就不过多赘述了。
 
@@ -69,7 +69,7 @@ typedef struct pglist_data {
 
 因为本系列文章主要针对 buddy 子系统内存初始化以及分配回收的实现，不涉及内存碎片、内存交换、内存压缩的处理，同时考虑到当前系统的硬件特性(比如不支持地址扩展、numa 架构)，因此省去了一些不重要以及不相关的数据成员,只关注一些核心成员。 
 
-* node_zones：buddy 子系统中内存管理是以 zone 为单位的，也就是内存的分配在具体的 zone 内进行，关于 zone 的概念可以参考TODO，对于不同的 zone 有不同的特性，其内存管理的特性也有一些区别，每个 zone 对应一个数组成员，内核中支持多少个 zone 取决于硬件，硬件特性决定了软件配置，imx6ull 中 MAX_NR_ZONES 为 3，表示支持 3 个 zone，分别为 ZONE_NORMAL、ZONE_HIGHMEM 和 ZONE_MOVABLE。
+* node_zones：buddy 子系统中内存管理是以 zone 为单位的，也就是内存的分配在具体的 zone 内进行，关于 zone 的概念可以参考[buddy框架的建立](https://zhuanlan.zhihu.com/p/363923438)，对于不同的 zone 有不同的特性，其内存管理的特性也有一些区别，每个 zone 对应一个数组成员，内核中支持多少个 zone 取决于硬件，硬件特性决定了软件配置，imx6ull 中 MAX_NR_ZONES 为 3，表示支持 3 个 zone，分别为 ZONE_NORMAL、ZONE_HIGHMEM 和 ZONE_MOVABLE。
   实际上，struct zone 结构才是 buddy 系统内存管理的体现，下文中将详细介绍。
   
 * node_zonelists：当当前的 zone 无法满足内存分配的需求时，zonelists 用于指定备用 node zone 列表，这里的 node 表示 numa node，在非 numa 架构中，zonelist 只包含本地内存对应的 zonelist，一个 zonelist 中包含本地内存中所有的 zone。
@@ -186,7 +186,7 @@ enum {
 
 也就是对于 zone 中所有的 2 阶页面块(包含4个页面)，由 free_area[2] 进行管理，这多个的2阶页面块将会根据页面的迁移属性分为多个链表进行管理，因此更详细的 free_area 的管理结构为：
 
-![image-20210324215731256](free_area详细结构.png)
+![image-20210324215731256](https://gitee.com/linux-downey/bloc_test/raw/master/zhihu_picture/linux-memory-subsystem/free_area%E8%AF%A6%E7%BB%86%E7%BB%93%E6%9E%84.png)
 
 将物理内存进一步细化，根据不同的迁移属性进行划分，可以更有效地利用物理内存，比如 UNMOVABLE、MOVABLE、RECLAIMABLE 三类内存区域的划分，可以更好地处理内存回收的问题，高效地整合内存碎片。
 
@@ -196,8 +196,14 @@ CMA 机制就是针对该问题的优化解决方案，CMA 也是用户在初始
 
 
 
+### 参考
 
+https://zhuanlan.zhihu.com/p/73539328
 
-water mark 参考：https://zhuanlan.zhihu.com/p/73539328
+https://zhuanlan.zhihu.com/p/81961211
 
-lowmem_reserve 参考：https://zhuanlan.zhihu.com/p/81961211
+---
+
+[专栏首页(博客索引)](https://zhuanlan.zhihu.com/p/362640343)
+
+原创博客，转载请注明出处。

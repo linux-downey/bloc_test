@@ -1,4 +1,4 @@
-# memblock 内存分配器
+# linux内存子系统 - memblock 内存分配器
 
 在 linux 内核的启动早期，并没有直接使用 buddy 分配器对物理内存进行管理，而是使用了 memblock 分配器对物理内存进行管理。
 
@@ -10,9 +10,11 @@
 
 内核早期使用的是 bootmem 内存分配器，由于 bootmem 在使用中比如位图的管理等一些问题，较新版本的内核使用 memblock 作为内核早期的分配器。 
 
+
+
 ## 数据结构
 
-分析驱动的经验告诉我们，如果一个模块弄懂了其相关的数据结构，那么这个模块就已经弄懂了一般，数据结构中的成员也是代码逻辑的体现。 
+分析驱动的经验告诉我们，如果一个模块弄懂了其相关的数据结构，那么这个模块就已经弄懂了一半，数据结构中的成员也是代码逻辑的体现。 
 
 在 memblock 中，数据结构为：
 
@@ -177,3 +179,16 @@ while (type->cnt + nr_new > type->max)
 从 memblock 到 buddy 说起来也简单，就是将 memblock 管理的内存信息全部提交给 buddy 系统，协助 buddy 系统建立起对整个系统中物理内存的管理框架，memblock 也就功成身退了。
 
 当然，这里面会涉及到一些管理细节，将会在 buddy 系统的初始化中继续讨论。 
+
+
+
+### 参考
+
+https://biscuitos.github.io/blog/MMU-ARM32-MEMBLOCK-memblock_information/
+
+---
+
+[专栏首页(博客索引)](https://zhuanlan.zhihu.com/p/362640343)
+
+原创博客，转载请注明出处。
+
