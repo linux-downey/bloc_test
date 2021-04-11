@@ -163,7 +163,7 @@ node 申请之后，就调用 init_kmem_cache_node 进行初始化，初始化�
 
 ### alloc_kmem_cache_cpus
 
-alloc_kmem_cache_cpus 用于申请 slab_cpu，percpu 类型的内存分配需要使用 __alloc_percpu 接口，同时只会分配当前 CPU 所属的 slab_cpu ，当其它 CPU 第一次尝试从 slab_cpu 分配内存时，同样需要申请其 CPU 所属的 slab_cpu，才能执行分配，关于 percpu 内存的分配可以参考 TODO。
+alloc_kmem_cache_cpus 用于申请 slab_cpu，percpu 类型的内存分配需要使用 __alloc_percpu 接口，同时只会分配当前 CPU 所属的 slab_cpu ，当其它 CPU 第一次尝试从 slab_cpu 分配内存时，同样需要申请其 CPU 所属的 slab_cpu，才能执行分配，关于 percpu 内存的分配可以[percpu 实现原理](https://zhuanlan.zhihu.com/p/363970087)。
 
 slab_cpu 申请完成之后，再调用 init_kmem_cache_cpus 初始化该结构。
 

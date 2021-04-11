@@ -1,4 +1,4 @@
-# linux percpu 同步机制
+# linux同步机制 - percpu 的使用
 
 ## 同步机制
 共享数据的同步问题，伴随着整个计算机的发展史，硬件的飞速发展，带动着操作系统和各类软件复杂度日益增长，数据同步问题也变得越来越棘手。   
@@ -30,7 +30,7 @@
 
 
 ## percpu 的存储
-在 linux 内核的 Image 中，存在各种不同的 section，在内核代码中也时常可以看到 __attribute__ 关键字自定义 section ：
+在 linux 内核的 Image 中，存在各种不同的 section，在内核代码中也时常可以看到 \_\_attribute\_\_ 关键字自定义 section ：
 
 ```
 __attribute__(section(".section"),...)
@@ -39,12 +39,16 @@ __attribute__(section(".section"),...)
 
 \_\_attribute\_\_(section()) 的作用就是将所修饰的对象放在编译生成二进制文件的指定 section 中，最常见的 section 有 .data/.data/.bss，在程序链接的阶段将会确定每个 section 最终的加载地址。   
 
-对于普通的变量而言，变量的加载地址就是程序中使用的该变量的地址，可以使用取址符获取变量地址，但是对于 percpu 变量而言，该 percpu 的加载地址是不允许访问的。取而代之的，是在内核启动阶段，对于 n 核的 SMP 架构系统，内核将会为每一个 CPU 另行开辟一片内存，然后将该 percpu 变量复制 n 份分别放在每个 CPU 独有的内存区中，内存结构是这样的：TODO.  
+对于普通的变量而言，变量的加载地址就是程序中使用的该变量的地址，可以使用取址符获取变量地址，但是对于 percpu 变量而言，该 percpu 的加载地址是不允许访问的。取而代之的，是在内核启动阶段，对于 n 核的 SMP 架构系统，内核将会为每一个 CPU 另行开辟一片内存，然后将该 percpu 变量复制 n 份分别放在每个 CPU 独有的内存区中，内存结构是这样的：
+
+![](https://gitee.com/linux-downey/bloc_test/raw/master/zhihu_picture/lock_and_sync/percpu_memory_layout.jpg)
 
 
 每个 CPU 都有一份真实的数据在内存中，具体的访问方式就是通过原始的存在于加载地址的变量作为跳板。  
 
 也就是说，在为 percpu 分配内存的时候，原始的变量 var 与 percpu 变量内存偏移值 offset 被保存了下来，每个 CPU 对应的 percpu 变量地址为 (&var + offset)，当然真实情况要比这个复杂，将在后文中讲解。  
+
+
 
 ## percpu 变量的使用
 讲了那么多繁杂的概念，驱动工程师最关心的还是怎么使用它，秉承 linux 内核的一贯设计风格，percpu 变量的接口非常易用，总共包含两个部分：
@@ -53,6 +57,8 @@ __attribute__(section(".section"),...)
 * 如果是动态申请方式的初始化，需要释放。
 
 接下来我们就来看看 percpu 机制所提供的接口。  
+
+
 
 ### percpu 的定义
 percpu 变量的定义分为两类：静态定义和动态定义：
@@ -126,11 +132,19 @@ typedef struct cpumask { DECLARE_BITMAP(bits, NR_CPUS); } cpumask_t;
 
 其中 NR_CPUS 表示当前硬件中的 CPU 数量,在 64 位系统中，struct cpumask 通常是一个 unsigned long(u64) 类型的 map，每一位代表一个 CPU ，一个 u64 的 map 最多表示 64 个 CPU 的状态(如果核心数大于 64,就是一个 u64 类型的数组)，比如对于四核架构，就是低四位被置 1 ，其他位为0 。   
 
-对于 CPU 的掩码分为多种，分别有 __cpu_possible_mask、__cpu_online_mask、__cpu_present_mask、__cpu_active_mask，其掩码所描述的功能从字面就可以看出，值得一提的是，当 CPU 支持热插拔时，__cpu_possible_mask 的值为 ~0。如果你对 CPU 的掩码有兴趣，可以在 linux/cpumask.h 中查看所有的类型，也可以在驱动中将其打印出来与当前系统作对比。  
+对于 CPU 的掩码分为多种，分别有 \_\_cpu_possible_mask、\_\_cpu_online_mask、\_\_cpu_present_mask、\_\_cpu_active_mask，其掩码所描述的功能从字面就可以看出，值得一提的是，当 CPU 支持热插拔时，\_\_cpu_possible_mask 的值为 ~0。如果你对 CPU 的掩码有兴趣，可以在 linux/cpumask.h 中查看所有的类型，也可以参考 [cpu 初始化](https://zhuanlan.zhihu.com/p/363799713)。
 
 
 
 
 
-## 示例代码
+### 参考
+
+http://www.wowotech.net/kernel_synchronization/per-cpu.html
+
+---
+
+[专栏首页(博客索引)](https://zhuanlan.zhihu.com/p/362640343)
+
+原创博客，转载请注明出处。
 
