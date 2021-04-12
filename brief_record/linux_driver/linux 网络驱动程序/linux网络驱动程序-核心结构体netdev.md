@@ -50,7 +50,6 @@ list_add_tail(netdev->dev_list, &init_net.dev_base_head);
 * int irq：中断号，通常由设备树指定
 * atomic_t carrier_changes：载波开/关次数的统计信息，"载波侦听"是一种通用的说法，表示通过检测线路的电平来确定当前总线上是否有主机在发送数据，事实上对于不同的物理层通信方式，载波侦听的方式也是不同的。  
   
-
 * unsigned char	if_port：接口使用的端口类型，这里的端口类型指的是物理上的网络连接线端口，接口不同代表不同的接线方式和电气特性,比如双绞线、同轴电缆。该枚举类型的定义在 include/uapi/linux/netdevice.h。  
 * unsigned char	dma：该驱动所使用的 dma 通道，通常由设备树指定。
 * flag、gflag、priv_flags：flag 是一组掩码的集合，其中某些位代表网络设备的功能，某些位则代表状态的改变，可以在 include/linux/if.h 中找到 flag 所代表的所有状态集合，比如我们在用户空间使用 ifconfig 时，其中的 UP / LOOPBACK / RUNNING 等标志位就是由 flag 中的 IFF_UP、IFF_LOOPBACK、IFF_RUNNING 表示的。
@@ -117,7 +116,7 @@ list_add_tail(netdev->dev_list, &init_net.dev_base_head);
 VLAN 专用，也就是虚拟局域网。
 
 ### 通用
-* int __percpu *pcpu_refcnt：linux 中经典的引用计数管理机制，注意这个 __percpu 前缀，它表示在 SMP 系统中，每个 CPU 都拥有一个 refcnt，当引用计数为都为 0 时，该结构会被释放。    
+* int \_\_percpu *pcpu_refcnt：linux 中经典的引用计数管理机制，注意这个 __percpu 前缀，它表示在 SMP 系统中，每个 CPU 都拥有一个 refcnt，当引用计数为都为 0 时，该结构会被释放。    
 * int watchdog_timeo，
 * struct timer_list	watchdog_timer：看门狗，也是计数器，负责管理数据包的超时判断，在数据发送时可以设置 watchdog ，超时将会调用 netdev_ops->ndo_tx_timeout 回调函数。   
 

@@ -156,7 +156,7 @@ skb_fail:
 }
 
 ```
-从上面的源码可以看到，当申请大容量的 skb 时，会使用 __alloc_skb 接口，否则使用 __build_skb 接口，__build_skb 传入一个 data 指针和 len。  
+从上面的源码可以看到，当申请大容量的 skb 时，会使用 \_\_alloc_skb 接口，否则使用 \_\_build_skb 接口，\_\_build_skb 传入一个 data 指针和 len。  
 
 该 data 就是 skb 的数据部分所指代的内存，由 page_frag_alloc 接口申请，len 是对齐之后的数据长度,接下来我们继续看 __build_skb 的实现：
 
