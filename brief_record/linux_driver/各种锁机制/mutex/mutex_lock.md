@@ -708,6 +708,8 @@ https://zhuanlan.zhihu.com/p/90508284
 https://lwn.net/Articles/401911/
 https://lwn.net/Articles/699784/   
 
+[mcs 锁和 Q 自旋锁](https://zhuanlan.zhihu.com/p/23850340)
+
 4.14.98 源码
 
 ---
